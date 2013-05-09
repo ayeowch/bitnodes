@@ -1,5 +1,4 @@
 # Bitnodes
-[bitnodes.io](http://bitnodes.io)
 Bitnodes is a Python script written to estimate the size of the Bitcoin network by finding all the peering nodes in the network.
 
 ## Methodology
@@ -18,7 +17,7 @@ The default configuration in config.cfg should work for most users. To run Bitno
 Newly discovered nodes will be added into the SQLite database called bitnodes.db in the `nodes` table.
 
 ## License
-Copyright (c) 2013 Addy Yeow Chin Heng <ayeowch@gmail.com>
+Copyright (c) 2013 Addy Yeow Chin Heng &lt;ayeowch@gmail.com&gt;
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
