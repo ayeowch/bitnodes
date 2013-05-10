@@ -223,8 +223,8 @@ class Database:
         """
         Adds a new node with version information into nodes_version table.
         """
-        protocol_version = version['version']
-        user_agent = version['user_agent']
+        protocol_version = version.get('version', '')
+        user_agent = version.get('user_agent', '')
         try:
             self.cursor.execute("INSERT INTO nodes_version VALUES (?, ?, ?)",
                                 (node, protocol_version, user_agent,))
