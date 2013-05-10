@@ -32,6 +32,7 @@ __version__ = '0.1'
 import json
 import logging
 import os
+import random
 import re
 import socket
 import sqlite3
@@ -135,7 +136,9 @@ class Seed:
         nodes = []
         nodes.extend(self.dns_seed_nodes())
         nodes.extend(self.hub_nodes())
+        nodes.extend(self.static_seed_nodes())
         nodes = list(set(nodes))
+        random.shuffle(nodes)
         return dict(enumerate(nodes, start=1))
 
     def dns_seed_nodes(self):
@@ -168,6 +171,14 @@ class Seed:
         page = urlopen(url)
         nodes.extend(re.findall(r'/ip-address/(?P<ip_address>[\d.]+)', page))
 
+        return nodes
+
+    def static_seed_nodes(self):
+        """
+        Extends seed nodes with hardcoded nodes from static_seed_nodes.txt.
+        """
+        fname = "static_seed_nodes.txt"
+        nodes = [node.strip() for node in open(fname, "r").readlines()]
         return nodes
 
 
@@ -288,11 +299,13 @@ class Network:
             logging.debug("({}) no adjacent nodes".format(self.seed_id))
         self.database.cursor.close()
 
-    def get_nodes(self, node, port=DEFAULT_PORT):
+    def get_nodes(self, node, port=DEFAULT_PORT, depth=0):
         """
         Adds a new node into the database recursively until we exhaust all
         adjacent nodes.
         """
+        logging.debug("depth = {}".format(depth))
+
         if self.database.has_node(node):
             return
 
@@ -303,7 +316,8 @@ class Network:
             child_node_port = child_node.get('port', DEFAULT_PORT)
 
             if len(self.getaddr(child_node_ip, child_node_port)) > 0:
-                self.get_nodes(child_node_ip, child_node_port)
+                self.get_nodes(child_node_ip, port=child_node_port,
+                               depth=depth + 1)
 
             elif not self.database.has_node(child_node_ip):
                 self.database.add_node(child_node_ip)
