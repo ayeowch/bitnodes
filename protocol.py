@@ -90,16 +90,12 @@ START_HEIGHT = 235273
 RELAY = 0
 
 SOCKET_BUFSIZE = 4096
-SOCKET_TIMEOUT = 10
+SOCKET_TIMEOUT = 5
 HEADER_LEN = 24
 
 
 def sha256(data):
     return hashlib.sha256(data).digest()
-
-
-def print_hex(title, data):
-    print("{} bytes {}: {}".format(len(data), title, binascii.hexlify(data)))
 
 
 class ProtocolError(Exception):
@@ -311,15 +307,12 @@ class Connection:
         self.socket.settimeout(timeout)
 
     def open(self):
-        print("opening connection to {}".format(self.to_addr))
         self.socket.connect(self.to_addr)
 
     def close(self):
-        print("closing connection to {}".format(self.to_addr))
         self.socket.close()
 
     def send(self, data):
-        print_hex(">>> data", data)
         self.socket.sendall(data)
 
     def recv(self, length=0):
@@ -331,7 +324,6 @@ class Connection:
                 length -= len(partial_data)
         else:
             data = self.socket.recv(SOCKET_BUFSIZE)
-        print("<<< got {} bytes".format(len(data)))
         return data
 
     def handshake(self):
@@ -341,12 +333,15 @@ class Connection:
         self.send(msg)
 
         # <<< [version] [verack]
+        msgs = []
         data = self.recv()
         while (len(data) > 0):
             (msg, data) = self.serializer.deserialize_msg(data)
+            msgs.append(msg)
             if 'version' in msg:
                 self.min_protocol_version = min(PROTOCOL_VERSION,
                                                 msg['version'])
+        return msgs
 
     def getaddr(self):
         # [getaddr] >>>
@@ -365,7 +360,7 @@ class Connection:
 
 
 def main():
-    to_addr = ("217.208.168.111", 8333)
+    to_addr = ("24.183.54.217", 8333)
     from_addr = ("0.0.0.0", 0)
     addr_msg = {}
 
