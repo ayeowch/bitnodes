@@ -29,15 +29,17 @@ Recursively get all connected Bitcoin nodes.
 """
 __version__ = '0.1'
 
+import json
 import logging
 import os
 import re
 import socket
 import sqlite3
 import sys
+import time
 import urllib2
 from ConfigParser import ConfigParser
-from multiprocessing import Pool
+from multiprocessing import Pool, current_process
 from subprocess import Popen, PIPE
 
 from protocol import ProtocolError, Connection
@@ -45,24 +47,6 @@ from tests import DUMMY_SEEDS, dummy_getaddr
 
 DEFAULT_PORT = 8333
 SETTINGS = {}
-
-
-def memoize(function):
-    """
-    A decorator to cache result from slow running function for reuse on
-    subsequent calls, e.g. Network.getaddr().
-    """
-    mem = {}
-
-    def wrapper(*args):
-        if args in mem:
-            return mem[args]
-        else:
-            value = function(*args)
-            mem[args] = value
-            return value
-
-    return wrapper
 
 
 def execute_cmd(cmd):
@@ -122,7 +106,7 @@ def job(seed):
     get all adjacent nodes recursively.
     """
     msg = "Started job({})".format(seed)
-    logging.info(msg)
+    logging.debug(msg)
 
     network = Network(seed=seed)
     try:
@@ -131,7 +115,7 @@ def job(seed):
         raise KeyboardInterruptError
 
     msg = "Completed job({})".format(seed)
-    logging.info(msg)
+    logging.debug(msg)
 
 
 class Seed:
@@ -193,42 +177,96 @@ class Database:
         Creates a SQLite database that will be used to store all known nodes.
         """
         self.database = database
+        self.last_timestamp = time.time()
 
         if not os.path.exists(self.database):
             logging.debug("Initializing {}".format(self.database))
-            self.connection = sqlite3.connect(self.database)
+            self.connection = sqlite3.connect(self.database,
+                                              SETTINGS['database_timeout'])
             self.cursor = self.connection.cursor()
-            self.cursor.execute("CREATE TABLE nodes (node TEXT UNIQUE)")
-            self.cursor.execute("CREATE INDEX nodes_node_idx ON nodes (node)")
+
+            stmts = [
+                "CREATE TABLE nodes (node TEXT UNIQUE)",
+                "CREATE INDEX nodes_node_idx ON nodes (node)",
+                ("CREATE TABLE nodes_version (node TEXT UNIQUE, "
+                    "protocol_version INTEGER, user_agent TEXT)"),
+                "CREATE INDEX nodes_version_node_idx ON nodes_version (node)",
+                "CREATE TABLE nodes_getaddr (node TEXT UNIQUE, data TEXT)",
+                "CREATE INDEX nodes_getaddr_node_idx ON nodes_getaddr (node)",
+            ]
+            for stmt in stmts:
+                self.cursor.execute(stmt)
+
             self.connection.commit()
         else:
-            logging.debug("Using {}".format(self.database))
-            self.connection = sqlite3.connect(self.database)
+            self.connection = sqlite3.connect(self.database,
+                                              SETTINGS['database_timeout'])
             self.cursor = self.connection.cursor()
             self.cursor.execute("PRAGMA synchronous = OFF")
 
-    def has_node(self, node):
+    def add_node(self, node):
         """
-        Returns True if node exists in the nodes table; False if otherwise.
+        Adds a new node into nodes table.
         """
-        self.cursor.execute("SELECT node FROM nodes WHERE node = ?", (node,))
-        if len(self.cursor.fetchall()) > 0:
+        try:
+            self.cursor.execute("INSERT INTO nodes VALUES (?)", (node,))
+            self.connection.commit()
+        except sqlite3.IntegrityError:
+            pass
+
+        if ((time.time() - self.last_timestamp) > SETTINGS['status_interval']
+                and current_process().name == 'PoolWorker-1'):
+            logging.info("Found {} nodes".format(self.count_nodes()))
+            self.last_timestamp = time.time()
+
+    def add_node_version(self, node, version):
+        """
+        Adds a new node with version information into nodes_version table.
+        """
+        protocol_version = version['version']
+        user_agent = version['user_agent']
+        try:
+            self.cursor.execute("INSERT INTO nodes_version VALUES (?, ?, ?)",
+                                (node, protocol_version, user_agent,))
+            self.connection.commit()
+        except sqlite3.IntegrityError:
+            pass
+
+    def add_node_getaddr(self, node, data):
+        """
+        Adds a new node with getaddr information into nodes_getaddr table.
+        """
+        try:
+            self.cursor.execute("INSERT INTO nodes_getaddr VALUES (?, ?)",
+                                (node, data,))
+            self.connection.commit()
+        except sqlite3.IntegrityError:
+            pass
+
+    def get_node_getaddr(self, node):
+        """
+        Returns stored getaddr information for the given node.
+        """
+        self.cursor.execute("SELECT data FROM nodes_getaddr WHERE node = ?",
+                            (node,))
+        return self.cursor.fetchone()[0]
+
+    def has_node(self, node, table="nodes"):
+        """
+        Returns True if node exists in table; False if otherwise.
+        """
+        self.cursor.execute("SELECT node FROM {} WHERE node = ?".format(
+                            table), (node,))
+        if self.cursor.fetchone() is not None:
             return True
         else:
             return False
 
-    def add_node(self, node):
+    def count_nodes(self, table="nodes"):
         """
-        Adds a new node into the nodes table.
+        Returns number of nodes in table.
         """
-        self.cursor.execute("INSERT INTO nodes VALUES (?)", (node,))
-        self.connection.commit()
-
-    def count_nodes(self):
-        """
-        Returns number of nodes in the nodes table.
-        """
-        self.cursor.execute("SELECT COUNT(node) FROM nodes")
+        self.cursor.execute("SELECT COUNT(node) FROM {}".format(table))
         return self.cursor.fetchone()[0]
 
 
@@ -244,10 +282,10 @@ class Network:
         """
         if len(self.getaddr(self.seed_ip)) > 0:
             self.get_nodes(self.seed_ip)
-            logging.info("({}) {} nodes stored".format(
+            logging.debug("({}) {} nodes stored".format(
                 self.seed_id, self.database.count_nodes()))
         else:
-            logging.info("({}) no adjacent nodes".format(self.seed_id))
+            logging.debug("({}) no adjacent nodes".format(self.seed_id))
         self.database.cursor.close()
 
     def get_nodes(self, node, port=DEFAULT_PORT):
@@ -270,7 +308,6 @@ class Network:
             elif not self.database.has_node(child_node_ip):
                 self.database.add_node(child_node_ip)
 
-    @memoize
     def getaddr(self, node, port=DEFAULT_PORT):
         """
         Returns list of adjacent nodes using getaddr message described in
@@ -281,32 +318,41 @@ class Network:
         """
         if SETTINGS['test']:
             return dummy_getaddr(node)
-        else:
-            to_addr = (node, port)
-            from_addr = ("0.0.0.0", 0)
-            addr_msg = {}
-            nodes = []
 
-            connection = Connection(to_addr, from_addr,
-                                    timeout=SETTINGS['timeout'])
-            try:
-                connection.open()
-                connection.handshake()
-                addr_msg = connection.getaddr()
-            except ProtocolError, err:
-                logging.debug("{}: {} dropped".format(err, to_addr))
-            except socket.error, err:
-                logging.debug("{}: {} dropped".format(err, to_addr))
-            finally:
-                connection.close()
+        if self.database.has_node(node, table="nodes_getaddr"):
+            return json.loads(self.database.get_node_getaddr(node))
 
-            if 'addr_list' in addr_msg:
-                logging.debug("len(addr_list) = {}".format(
-                    len(addr_msg['addr_list'])))
-                for addr in addr_msg['addr_list']:
-                    nodes.append({"ip": addr['ipv4'], "port": addr['port']})
+        to_addr = (node, port)
+        from_addr = ("0.0.0.0", 0)
+        conn = Connection(to_addr, from_addr,
+                          timeout=SETTINGS['socket_timeout'])
 
-            return nodes
+        version_verack_msg = []
+        addr_msg = {}
+        try:
+            conn.open()
+            version_verack_msg = conn.handshake()
+            addr_msg = conn.getaddr()
+        except ProtocolError, err:
+            logging.debug("{}: {} dropped".format(err, to_addr))
+        except socket.error, err:
+            logging.debug("{}: {} dropped".format(err, to_addr))
+        finally:
+            conn.close()
+
+        if len(version_verack_msg) > 0:
+            if not self.database.has_node(node, table="nodes_version"):
+                self.database.add_node_version(node, version_verack_msg[0])
+
+        nodes = []
+        if 'addr_list' in addr_msg:
+            logging.debug("len(addr_list) = {}".format(
+                len(addr_msg['addr_list'])))
+            for addr in addr_msg['addr_list']:
+                nodes.append({"ip": addr['ipv4'], "port": addr['port']})
+        self.database.add_node_getaddr(node, json.dumps(nodes))
+
+        return nodes
 
 
 def main(argv):
@@ -323,7 +369,9 @@ def main(argv):
     SETTINGS['processes'] = conf.getint('bitnodes', 'processes')
     SETTINGS['debug'] = conf.getboolean('bitnodes', 'debug')
     SETTINGS['test'] = conf.getboolean('bitnodes', 'test')
-    SETTINGS['timeout'] = conf.getint('bitnodes', 'timeout')
+    SETTINGS['socket_timeout'] = conf.getint('bitnodes', 'socket_timeout')
+    SETTINGS['database_timeout'] = conf.getint('bitnodes', 'database_timeout')
+    SETTINGS['status_interval'] = conf.getint('bitnodes', 'status_interval')
 
     # Initialize logger
     loglevel = logging.INFO
@@ -334,7 +382,8 @@ def main(argv):
                         format=logformat,
                         filename=SETTINGS['logfile'],
                         filemode='w')
-    print("Writing output to {}..".format(SETTINGS['logfile']))
+    print("Writing output to {}, press CTRL+C to terminate..".format(
+        SETTINGS['logfile']))
 
     # Get seed nodes
     seeds = {}
@@ -342,6 +391,7 @@ def main(argv):
         seeds = DUMMY_SEEDS
     else:
         seeds = Seed().seed()
+    logging.info("Starting bitnodes with {} seed nodes".format(len(seeds)))
 
     # Initialize storage, uses a SQLite database
     database = Database(database=SETTINGS['database'])
@@ -353,10 +403,10 @@ def main(argv):
         pool.map(job, seeds.items())
         pool.close()
     except KeyboardInterrupt:
-        print("CTRL+C pressed, terminating pool..")
+        logging.info("CTRL+C pressed, terminating pool..")
         pool.terminate()
     except Exception, err:
-        print("ERROR: {}, terminating pool..".format(err))
+        logging.error("{}, terminating pool..".format(err))
         pool.terminate()
     finally:
         pool.join()
