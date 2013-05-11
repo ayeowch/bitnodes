@@ -298,7 +298,8 @@ class Serializer:
 
 
 class Connection:
-    def __init__(self, to_addr, from_addr, timeout=SOCKET_TIMEOUT):
+    def __init__(self, to_addr, from_addr=("0.0.0.0", 0),
+                 timeout=SOCKET_TIMEOUT):
         self.to_addr = to_addr
         self.from_addr = from_addr
         self.serializer = Serializer()
@@ -361,10 +362,9 @@ class Connection:
 
 def main():
     to_addr = ("24.183.54.217", 8333)
-    from_addr = ("0.0.0.0", 0)
     addr_msg = {}
 
-    connection = Connection(to_addr, from_addr)
+    connection = Connection(to_addr)
     try:
         connection.open()
         connection.handshake()

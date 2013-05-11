@@ -215,6 +215,13 @@ class Database:
             self.cursor = self.connection.cursor()
             self.cursor.execute("PRAGMA synchronous = OFF")
 
+    def close(self):
+        """
+        Closes the database connection.
+        """
+        self.cursor.close()
+        self.connection.close()
+
     def add_node(self, node):
         """
         Adds a new node into nodes table.
@@ -297,7 +304,7 @@ class Network:
                 self.seed_id, self.database.count_nodes()))
         else:
             logging.debug("({}) no adjacent nodes".format(self.seed_id))
-        self.database.cursor.close()
+        self.database.close()
 
     def get_nodes(self, node, port=DEFAULT_PORT, depth=0):
         """
@@ -305,6 +312,8 @@ class Network:
         adjacent nodes.
         """
         logging.debug("depth = {}".format(depth))
+        if depth > SETTINGS['max_depth']:
+            return
 
         if self.database.has_node(node):
             return
@@ -336,16 +345,24 @@ class Network:
         if self.database.has_node(node, table="nodes_getaddr"):
             return json.loads(self.database.get_node_getaddr(node))
 
-        to_addr = (node, port)
-        from_addr = ("0.0.0.0", 0)
-        conn = Connection(to_addr, from_addr,
-                          timeout=SETTINGS['socket_timeout'])
+        return self._getaddr(node, port)
 
-        version_verack_msg = []
+    def _getaddr(self, node, port):
+        """
+        Establishes connection with a node to:
+        1) Send version message
+        2) Receive version and verack message
+        3) Send getaddr message
+        4) Receive addr message containing list of adjacent nodes
+        """
+        to_addr = (node, port)
+        conn = Connection(to_addr, timeout=SETTINGS['socket_timeout'])
+
+        handshake_msgs = []
         addr_msg = {}
         try:
             conn.open()
-            version_verack_msg = conn.handshake()
+            handshake_msgs = conn.handshake()
             addr_msg = conn.getaddr()
         except ProtocolError, err:
             logging.debug("{}: {} dropped".format(err, to_addr))
@@ -354,17 +371,40 @@ class Network:
         finally:
             conn.close()
 
-        if len(version_verack_msg) > 0:
+        # Record version information for the remote node
+        if len(handshake_msgs) > 0:
             if not self.database.has_node(node, table="nodes_version"):
-                self.database.add_node_version(node, version_verack_msg[0])
+                self.database.add_node_version(node, handshake_msgs[0])
 
         nodes = []
         if 'addr_list' in addr_msg:
-            logging.debug("len(addr_list) = {}".format(
-                len(addr_msg['addr_list'])))
-            for addr in addr_msg['addr_list']:
-                nodes.append({"ip": addr['ipv4'], "port": addr['port']})
+            nodes = self.get_nodes_from_addr_list(addr_msg['addr_list'])
+
+        # Cache the result in database for reuse in subsequent getaddr()
+        # calls for the same node.
         self.database.add_node_getaddr(node, json.dumps(nodes))
+
+        return nodes
+
+    def get_nodes_from_addr_list(self, addr_list):
+        """
+        Returns list of dicts each containing timestamp, IP and port
+        information for an active node.
+        """
+        nodes = []
+        now = int(time.time())
+
+        for addr in addr_list:
+            timestamp = addr['timestamp']
+            if (now - timestamp) <= SETTINGS['max_age']:
+                node = {
+                    "timestamp": timestamp,
+                    "ip": addr['ipv4'],
+                    "port": addr['port'],
+                }
+                nodes.append(node)
+
+        logging.debug("addr_list {}/{}".format(len(nodes), len(addr_list)))
 
         return nodes
 
@@ -386,6 +426,8 @@ def main(argv):
     SETTINGS['socket_timeout'] = conf.getint('bitnodes', 'socket_timeout')
     SETTINGS['database_timeout'] = conf.getint('bitnodes', 'database_timeout')
     SETTINGS['status_interval'] = conf.getint('bitnodes', 'status_interval')
+    SETTINGS['max_depth'] = conf.getint('bitnodes', 'max_depth')
+    SETTINGS['max_age'] = conf.getint('bitnodes', 'max_age')
 
     # Initialize logger
     loglevel = logging.INFO
@@ -409,7 +451,7 @@ def main(argv):
 
     # Initialize storage, uses a SQLite database
     database = Database(database=SETTINGS['database'])
-    database.cursor.close()
+    database.close()
 
     # Initialize a pool of workers to traverse network
     pool = Pool(SETTINGS['processes'])
