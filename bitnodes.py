@@ -29,6 +29,7 @@ Recursively get all connected Bitcoin nodes.
 """
 __version__ = '0.1'
 
+import datetime
 import json
 import logging
 import os
@@ -40,7 +41,7 @@ import sys
 import time
 import urllib2
 from ConfigParser import ConfigParser
-from multiprocessing import Pool, current_process
+from multiprocessing import Pool
 from subprocess import Popen, PIPE
 
 from protocol import ProtocolError, Connection
@@ -92,6 +93,29 @@ def urlopen(url):
     return response
 
 
+def status():
+    """
+    Logs the number of nodes found so far on a periodical basis.
+    """
+    current = 0
+    last = 0
+    database = Database(database=SETTINGS['database'])
+
+    while True:
+        time.sleep(SETTINGS['status_interval'])
+        current = database.count_nodes()
+
+        # Stop reporting if no more changes
+        if current == last:
+            logging.debug("status() stopped, {} == {}".format(current, last))
+            break
+
+        logging.info("Found {} nodes".format(current))
+        last = current
+
+    database.close()
+
+
 class KeyboardInterruptError(Exception):
     """
     Changes KeyboardInterrupt exception caught by a pool worker into an
@@ -105,18 +129,26 @@ def job(seed):
     """
     A worker function; each worker is given a seed node to begin with to
     get all adjacent nodes recursively.
+    seed with tuple (0, 'stat') is reserved for periodical status reporting.
     """
-    msg = "Started job({})".format(seed)
-    logging.debug(msg)
+    if seed[1] == "stat":
+        try:
+            status()
+        except KeyboardInterrupt:
+            raise KeyboardInterruptError
 
-    network = Network(seed=seed)
-    try:
-        network.traverse_network()
-    except KeyboardInterrupt:
-        raise KeyboardInterruptError
+    else:
+        msg = "Started job({})".format(seed)
+        logging.debug(msg)
 
-    msg = "Completed job({})".format(seed)
-    logging.debug(msg)
+        try:
+            network = Network(seed=seed)
+            network.traverse_network()
+        except KeyboardInterrupt:
+            raise KeyboardInterruptError
+
+        msg = "Completed job({})".format(seed)
+        logging.debug(msg)
 
 
 class Seed:
@@ -188,7 +220,6 @@ class Database:
         Creates a SQLite database that will be used to store all known nodes.
         """
         self.database = database
-        self.last_timestamp = time.time()
 
         if not os.path.exists(self.database):
             logging.debug("Initializing {}".format(self.database))
@@ -197,13 +228,22 @@ class Database:
             self.cursor = self.connection.cursor()
 
             stmts = [
-                "CREATE TABLE nodes (node TEXT UNIQUE)",
+                # nodes table
+                "CREATE TABLE nodes (node TEXT UNIQUE, parent_node TEXT)",
                 "CREATE INDEX nodes_node_idx ON nodes (node)",
+
+                # nodes_version table
                 ("CREATE TABLE nodes_version (node TEXT UNIQUE, "
                     "protocol_version INTEGER, user_agent TEXT)"),
                 "CREATE INDEX nodes_version_node_idx ON nodes_version (node)",
+
+                # nodes_getaddr table
                 "CREATE TABLE nodes_getaddr (node TEXT UNIQUE, data TEXT)",
                 "CREATE INDEX nodes_getaddr_node_idx ON nodes_getaddr (node)",
+
+                # jobs table
+                ("CREATE TABLE jobs (job_id INTEGER UNIQUE, started TEXT, "
+                    "completed TEXT)"),
             ]
             for stmt in stmts:
                 self.cursor.execute(stmt)
@@ -222,20 +262,16 @@ class Database:
         self.cursor.close()
         self.connection.close()
 
-    def add_node(self, node):
+    def add_node(self, node, parent_node):
         """
         Adds a new node into nodes table.
         """
         try:
-            self.cursor.execute("INSERT INTO nodes VALUES (?)", (node,))
+            self.cursor.execute("INSERT INTO nodes VALUES (?, ?)",
+                                (node, parent_node))
             self.connection.commit()
         except sqlite3.IntegrityError:
             pass
-
-        if ((time.time() - self.last_timestamp) > SETTINGS['status_interval']
-                and current_process().name == 'PoolWorker-1'):
-            logging.info("Found {} nodes".format(self.count_nodes()))
-            self.last_timestamp = time.time()
 
     def add_node_version(self, node, version):
         """
@@ -287,6 +323,24 @@ class Database:
         self.cursor.execute("SELECT COUNT(node) FROM {}".format(table))
         return self.cursor.fetchone()[0]
 
+    def set_job_started(self, job_id):
+        """
+        Sets the started time for the specified job in jobs table.
+        """
+        started = str(datetime.datetime.now())
+        self.cursor.execute("INSERT INTO jobs VALUES (?, ?, ?)",
+                            (job_id, started, "",))
+        self.connection.commit()
+
+    def set_job_completed(self, job_id):
+        """
+        Sets the completed time for the specified job in jobs table.
+        """
+        completed = str(datetime.datetime.now())
+        self.cursor.execute("UPDATE jobs SET completed=? WHERE job_id=?",
+                            (completed, job_id,))
+        self.connection.commit()
+
 
 class Network:
     def __init__(self, seed=None):
@@ -298,38 +352,41 @@ class Network:
         Calls get_nodes() to recursively get and store all adjacent nodes
         starting from a seed node that has at least one adjacent node.
         """
+        self.database.set_job_started(self.seed_id)
+
         if len(self.getaddr(self.seed_ip)) > 0:
             self.get_nodes(self.seed_ip)
-            logging.debug("({}) {} nodes stored".format(
-                self.seed_id, self.database.count_nodes()))
         else:
-            logging.debug("({}) no adjacent nodes".format(self.seed_id))
+            logging.debug("({}) no adjacent nodes".format(self.seed_ip))
+
+        self.database.set_job_completed(self.seed_id)
         self.database.close()
 
-    def get_nodes(self, node, port=DEFAULT_PORT, depth=0):
+    def get_nodes(self, node, parent_node=None, port=DEFAULT_PORT, depth=0):
         """
         Adds a new node into the database recursively until we exhaust all
         adjacent nodes.
         """
-        logging.debug("depth = {}".format(depth))
-        if depth > SETTINGS['max_depth']:
+        if SETTINGS['max_depth'] >= 0 and depth >= SETTINGS['max_depth']:
             return
+
+        logging.debug("depth = {}".format(depth))
 
         if self.database.has_node(node):
             return
 
-        self.database.add_node(node)
+        self.database.add_node(node, parent_node)
 
         for child_node in self.getaddr(node, port):
             child_node_ip = child_node['ip']
             child_node_port = child_node.get('port', DEFAULT_PORT)
 
             if len(self.getaddr(child_node_ip, child_node_port)) > 0:
-                self.get_nodes(child_node_ip, port=child_node_port,
-                               depth=depth + 1)
+                self.get_nodes(child_node_ip, parent_node=node,
+                               port=child_node_port, depth=depth + 1)
 
             elif not self.database.has_node(child_node_ip):
-                self.database.add_node(child_node_ip)
+                self.database.add_node(child_node_ip, node)
 
     def getaddr(self, node, port=DEFAULT_PORT):
         """
@@ -398,7 +455,6 @@ class Network:
             timestamp = addr['timestamp']
             if (now - timestamp) <= SETTINGS['max_age']:
                 node = {
-                    "timestamp": timestamp,
                     "ip": addr['ipv4'],
                     "port": addr['port'],
                 }
@@ -456,8 +512,11 @@ def main(argv):
     # Initialize a pool of workers to traverse network
     pool = Pool(SETTINGS['processes'])
     try:
+        # Reserve a slot for periodical status reporting
+        seeds[0] = "stat"
         pool.map(job, seeds.items())
         pool.close()
+        logging.info("Bitnodes has completed successfully!")
     except KeyboardInterrupt:
         logging.info("CTRL+C pressed, terminating pool..")
         pool.terminate()
