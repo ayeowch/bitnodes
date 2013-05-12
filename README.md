@@ -1,5 +1,5 @@
 # Bitnodes
-Bitnodes is a Python script written to estimate the size of the Bitcoin network by finding all the peering nodes in the network.
+Bitnodes is currently being developed to estimate the size of the Bitcoin network by finding all the peering nodes in the network.
 
 ## Methodology
 The current methodology involves sending [getaddr](https://en.bitcoin.it/wiki/Protocol_specification#getaddr) message recursively to find all the peering nodes in the network starting from a set of seed nodes. Bitnodes uses Bitcoin protocol version 70001, so peers connected to a node with older protocol version will be skipped.
