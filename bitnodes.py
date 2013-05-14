@@ -229,7 +229,7 @@ class Database:
 
             stmts = [
                 # nodes table
-                "CREATE TABLE nodes (node TEXT UNIQUE, parent_node TEXT)",
+                "CREATE TABLE nodes (node TEXT UNIQUE)",
                 "CREATE INDEX nodes_node_idx ON nodes (node)",
 
                 # nodes_version table
@@ -243,7 +243,7 @@ class Database:
 
                 # jobs table
                 ("CREATE TABLE jobs (job_id INTEGER UNIQUE, started TEXT, "
-                    "completed TEXT)"),
+                    "completed TEXT, data TEXT)"),
             ]
             for stmt in stmts:
                 self.cursor.execute(stmt)
@@ -262,13 +262,12 @@ class Database:
         self.cursor.close()
         self.connection.close()
 
-    def add_node(self, node, parent_node):
+    def add_node(self, node):
         """
         Adds a new node into nodes table.
         """
         try:
-            self.cursor.execute("INSERT INTO nodes VALUES (?, ?)",
-                                (node, parent_node))
+            self.cursor.execute("INSERT INTO nodes VALUES (?)", (node,))
             self.connection.commit()
         except sqlite3.IntegrityError:
             pass
@@ -323,13 +322,13 @@ class Database:
         self.cursor.execute("SELECT COUNT(node) FROM {}".format(table))
         return self.cursor.fetchone()[0]
 
-    def set_job_started(self, job_id):
+    def set_job_started(self, job_id, data):
         """
         Sets the started time for the specified job in jobs table.
         """
         started = str(datetime.datetime.now())
-        self.cursor.execute("INSERT INTO jobs VALUES (?, ?, ?)",
-                            (job_id, started, "",))
+        self.cursor.execute("INSERT INTO jobs VALUES (?, ?, ?, ?)",
+                            (job_id, started, "", data,))
         self.connection.commit()
 
     def set_job_completed(self, job_id):
@@ -352,7 +351,7 @@ class Network:
         Calls get_nodes() to recursively get and store all adjacent nodes
         starting from a seed node that has at least one adjacent node.
         """
-        self.database.set_job_started(self.seed_id)
+        self.database.set_job_started(self.seed_id, self.seed_ip)
 
         if len(self.getaddr(self.seed_ip)) > 0:
             self.get_nodes(self.seed_ip)
@@ -362,7 +361,7 @@ class Network:
         self.database.set_job_completed(self.seed_id)
         self.database.close()
 
-    def get_nodes(self, node, parent_node=None, port=DEFAULT_PORT, depth=0):
+    def get_nodes(self, node, port=DEFAULT_PORT, depth=0):
         """
         Adds a new node into the database recursively until we exhaust all
         adjacent nodes.
@@ -375,18 +374,18 @@ class Network:
         if self.database.has_node(node):
             return
 
-        self.database.add_node(node, parent_node)
+        self.database.add_node(node)
 
         for child_node in self.getaddr(node, port):
             child_node_ip = child_node['ip']
             child_node_port = child_node.get('port', DEFAULT_PORT)
 
             if len(self.getaddr(child_node_ip, child_node_port)) > 0:
-                self.get_nodes(child_node_ip, parent_node=node,
-                               port=child_node_port, depth=depth + 1)
+                self.get_nodes(child_node_ip, port=child_node_port,
+                               depth=depth + 1)
 
             elif not self.database.has_node(child_node_ip):
-                self.database.add_node(child_node_ip, node)
+                self.database.add_node(child_node_ip)
 
     def getaddr(self, node, port=DEFAULT_PORT):
         """
