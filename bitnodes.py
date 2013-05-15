@@ -62,7 +62,9 @@ def execute_cmd(cmd):
     stdout, stderr = process.communicate()
     returncode = process.returncode
     if returncode != 0:
-        raise RuntimeError("{} failed: {}".format(cmd, stderr))
+        msg = "{} failed: {}".format(cmd, stderr)
+        logging.warning(msg)
+        raise RuntimeError(msg)
 
     return stdout
 
@@ -72,7 +74,10 @@ def dig(ip_address):
     Performs DNS lookup against the given IP address using dig.
     """
     cmd = "{} +short {}".format(SETTINGS['dig'], ip_address)
-    stdout = execute_cmd(cmd)
+    try:
+        stdout = execute_cmd(cmd)
+    except RuntimeError:
+        return ""
     return stdout
 
 
@@ -247,13 +252,12 @@ class Database:
             ]
             for stmt in stmts:
                 self.cursor.execute(stmt)
-
-            self.connection.commit()
         else:
             self.connection = sqlite3.connect(self.database,
                                               SETTINGS['database_timeout'])
             self.cursor = self.connection.cursor()
             self.cursor.execute("PRAGMA synchronous = OFF")
+            self.cursor.execute("PRAGMA journal_mode = MEMORY")
 
     def close(self):
         """
@@ -262,13 +266,24 @@ class Database:
         self.cursor.close()
         self.connection.close()
 
+    def commit(self):
+        """
+        Commits the current transaction.
+        """
+        start = time.time()
+        self.connection.commit()
+        end = time.time()
+        elapsed = int(end - start)
+        if elapsed >= 0.8 * SETTINGS['database_timeout']:
+            logging.warning("commit() took {} seconds".format(elapsed))
+
     def add_node(self, node):
         """
         Adds a new node into nodes table.
         """
         try:
             self.cursor.execute("INSERT INTO nodes VALUES (?)", (node,))
-            self.connection.commit()
+            self.commit()
         except sqlite3.IntegrityError:
             pass
 
@@ -281,7 +296,7 @@ class Database:
         try:
             self.cursor.execute("INSERT INTO nodes_version VALUES (?, ?, ?)",
                                 (node, protocol_version, user_agent,))
-            self.connection.commit()
+            self.commit()
         except sqlite3.IntegrityError:
             pass
 
@@ -292,7 +307,7 @@ class Database:
         try:
             self.cursor.execute("INSERT INTO nodes_getaddr VALUES (?, ?)",
                                 (node, data,))
-            self.connection.commit()
+            self.commit()
         except sqlite3.IntegrityError:
             pass
 
@@ -329,7 +344,7 @@ class Database:
         started = str(datetime.datetime.now())
         self.cursor.execute("INSERT INTO jobs VALUES (?, ?, ?, ?)",
                             (job_id, started, "", data,))
-        self.connection.commit()
+        self.commit()
 
     def set_job_completed(self, job_id):
         """
@@ -338,7 +353,7 @@ class Database:
         completed = str(datetime.datetime.now())
         self.cursor.execute("UPDATE jobs SET completed=? WHERE job_id=?",
                             (completed, job_id,))
-        self.connection.commit()
+        self.commit()
 
 
 class Network:
