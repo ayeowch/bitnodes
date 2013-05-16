@@ -55,8 +55,7 @@ def execute_cmd(cmd):
     """
     Executes given command using subprocess.Popen().
     """
-    msg = "[{}]".format(cmd)
-    logging.debug(msg)
+    logging.debug("[{}]".format(cmd))
 
     process = Popen(cmd, shell=True, stdin=PIPE, stdout=PIPE, stderr=PIPE)
     stdout, stderr = process.communicate()
@@ -87,6 +86,8 @@ def urlopen(url):
     """
     response = ''
     request = urllib2.Request(url=url)
+
+    logging.debug("[{}]".format(url))
 
     try:
         response = urllib2.urlopen(request).read()
@@ -143,8 +144,7 @@ def job(seed):
             raise KeyboardInterruptError
 
     else:
-        msg = "Started job({})".format(seed)
-        logging.debug(msg)
+        logging.debug("Started job({})".format(seed))
 
         try:
             network = Network(seed=seed)
@@ -152,8 +152,7 @@ def job(seed):
         except KeyboardInterrupt:
             raise KeyboardInterruptError
 
-        msg = "Completed job({})".format(seed)
-        logging.debug(msg)
+        logging.debug("Completed job({})".format(seed))
 
 
 class Seed:
@@ -171,9 +170,11 @@ class Seed:
         }
         """
         nodes = []
+
         nodes.extend(self.dns_seed_nodes())
-        nodes.extend(self.hub_nodes())
-        nodes.extend(self.static_seed_nodes())
+        nodes.extend(self.static_list_nodes())
+        nodes.extend(self.static_page_nodes())
+
         nodes = list(set(nodes))
         random.shuffle(nodes)
         return dict(enumerate(nodes, start=1))
@@ -198,24 +199,40 @@ class Seed:
 
         return nodes
 
-    def hub_nodes(self):
+    def static_list_nodes(self):
         """
-        Extends seed nodes with nodes from Blockchain.info hub nodes.
+        Extends seed nodes with nodes from text files.
+        static_seed_nodes.txt contains nodes with peers from previous run.
+        pnSeed.txt contains nodes from pnSeed[] in
+        https://github.com/bitcoin/bitcoin/blob/master/src/net.cpp
         """
         nodes = []
-        url = "http://blockchain.info/hub-nodes"
+        text_files = [
+            "static_seed_nodes.txt",
+            "pnSeed.txt",
+        ]
 
-        page = urlopen(url)
-        nodes.extend(re.findall(r'/ip-address/(?P<ip_address>[\d.]+)', page))
+        for text_file in text_files:
+            nodes.extend(
+                [node.strip() for node in open(text_file, "r").readlines()])
 
         return nodes
 
-    def static_seed_nodes(self):
+    def static_page_nodes(self):
         """
-        Extends seed nodes with hardcoded nodes from static_seed_nodes.txt.
+        Extends seed nodes with nodes from blockchain.info static pages.
         """
-        fname = "static_seed_nodes.txt"
-        nodes = [node.strip() for node in open(fname, "r").readlines()]
+        nodes = []
+        static_pages = [
+            "http://blockchain.info/connected-nodes",
+            "http://blockchain.info/hub-nodes",
+        ]
+
+        for static_page in static_pages:
+            page = urlopen(static_page)
+            regex = r'/ip-address/(?P<ip_address>[\d.]+)'
+            nodes.extend(re.findall(regex, page))
+
         return nodes
 
 
@@ -248,7 +265,7 @@ class Database:
 
                 # jobs table
                 ("CREATE TABLE jobs (job_id INTEGER UNIQUE, started TEXT, "
-                    "completed TEXT, data TEXT)"),
+                    "completed TEXT, seed_ip TEXT, depth INTEGER)"),
             ]
             for stmt in stmts:
                 self.cursor.execute(stmt)
@@ -337,28 +354,30 @@ class Database:
         self.cursor.execute("SELECT COUNT(node) FROM {}".format(table))
         return self.cursor.fetchone()[0]
 
-    def set_job_started(self, job_id, data):
+    def set_job_started(self, job_id, seed_ip):
         """
         Sets the started time for the specified job in jobs table.
         """
         started = str(datetime.datetime.now())
-        self.cursor.execute("INSERT INTO jobs VALUES (?, ?, ?, ?)",
-                            (job_id, started, "", data,))
+        self.cursor.execute("INSERT INTO jobs VALUES (?, ?, ?, ?, ?)",
+                            (job_id, started, "", seed_ip, 0))
         self.commit()
 
-    def set_job_completed(self, job_id):
+    def set_job_completed(self, job_id, depth):
         """
         Sets the completed time for the specified job in jobs table.
         """
         completed = str(datetime.datetime.now())
-        self.cursor.execute("UPDATE jobs SET completed=? WHERE job_id=?",
-                            (completed, job_id,))
+        self.cursor.execute(
+            "UPDATE jobs SET completed=?, depth=? WHERE job_id=?",
+            (completed, depth, job_id,))
         self.commit()
 
 
 class Network:
     def __init__(self, seed=None):
         (self.seed_id, self.seed_ip) = seed
+        self.depth = 0
         self.database = Database(database=SETTINGS['database'])
 
     def traverse_network(self):
@@ -368,12 +387,13 @@ class Network:
         """
         self.database.set_job_started(self.seed_id, self.seed_ip)
 
-        if len(self.getaddr(self.seed_ip)) > 0:
+        if self.getaddr(self.seed_ip) is not None:
             self.get_nodes(self.seed_ip)
         else:
-            logging.debug("({}) no adjacent nodes".format(self.seed_ip))
+            # Seed node did not respond to our version message
+            logging.debug("{} noack".format(self.seed_ip))
 
-        self.database.set_job_completed(self.seed_id)
+        self.database.set_job_completed(self.seed_id, self.depth)
         self.database.close()
 
     def get_nodes(self, node, port=DEFAULT_PORT, depth=0):
@@ -384,6 +404,7 @@ class Network:
         if SETTINGS['max_depth'] >= 0 and depth >= SETTINGS['max_depth']:
             return
 
+        self.depth = max(depth, self.depth)
         logging.debug("depth = {}".format(depth))
 
         if self.database.has_node(node):
@@ -391,16 +412,16 @@ class Network:
 
         self.database.add_node(node)
 
-        for child_node in self.getaddr(node, port):
-            child_node_ip = child_node['ip']
-            child_node_port = child_node.get('port', DEFAULT_PORT)
+        for child in self.getaddr(node, port):
+            child_ip = child['ip']
+            child_port = child.get('port', DEFAULT_PORT)
+            child_getaddr = self.getaddr(child_ip, child_port)
 
-            if len(self.getaddr(child_node_ip, child_node_port)) > 0:
-                self.get_nodes(child_node_ip, port=child_node_port,
-                               depth=depth + 1)
+            if child_getaddr is not None and len(child_getaddr) > 0:
+                self.get_nodes(child_ip, port=child_port, depth=depth + 1)
 
-            elif not self.database.has_node(child_node_ip):
-                self.database.add_node(child_node_ip)
+            elif not self.database.has_node(child_ip):
+                self.database.add_node(child_ip)
 
     def getaddr(self, node, port=DEFAULT_PORT):
         """
@@ -442,14 +463,16 @@ class Network:
         finally:
             conn.close()
 
+        nodes = None
+
         # Record version information for the remote node
         if len(handshake_msgs) > 0:
             if not self.database.has_node(node, table="nodes_version"):
                 self.database.add_node_version(node, handshake_msgs[0])
 
-        nodes = []
-        if 'addr_list' in addr_msg:
-            nodes = self.get_nodes_from_addr_list(addr_msg['addr_list'])
+            nodes = []
+            if 'addr_list' in addr_msg:
+                nodes = self.get_nodes_from_addr_list(addr_msg['addr_list'])
 
         # Cache the result in database for reuse in subsequent getaddr()
         # calls for the same node.
