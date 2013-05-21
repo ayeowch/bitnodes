@@ -2,7 +2,7 @@
 Bitnodes is currently being developed to estimate the size of the Bitcoin network by finding all the peering nodes in the network.
 
 ## Methodology
-The current methodology involves sending [getaddr](https://en.bitcoin.it/wiki/Protocol_specification#getaddr) message recursively to find all the peering nodes in the network starting from a set of seed nodes. Bitnodes uses Bitcoin protocol version 70001, so peers connected to a node with older protocol version will be skipped.
+The current methodology involves sending [getaddr](https://en.bitcoin.it/wiki/Protocol_specification#getaddr) message to find all the peering nodes in the network starting from a set of seed nodes. Bitnodes uses Bitcoin protocol version 70001, so nodes with older protocol version will be skipped.
 
 ## Requirements
 * Python 2.7
@@ -14,18 +14,7 @@ The default configuration in config.cfg should work for most users. To run Bitno
     $ python bitnodes.py config.cfg
     Writing output to bitnodes.log, press CTRL+C to terminate..
 
-Newly discovered nodes will be added into the SQLite database called bitnodes.db in the `nodes` table. Tail the logfile to see the current status:
-
-    $ tail -f bitnodes.log
-    INFO 2013-05-10 05:29:11,435 1952 Starting bitnodes with 188 seed nodes
-    INFO 2013-05-10 05:30:14,494 1969 Found 351 nodes
-    INFO 2013-05-10 05:31:35,726 1969 Found 767 nodes
-    INFO 2013-05-10 05:32:47,370 1969 Found 1114 nodes
-    INFO 2013-05-10 05:33:47,530 1969 Found 1435 nodes
-    INFO 2013-05-10 05:34:48,635 1969 Found 1816 nodes
-    INFO 2013-05-10 05:35:48,948 1969 Found 2170 nodes
-    INFO 2013-05-10 05:36:49,278 1969 Found 2534 nodes
-    ..
+Newly discovered nodes will be added into a SQLite database called bitnodes.db in the `nodes` table.
 
 ## License
 Copyright (c) 2013 Addy Yeow Chin Heng &lt;ayeowch@gmail.com&gt;
