@@ -85,12 +85,12 @@ import time
 MAGIC_NUMBER = "\xF9\xBE\xB4\xD9"
 PROTOCOL_VERSION = 70001
 SERVICES = 1
-USER_AGENT = "/bitnodes.io:0.1/"
-START_HEIGHT = 235273
+USER_AGENT = "/Satoshi:0.8.1/"
+START_HEIGHT = 237181
 RELAY = 0
 
-SOCKET_BUFSIZE = 4096
-SOCKET_TIMEOUT = 5
+SOCKET_BUFSIZE = 8192
+SOCKET_TIMEOUT = 15
 HEADER_LEN = 24
 
 
@@ -361,7 +361,7 @@ class Connection:
 
 
 def main():
-    to_addr = ("24.183.54.217", 8333)
+    to_addr = ("5.9.2.145", 8333)
     addr_msg = {}
 
     connection = Connection(to_addr)
@@ -369,9 +369,7 @@ def main():
         connection.open()
         connection.handshake()
         addr_msg = connection.getaddr()
-    except ProtocolError, err:
-        print("{}: {}".format(err, to_addr))
-    except socket.error, err:
+    except (ProtocolError, socket.error) as err:
         print("{}: {}".format(err, to_addr))
     finally:
         connection.close()

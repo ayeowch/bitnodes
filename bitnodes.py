@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# bitnodes.py - Recursively get all connected Bitcoin nodes.
+# bitnodes.py - Exhaustively get all connected Bitcoin nodes.
 #
 # Copyright (c) 2013 Addy Yeow Chin Heng <ayeowch@gmail.com>
 #
@@ -25,7 +25,7 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 """
-Recursively get all connected Bitcoin nodes.
+Exhaustively get all connected Bitcoin nodes.
 """
 __version__ = '0.1'
 
@@ -109,14 +109,15 @@ def status():
 
     while True:
         time.sleep(SETTINGS['status_interval'])
-        current = database.count_nodes()
+        current = database.count_nodes(table="nodes_getaddr")
 
         # Stop reporting if no more changes
         if current == last:
             logging.debug("status() stopped, {} == {}".format(current, last))
             break
 
-        logging.info("Found {} nodes".format(current))
+        diff = current - last
+        logging.info("Found {} nodes (+{})".format(current, diff))
         last = current
 
     database.close()
@@ -134,7 +135,7 @@ class KeyboardInterruptError(Exception):
 def job(seed):
     """
     A worker function; each worker is given a seed node to begin with to
-    get all adjacent nodes recursively.
+    traverse the network.
     seed with tuple (0, 'stat') is reserved for periodical status reporting.
     """
     if seed[1] == "stat":
@@ -260,12 +261,14 @@ class Database:
                 "CREATE INDEX nodes_version_node_idx ON nodes_version (node)",
 
                 # nodes_getaddr table
-                "CREATE TABLE nodes_getaddr (node TEXT UNIQUE, data TEXT)",
+                ("CREATE TABLE nodes_getaddr (node TEXT UNIQUE, data TEXT, "
+                    "error TEXT)"),
                 "CREATE INDEX nodes_getaddr_node_idx ON nodes_getaddr (node)",
 
                 # jobs table
                 ("CREATE TABLE jobs (job_id INTEGER UNIQUE, started TEXT, "
-                    "completed TEXT, seed_ip TEXT, depth INTEGER)"),
+                    "completed TEXT, seed_ip TEXT, added INTEGER, "
+                    "depth INTEGER)"),
             ]
             for stmt in stmts:
                 self.cursor.execute(stmt)
@@ -317,13 +320,13 @@ class Database:
         except sqlite3.IntegrityError:
             pass
 
-    def add_node_getaddr(self, node, data):
+    def add_node_getaddr(self, node, data, error):
         """
         Adds a new node with getaddr information into nodes_getaddr table.
         """
         try:
-            self.cursor.execute("INSERT INTO nodes_getaddr VALUES (?, ?)",
-                                (node, data,))
+            self.cursor.execute("INSERT INTO nodes_getaddr VALUES (?, ?, ?)",
+                                (node, data, error,))
             self.commit()
         except sqlite3.IntegrityError:
             pass
@@ -359,69 +362,89 @@ class Database:
         Sets the started time for the specified job in jobs table.
         """
         started = str(datetime.datetime.now())
-        self.cursor.execute("INSERT INTO jobs VALUES (?, ?, ?, ?, ?)",
-                            (job_id, started, "", seed_ip, 0))
+        self.cursor.execute("INSERT INTO jobs VALUES (?, ?, ?, ?, ?, ?)",
+                            (job_id, started, "", seed_ip, 0, 0,))
         self.commit()
 
-    def set_job_completed(self, job_id, depth):
+    def set_job_completed(self, job_id, added, depth):
         """
         Sets the completed time for the specified job in jobs table.
         """
         completed = str(datetime.datetime.now())
         self.cursor.execute(
-            "UPDATE jobs SET completed=?, depth=? WHERE job_id=?",
-            (completed, depth, job_id,))
+            "UPDATE jobs SET completed=?, added=?, depth=? WHERE job_id=?",
+            (completed, added, depth, job_id,))
         self.commit()
 
 
 class Network:
     def __init__(self, seed=None):
         (self.seed_id, self.seed_ip) = seed
-        self.depth = 0
         self.database = Database(database=SETTINGS['database'])
 
     def traverse_network(self):
         """
-        Calls get_nodes() to recursively get and store all adjacent nodes
-        starting from a seed node that has at least one adjacent node.
+        Calls get_nodes() to exhaustively get all adjacent nodes if seed node
+        is reachable.
         """
         self.database.set_job_started(self.seed_id, self.seed_ip)
 
+        added = 0
+        depth = 0
         if self.getaddr(self.seed_ip) is not None:
-            self.get_nodes(self.seed_ip)
+            (added, depth) = self.get_nodes(self.seed_ip)
         else:
             # Seed node did not respond to our version message
             logging.debug("{} noack".format(self.seed_ip))
 
-        self.database.set_job_completed(self.seed_id, self.depth)
+        self.database.set_job_completed(self.seed_id, added, depth)
         self.database.close()
 
-    def get_nodes(self, node, port=DEFAULT_PORT, depth=0):
+    def get_nodes(self, root_node):
         """
-        Adds a new node into the database recursively until we exhaust all
-        adjacent nodes.
+        Uses non-recursive DFS to get and store all reachable nodes starting
+        from the specified root node. Returns a tuple containing number of
+        nodes added and depth reached as of deepest parent node.
         """
-        if SETTINGS['max_depth'] >= 0 and depth >= SETTINGS['max_depth']:
-            return
+        added = 0
+        depth = 0
 
-        self.depth = max(depth, self.depth)
-        logging.debug("depth = {}".format(depth))
+        current_nodes = set([root_node])
 
-        if self.database.has_node(node):
-            return
+        while current_nodes:
+            next_nodes = set()
+            logging.debug("[{}] depth = {}".format(root_node, depth))
 
-        self.database.add_node(node)
+            for node in current_nodes:
+                if not self.database.has_node(node):
+                    logging.debug("[{}] adding {}".format(root_node, node))
+                    self.database.add_node(node)
+                    added += 1
+                else:
+                    continue
 
-        for child in self.getaddr(node, port):
-            child_ip = child['ip']
-            child_port = child.get('port', DEFAULT_PORT)
-            child_getaddr = self.getaddr(child_ip, child_port)
+                childs = self.getaddr(node)
+                if childs is None:
+                    continue
 
-            if child_getaddr is not None and len(child_getaddr) > 0:
-                self.get_nodes(child_ip, port=child_port, depth=depth + 1)
+                for child in childs:
+                    child_ip = child['ip']
+                    child_port = child.get('port', DEFAULT_PORT)
+                    if self.database.has_node(child_ip):
+                        continue
 
-            elif not self.database.has_node(child_ip):
-                self.database.add_node(child_ip)
+                    child_getaddr = self.getaddr(child_ip, child_port)
+                    if SETTINGS['greedy'] or child_getaddr is not None:
+                        next_nodes.add(child_ip)
+
+            current_nodes = next_nodes
+            if current_nodes:
+                if (SETTINGS['max_depth'] >= 0 and
+                        depth + 1 >= SETTINGS['max_depth']):
+                    break
+                depth += 1
+
+        return (added, depth)
 
     def getaddr(self, node, port=DEFAULT_PORT):
         """
@@ -450,15 +473,15 @@ class Network:
         to_addr = (node, port)
         conn = Connection(to_addr, timeout=SETTINGS['socket_timeout'])
 
+        error = ""
         handshake_msgs = []
         addr_msg = {}
         try:
             conn.open()
             handshake_msgs = conn.handshake()
             addr_msg = conn.getaddr()
-        except ProtocolError, err:
-            logging.debug("{}: {} dropped".format(err, to_addr))
-        except socket.error, err:
+        except (ProtocolError, socket.error) as err:
+            error = str(err)
             logging.debug("{}: {} dropped".format(err, to_addr))
         finally:
             conn.close()
@@ -476,7 +499,7 @@ class Network:
 
         # Cache the result in database for reuse in subsequent getaddr()
         # calls for the same node.
-        self.database.add_node_getaddr(node, json.dumps(nodes))
+        self.database.add_node_getaddr(node, json.dumps(nodes), error)
 
         return nodes
 
@@ -513,7 +536,7 @@ def main(argv):
     SETTINGS['logfile'] = conf.get('bitnodes', 'logfile')
     SETTINGS['database'] = conf.get('bitnodes', 'database')
     SETTINGS['dig'] = conf.get('bitnodes', 'dig')
-    SETTINGS['processes'] = conf.getint('bitnodes', 'processes')
+    SETTINGS['workers'] = conf.getint('bitnodes', 'workers')
     SETTINGS['debug'] = conf.getboolean('bitnodes', 'debug')
     SETTINGS['test'] = conf.getboolean('bitnodes', 'test')
     SETTINGS['socket_timeout'] = conf.getint('bitnodes', 'socket_timeout')
@@ -521,12 +544,13 @@ def main(argv):
     SETTINGS['status_interval'] = conf.getint('bitnodes', 'status_interval')
     SETTINGS['max_depth'] = conf.getint('bitnodes', 'max_depth')
     SETTINGS['max_age'] = conf.getint('bitnodes', 'max_age')
+    SETTINGS['greedy'] = conf.getboolean('bitnodes', 'greedy')
 
     # Initialize logger
     loglevel = logging.INFO
     if SETTINGS['debug']:
         loglevel = logging.DEBUG
-    logformat = "%(levelname)s %(asctime)s %(process)d %(message)s"
+    logformat = ("%(levelname)7s %(asctime)s %(process)5d %(message)s")
     logging.basicConfig(level=loglevel,
                         format=logformat,
                         filename=SETTINGS['logfile'],
@@ -546,11 +570,12 @@ def main(argv):
     database = Database(database=SETTINGS['database'])
     database.close()
 
+    # Reserve a slot for periodical status reporting
+    seeds[0] = "stat"
+
     # Initialize a pool of workers to traverse network
-    pool = Pool(SETTINGS['processes'])
+    pool = Pool(SETTINGS['workers'])
     try:
-        # Reserve a slot for periodical status reporting
-        seeds[0] = "stat"
         pool.map(job, seeds.items())
         pool.close()
         logging.info("Bitnodes has completed successfully!")
