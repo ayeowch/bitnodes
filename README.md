@@ -40,7 +40,7 @@ If no JSON data is available, `null` (`None` in Python) is written into this fie
 An error message is written into the `error` field if Bitnodes fails to establish connection with the node.
 `degree` contains the number of known peers listed in `data`.
 <table>
-    <tr><th colspan="3">nodes_getaddr</th></tr>
+    <tr><th colspan="4">nodes_getaddr</th></tr>
     <tr>
         <td>node</td>
         <td>data</td>
