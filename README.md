@@ -2,8 +2,9 @@
 Bitnodes is currently being developed to estimate the size of the Bitcoin network by finding all the peering nodes in the network. The current methodology involves sending [getaddr](https://en.bitcoin.it/wiki/Protocol_specification#getaddr) message to find all the peering nodes in the network starting from a set of seed nodes. Bitnodes uses Bitcoin protocol version 70001, so nodes with older protocol version will be skipped.
 
 ## Requirements
-* Python 2.7
+* Python >= 2.7.1
 * dig (or equivalent utility)
+* SQLite >= 3.7.0 (to use WAL journal mode)
 
 ## Usage
 The default configuration in config.cfg should work for most users. To run Bitnodes:

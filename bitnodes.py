@@ -253,6 +253,7 @@ class Database:
             self.connection = sqlite3.connect(self.database,
                                               SETTINGS['database_timeout'])
             self.cursor = self.connection.cursor()
+            self.cursor.execute("PRAGMA journal_mode = WAL")
 
             stmts = [
                 # nodes table
@@ -281,7 +282,6 @@ class Database:
                                               SETTINGS['database_timeout'])
             self.cursor = self.connection.cursor()
             self.cursor.execute("PRAGMA synchronous = OFF")
-            self.cursor.execute("PRAGMA journal_mode = MEMORY")
 
     def close(self):
         """
