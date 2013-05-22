@@ -262,7 +262,7 @@ class Database:
 
                 # nodes_getaddr table
                 ("CREATE TABLE nodes_getaddr (node TEXT UNIQUE, data TEXT, "
-                    "error TEXT)"),
+                    "error TEXT, degree INTEGER)"),
                 "CREATE INDEX nodes_getaddr_node_idx ON nodes_getaddr (node)",
 
                 # jobs table
@@ -332,13 +332,13 @@ class Database:
         except sqlite3.IntegrityError:
             pass
 
-    def add_node_getaddr(self, node, data, error):
+    def add_node_getaddr(self, node, data, error, degree):
         """
         Adds a new node with getaddr information into nodes_getaddr table.
         """
         try:
-            self.cursor.execute("INSERT INTO nodes_getaddr VALUES (?, ?, ?)",
-                                (node, data, error,))
+            self.cursor.execute("INSERT INTO nodes_getaddr VALUES "
+                                "(?, ?, ?, ?)", (node, data, error, degree,))
             self.commit()
         except sqlite3.IntegrityError:
             pass
@@ -452,7 +452,7 @@ class Network:
             current_nodes = next_nodes
             if current_nodes:
                 if (SETTINGS['max_depth'] >= 0 and
-                        depth + 1 >= SETTINGS['max_depth']):
+                        depth >= SETTINGS['max_depth']):
                     break
                 depth += 1
 
@@ -499,6 +499,7 @@ class Network:
             conn.close()
 
         nodes = None
+        degree = 0
 
         # Record version information for the remote node
         if len(handshake_msgs) > 0:
@@ -508,10 +509,11 @@ class Network:
             nodes = []
             if 'addr_list' in addr_msg:
                 nodes = self.get_nodes_from_addr_list(addr_msg['addr_list'])
+                degree = len(nodes)
 
         # Cache the result in database for reuse in subsequent getaddr()
         # calls for the same node.
-        self.database.add_node_getaddr(node, json.dumps(nodes), error)
+        self.database.add_node_getaddr(node, json.dumps(nodes), error, degree)
 
         return nodes
 
