@@ -109,7 +109,11 @@ def status():
 
     while True:
         time.sleep(SETTINGS['status_interval'])
-        current = database.count_nodes(table="nodes_getaddr")
+
+        if SETTINGS['test']:
+            current = database.count_nodes(table="nodes")
+        else:
+            current = database.count_nodes(table="nodes_getaddr")
 
         # Stop reporting if no more changes
         if current == last:
