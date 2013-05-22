@@ -297,6 +297,18 @@ class Database:
         if elapsed >= 0.8 * SETTINGS['database_timeout']:
             logging.warning("commit() took {} seconds".format(elapsed))
 
+    def fetchone(self):
+        """
+        Fetches the next row of a query result.
+        """
+        start = time.time()
+        result = self.cursor.fetchone()
+        end = time.time()
+        elapsed = int(end - start)
+        if elapsed >= 0.8 * SETTINGS['database_timeout']:
+            logging.warning("fetchone() took {} seconds".format(elapsed))
+        return result
+
     def add_node(self, node):
         """
         Adds a new node into nodes table.
@@ -337,7 +349,7 @@ class Database:
         """
         self.cursor.execute("SELECT data FROM nodes_getaddr WHERE node = ?",
                             (node,))
-        return self.cursor.fetchone()[0]
+        return self.fetchone()[0]
 
     def has_node(self, node, table="nodes"):
         """
@@ -345,7 +357,7 @@ class Database:
         """
         self.cursor.execute("SELECT node FROM {} WHERE node = ?".format(
                             table), (node,))
-        if self.cursor.fetchone() is not None:
+        if self.fetchone() is not None:
             return True
         else:
             return False
@@ -355,7 +367,7 @@ class Database:
         Returns number of nodes in table.
         """
         self.cursor.execute("SELECT COUNT(node) FROM {}".format(table))
-        return self.cursor.fetchone()[0]
+        return self.fetchone()[0]
 
     def set_job_started(self, job_id, seed_ip):
         """
@@ -565,6 +577,10 @@ def main(argv):
     else:
         seeds = Seed().seed()
     logging.info("Starting bitnodes with {} seed nodes".format(len(seeds)))
+
+    # Backup previous database
+    if os.path.exists(SETTINGS['database']):
+        os.rename(SETTINGS['database'], SETTINGS['database'] + ".old")
 
     # Initialize storage, uses a SQLite database
     database = Database(database=SETTINGS['database'])
