@@ -487,7 +487,9 @@ class Network:
         4) Receive addr message containing list of adjacent nodes
         """
         to_addr = (node, port)
-        conn = Connection(to_addr, timeout=SETTINGS['socket_timeout'])
+        conn = Connection(to_addr, socket_timeout=SETTINGS['socket_timeout'],
+                          user_agent=SETTINGS['user_agent'],
+                          start_height=SETTINGS['start_height'])
 
         error = ""
         handshake_msgs = []
@@ -557,6 +559,8 @@ def main(argv):
     SETTINGS['workers'] = conf.getint('bitnodes', 'workers')
     SETTINGS['debug'] = conf.getboolean('bitnodes', 'debug')
     SETTINGS['test'] = conf.getboolean('bitnodes', 'test')
+    SETTINGS['user_agent'] = conf.get('bitnodes', 'user_agent')
+    SETTINGS['start_height'] = conf.getint('bitnodes', 'start_height')
     SETTINGS['socket_timeout'] = conf.getint('bitnodes', 'socket_timeout')
     SETTINGS['database_timeout'] = conf.getint('bitnodes', 'database_timeout')
     SETTINGS['status_interval'] = conf.getint('bitnodes', 'status_interval')
