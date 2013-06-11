@@ -85,8 +85,8 @@ import time
 MAGIC_NUMBER = "\xF9\xBE\xB4\xD9"
 PROTOCOL_VERSION = 70001
 SERVICES = 1
-USER_AGENT = "/Satoshi:0.8.1/"
-START_HEIGHT = 237181
+USER_AGENT = "/bitnodes.io:0.1/"
+START_HEIGHT = 240842
 RELAY = 0
 
 SOCKET_BUFSIZE = 8192
@@ -123,7 +123,9 @@ class IncompatibleClientError(ProtocolError):
 
 
 class Serializer:
-    def __init__(self):
+    def __init__(self, **config):
+        self.user_agent = config.get('user_agent', USER_AGENT)
+        self.start_height = config.get('start_height', START_HEIGHT)
         # This is set prior to throwing PayloadTooShortError exception to
         # allow caller to fetch more data over the network.
         self.required_len = 0
@@ -205,8 +207,8 @@ class Serializer:
             self.serialize_network_address(to_addr),
             self.serialize_network_address(from_addr),
             struct.pack("<Q", random.getrandbits(64)),
-            self.serialize_string(USER_AGENT),
-            struct.pack("<i", START_HEIGHT),
+            self.serialize_string(self.user_agent),
+            struct.pack("<i", self.start_height),
             struct.pack("<?", RELAY),
         ]
         payload = ''.join(payload)
@@ -298,14 +300,13 @@ class Serializer:
 
 
 class Connection:
-    def __init__(self, to_addr, from_addr=("0.0.0.0", 0),
-                 timeout=SOCKET_TIMEOUT):
+    def __init__(self, to_addr, from_addr=("0.0.0.0", 0), **config):
         self.to_addr = to_addr
         self.from_addr = from_addr
-        self.serializer = Serializer()
+        self.serializer = Serializer(**config)
         self.min_protocol_version = PROTOCOL_VERSION
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.settimeout(timeout)
+        self.socket.settimeout(config.get('socket_timeout', SOCKET_TIMEOUT))
 
     def open(self):
         self.socket.connect(self.to_addr)
@@ -361,7 +362,7 @@ class Connection:
 
 
 def main():
-    to_addr = ("5.9.2.145", 8333)
+    to_addr = ("72.242.37.197", 8333)
     addr_msg = {}
 
     connection = Connection(to_addr)
