@@ -203,7 +203,7 @@ class Serializer:
         payload = [
             struct.pack("<i", PROTOCOL_VERSION),
             struct.pack("<Q", SERVICES),
-            struct.pack("<q", time.time()),
+            struct.pack("<q", int(time.time())),
             self.serialize_network_address(to_addr),
             self.serialize_network_address(from_addr),
             struct.pack("<Q", random.getrandbits(64)),
