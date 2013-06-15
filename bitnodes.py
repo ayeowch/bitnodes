@@ -179,6 +179,7 @@ class Seed:
         nodes.extend(self.dns_seed_nodes())
         nodes.extend(self.static_list_nodes())
         nodes.extend(self.static_page_nodes())
+        nodes.extend(self.last_run())
 
         nodes = list(set(nodes))
         random.shuffle(nodes)
@@ -207,13 +208,11 @@ class Seed:
     def static_list_nodes(self):
         """
         Extends seed nodes with nodes from text files.
-        static_seed_nodes.txt contains nodes with peers from previous run.
         pnSeed.txt contains nodes from pnSeed[] in
         https://github.com/bitcoin/bitcoin/blob/master/src/net.cpp
         """
         nodes = []
         text_files = [
-            "static_seed_nodes.txt",
             "pnSeed.txt",
         ]
 
@@ -239,6 +238,13 @@ class Seed:
             nodes.extend(re.findall(regex, page))
 
         return nodes
+
+    def last_run(self):
+        """
+        Extends seed nodes with nodes with peers from previous run.
+        """
+        nodes = urlopen("http://getaddr.bitnodes.io/seeds/")
+        return json.loads(nodes)
 
 
 class Database:
