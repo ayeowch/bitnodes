@@ -88,6 +88,7 @@ SERVICES = 1
 USER_AGENT = "/bitnodes.io:0.1/"
 START_HEIGHT = 240842
 RELAY = 0
+MAX_ADDR_COUNT = 1000
 
 SOCKET_BUFSIZE = 8192
 SOCKET_TIMEOUT = 15
@@ -305,10 +306,12 @@ class Connection:
         self.from_addr = from_addr
         self.serializer = Serializer(**config)
         self.min_protocol_version = PROTOCOL_VERSION
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.settimeout(config.get('socket_timeout', SOCKET_TIMEOUT))
+        self.socket_timeout = config.get('socket_timeout', SOCKET_TIMEOUT)
+        self.socket = None
 
     def open(self):
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.settimeout(self.socket_timeout)
         self.socket.connect(self.to_addr)
 
     def close(self):
@@ -362,7 +365,7 @@ class Connection:
 
 
 def main():
-    to_addr = ("72.242.37.197", 8333)
+    to_addr = ("173.31.208.185", 8333)
     addr_msg = {}
 
     connection = Connection(to_addr)
