@@ -44,7 +44,7 @@ from ConfigParser import ConfigParser
 from multiprocessing import Pool
 from subprocess import Popen, PIPE
 
-from protocol import ProtocolError, Connection
+from protocol import ProtocolError, Connection, MAX_ADDR_COUNT
 from tests import DUMMY_SEEDS, dummy_getaddr
 
 DEFAULT_PORT = 8333
@@ -342,16 +342,33 @@ class Database:
         except sqlite3.IntegrityError:
             pass
 
-    def add_node_getaddr(self, node, data, error, degree):
+    def add_node_getaddr(self, node, nodes, error, degree):
         """
         Adds a new node with getaddr information into nodes_getaddr table.
+        Existing row will be updated accordingly, e.g. new nodes are appended
+        into existing data column.
         """
-        try:
-            self.cursor.execute("INSERT INTO nodes_getaddr VALUES "
-                                "(?, ?, ?, ?)", (node, data, error, degree,))
+        self.cursor.execute("SELECT data FROM nodes_getaddr WHERE node = ?",
+                            (node,))
+        row = self.fetchone()
+        if row is not None:
+            existing_nodes = json.loads(row[0])
+            if nodes is not None and existing_nodes is not None:
+                nodes += existing_nodes
+                nodes = {_['ip']: _ for _ in nodes}.values()
+                degree = len(nodes)
+            self.cursor.execute("UPDATE nodes_getaddr SET data=?, error=?, "
+                                "degree=? WHERE node=?", (json.dumps(nodes),
+                                error, degree, node,))
             self.commit()
-        except sqlite3.IntegrityError:
-            pass
+        else:
+            try:
+                self.cursor.execute("INSERT INTO nodes_getaddr VALUES "
+                                    "(?, ?, ?, ?)", (node, json.dumps(nodes),
+                                    error, degree,))
+                self.commit()
+            except sqlite3.IntegrityError:
+                pass
 
     def get_node_getaddr(self, node):
         """
@@ -482,7 +499,18 @@ class Network:
         if self.database.has_node(node, table="nodes_getaddr"):
             return json.loads(self.database.get_node_getaddr(node))
 
-        return self._getaddr(node, port)
+        nodes = self._getaddr(node, port)
+
+        if nodes is not None and len(nodes) == MAX_ADDR_COUNT:
+            for n in xrange(SETTINGS['max_getaddr'] - 1):
+                _nodes = self._getaddr(node, port)
+                if _nodes is not None and len(_nodes) > 0:
+                    logging.debug("getaddr #{} {}".format(n + 2, node))
+                    nodes.extend(_nodes)
+                else:
+                    break
+
+        return nodes
 
     def _getaddr(self, node, port):
         """
@@ -525,7 +553,7 @@ class Network:
 
         # Cache the result in database for reuse in subsequent getaddr()
         # calls for the same node.
-        self.database.add_node_getaddr(node, json.dumps(nodes), error, degree)
+        self.database.add_node_getaddr(node, nodes, error, degree)
 
         return nodes
 
@@ -541,8 +569,8 @@ class Network:
             timestamp = addr['timestamp']
             if (now - timestamp) <= SETTINGS['max_age']:
                 node = {
-                    "ip": addr['ipv4'],
-                    "port": addr['port'],
+                    'ip': addr['ipv4'],
+                    'port': addr['port'],
                 }
                 nodes.append(node)
 
@@ -573,6 +601,7 @@ def main(argv):
     SETTINGS['max_depth'] = conf.getint('bitnodes', 'max_depth')
     SETTINGS['max_age'] = conf.getint('bitnodes', 'max_age')
     SETTINGS['greedy'] = conf.getboolean('bitnodes', 'greedy')
+    SETTINGS['max_getaddr'] = conf.getint('bitnodes', 'max_getaddr')
 
     # Initialize logger
     loglevel = logging.INFO
@@ -584,7 +613,7 @@ def main(argv):
                         filename=SETTINGS['logfile'],
                         filemode='w')
     print("Writing output to {}, press CTRL+C to terminate..".format(
-        SETTINGS['logfile']))
+          SETTINGS['logfile']))
 
     # Get seed nodes
     seeds = {}
