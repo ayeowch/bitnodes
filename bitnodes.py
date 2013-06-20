@@ -44,10 +44,9 @@ from ConfigParser import ConfigParser
 from multiprocessing import Pool
 from subprocess import Popen, PIPE
 
-from protocol import ProtocolError, Connection, MAX_ADDR_COUNT
+from protocol import ProtocolError, Connection, DEFAULT_PORT, MAX_ADDR_COUNT
 from tests import DUMMY_SEEDS, dummy_getaddr
 
-DEFAULT_PORT = 8333
 SETTINGS = {}
 
 
