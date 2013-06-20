@@ -19,9 +19,10 @@ Nodes data collected by Bitnodes are stored in a SQLite database called bitnodes
 
 `nodes` table contains all active nodes found during the run.
 <table>
-    <tr><th>nodes</th></tr>
+    <tr><th colspan="2">nodes</th></tr>
     <tr>
         <td>node</td>
+        <td>port</td>
     </tr>
 </table>
 

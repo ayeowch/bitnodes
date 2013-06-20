@@ -173,6 +173,7 @@ class Seed:
             ..
             N: "IP_ADDRESS_N",
         }
+        All seed nodes are expected to run on the DEFAULT_PORT.
         """
         nodes = []
 
@@ -263,7 +264,7 @@ class Database:
 
             stmts = [
                 # nodes table
-                "CREATE TABLE nodes (node TEXT UNIQUE)",
+                "CREATE TABLE nodes (node TEXT UNIQUE, port INTEGER)",
                 "CREATE INDEX nodes_node_idx ON nodes (node)",
 
                 # nodes_version table
@@ -319,12 +320,13 @@ class Database:
             logging.warning("fetchone() took {} seconds".format(elapsed))
         return result
 
-    def add_node(self, node):
+    def add_node(self, node, port):
         """
         Adds a new node into nodes table.
         """
         try:
-            self.cursor.execute("INSERT INTO nodes VALUES (?)", (node,))
+            self.cursor.execute("INSERT INTO nodes VALUES (?, ?)",
+                                (node, port,))
             self.commit()
         except sqlite3.IntegrityError:
             pass
@@ -448,21 +450,22 @@ class Network:
         added = 0
         depth = 0
 
-        current_nodes = set([root_node])
+        current_nodes = set([(root_node, DEFAULT_PORT)])
 
         while current_nodes:
             next_nodes = set()
             logging.debug("[{}] depth = {}".format(root_node, depth))
 
             for node in current_nodes:
-                if not self.database.has_node(node):
+                (node_ip, node_port) = node
+                if not self.database.has_node(node_ip):
                     logging.debug("[{}] adding {}".format(root_node, node))
-                    self.database.add_node(node)
+                    self.database.add_node(node_ip, node_port)
                     added += 1
                 else:
                     continue
 
-                childs = self.getaddr(node)
+                childs = self.getaddr(node_ip, node_port)
                 if childs is None:
                     continue
 
@@ -474,7 +477,7 @@ class Network:
 
                     child_getaddr = self.getaddr(child_ip, child_port)
                     if SETTINGS['greedy'] or child_getaddr is not None:
-                        next_nodes.add(child_ip)
+                        next_nodes.add((child_ip, child_port))
 
             current_nodes = next_nodes
             if current_nodes:
