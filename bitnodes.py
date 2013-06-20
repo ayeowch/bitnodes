@@ -503,11 +503,11 @@ class Network:
 
         nodes = self._getaddr(node, port)
 
-        if nodes is not None and len(nodes) == MAX_ADDR_COUNT:
-            for n in xrange(SETTINGS['max_getaddr'] - 1):
+        if (nodes is not None and len(nodes) == MAX_ADDR_COUNT and
+                SETTINGS['max_getaddr'] > 1):
+            for _ in xrange(SETTINGS['max_getaddr'] - 1):
                 _nodes = self._getaddr(node, port)
                 if _nodes is not None and len(_nodes) > 0:
-                    logging.debug("getaddr #{} {}".format(n + 2, node))
                     nodes.extend(_nodes)
                 else:
                     break
@@ -624,6 +624,12 @@ def main(argv):
     else:
         seeds = Seed().seed()
     logging.info("Starting bitnodes with {} seed nodes".format(len(seeds)))
+
+    # Get current start height
+    if SETTINGS['start_height'] == 0:
+        page = urlopen("http://blockexplorer.com/q/getblockcount")
+        SETTINGS['start_height'] = int(page)
+        logging.info("Start height set to {}".format(SETTINGS['start_height']))
 
     # Backup previous database
     if os.path.exists(SETTINGS['database']):
