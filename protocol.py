@@ -88,6 +88,7 @@ SERVICES = 1
 USER_AGENT = "/bitnodes.io:0.1/"
 START_HEIGHT = 240842
 RELAY = 0
+DEFAULT_PORT = 8333
 MAX_ADDR_COUNT = 1000
 
 SOCKET_BUFSIZE = 8192
@@ -302,6 +303,8 @@ class Serializer:
 
 class Connection:
     def __init__(self, to_addr, from_addr=("0.0.0.0", 0), **config):
+        if to_addr[1] == 0:
+            to_addr = (to_addr[0], DEFAULT_PORT)
         self.to_addr = to_addr
         self.from_addr = from_addr
         self.serializer = Serializer(**config)
