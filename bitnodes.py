@@ -41,13 +41,16 @@ import sys
 import time
 import urllib2
 from ConfigParser import ConfigParser
-from multiprocessing import Pool
+from multiprocessing import Pool, Value
 from subprocess import Popen, PIPE
 
 from protocol import ProtocolError, Connection, DEFAULT_PORT, MAX_ADDR_COUNT
 from tests import DUMMY_SEEDS, dummy_getaddr
 
 SETTINGS = {}
+
+# Set when number of found nodes per interval fell below set limit
+_MIN_DELTA = Value('i', 0)
 
 
 def execute_cmd(cmd):
@@ -104,6 +107,7 @@ def status():
     """
     current = 0
     last = 0
+    deltas = []
     database = Database(database=SETTINGS['database'])
 
     while True:
@@ -119,8 +123,15 @@ def status():
             logging.debug("status() stopped, {} == {}".format(current, last))
             break
 
-        diff = current - last
-        logging.info("Found {} nodes (+{})".format(current, diff))
+        delta = current - last
+
+        if SETTINGS['min_delta'] > 0:
+            deltas.append(delta)
+            if delta < (SETTINGS['min_delta'] * sum(deltas) / len(deltas)):
+                logging.debug("status() min. delta hit = {}".format(delta))
+                _MIN_DELTA.value = delta
+
+        logging.info("Found {} nodes (+{})".format(current, delta))
         last = current
 
     database.close()
@@ -248,7 +259,7 @@ class Seed:
 
 
 class Database:
-    def __init__(self, database=None):
+    def __init__(self, database):
         """
         Creates a SQLite database that will be used to store all known nodes.
         """
@@ -418,7 +429,7 @@ class Database:
 
 
 class Network:
-    def __init__(self, seed=None):
+    def __init__(self, seed):
         (self.seed_id, self.seed_ip) = seed
         self.database = Database(database=SETTINGS['database'])
 
@@ -473,6 +484,10 @@ class Network:
                     child_port = child.get('port', DEFAULT_PORT)
                     if self.database.has_node(child_ip):
                         continue
+
+                    if _MIN_DELTA.value != 0:
+                        logging.debug("[{}] min. delta set".format(root_node))
+                        return (added, depth)
 
                     child_getaddr = self.getaddr(child_ip, child_port)
                     if SETTINGS['greedy'] or child_getaddr is not None:
@@ -581,12 +596,10 @@ class Network:
         return nodes
 
 
-def main(argv):
-    if len(argv) < 2 or not os.path.exists(argv[1]):
-        print("Usage: bitnodes.py [config]")
-        return 1
-
-    # Initialize settings
+def init_settings(argv):
+    """
+    Populates SETTINGS with key-value pairs from configuration file.
+    """
     conf = ConfigParser()
     conf.read(argv[1])
     SETTINGS['logfile'] = conf.get('bitnodes', 'logfile')
@@ -602,8 +615,18 @@ def main(argv):
     SETTINGS['status_interval'] = conf.getint('bitnodes', 'status_interval')
     SETTINGS['max_depth'] = conf.getint('bitnodes', 'max_depth')
     SETTINGS['max_age'] = conf.getint('bitnodes', 'max_age')
+    SETTINGS['min_delta'] = conf.getfloat('bitnodes', 'min_delta')
     SETTINGS['greedy'] = conf.getboolean('bitnodes', 'greedy')
     SETTINGS['max_getaddr'] = conf.getint('bitnodes', 'max_getaddr')
+
+
+def main(argv):
+    if len(argv) < 2 or not os.path.exists(argv[1]):
+        print("Usage: bitnodes.py [config]")
+        return 1
+
+    # Initialize settings
+    init_settings(argv)
 
     # Initialize logger
     loglevel = logging.INFO
