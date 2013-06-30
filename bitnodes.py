@@ -27,9 +27,9 @@
 """
 Exhaustively get all connected Bitcoin nodes.
 """
-__version__ = '0.1'
 
 import datetime
+import httplib
 import json
 import logging
 import os
@@ -86,7 +86,7 @@ def urlopen(url):
     """
     Fetches webpage.
     """
-    response = ''
+    response = ""
     request = urllib2.Request(url=url)
 
     logging.debug("[{}]".format(url))
@@ -97,6 +97,8 @@ def urlopen(url):
         logging.warning("HTTPError: {} ({})".format(url, err.code))
     except urllib2.URLError, err:
         logging.warning("URLError: {} ({})".format(url, err.reason))
+    except httplib.IncompleteRead, err:
+        logging.warning("{}: {}".format(err, url))
 
     return response
 
@@ -345,8 +347,8 @@ class Database:
         """
         Adds a new node with version information into nodes_version table.
         """
-        protocol_version = version.get('version', '')
-        user_agent = version.get('user_agent', '')
+        protocol_version = version.get('version', "")
+        user_agent = version.get('user_agent', "")
         try:
             self.cursor.execute("INSERT INTO nodes_version VALUES (?, ?, ?)",
                                 (node, protocol_version, user_agent,))
