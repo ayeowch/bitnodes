@@ -88,6 +88,7 @@ def urlopen(url):
     """
     response = ""
     request = urllib2.Request(url=url)
+    request.add_header('User-Agent', 'Mozilla/5.0')
 
     logging.debug("[{}]".format(url))
 
