@@ -202,7 +202,7 @@ class Seed:
     def dns_seed_nodes(self):
         """
         DNS seeds from
-        https://github.com/bitcoin/bitcoin/blob/master/src/net.cpp
+        https://github.com/bitcoin/bitcoin/blob/master/src/chainparams.cpp
         Each of these DNS seeds should resolve to a list of seed nodes.
         """
         nodes = []
@@ -223,7 +223,7 @@ class Seed:
         """
         Extends seed nodes with nodes from text files.
         pnSeed.txt contains nodes from pnSeed[] in
-        https://github.com/bitcoin/bitcoin/blob/master/src/net.cpp
+        https://github.com/bitcoin/bitcoin/blob/master/src/chainparams.cpp
         """
         nodes = []
         text_files = [
