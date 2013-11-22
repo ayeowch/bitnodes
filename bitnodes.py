@@ -654,7 +654,7 @@ def main(argv):
 
     # Get current start height
     if SETTINGS['start_height'] == 0:
-        page = urlopen("http://blockexplorer.com/q/getblockcount")
+        page = urlopen("https://dazzlepod.com/bitcoin/getblockcount/")
         SETTINGS['start_height'] = int(page)
         logging.info("Start height set to {}".format(SETTINGS['start_height']))
 
