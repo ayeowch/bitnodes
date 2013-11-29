@@ -303,6 +303,7 @@ class Database:
             self.cursor = self.connection.cursor()
             self.cursor.execute("PRAGMA synchronous = OFF")
             self.cursor.execute("PRAGMA temp_store = MEMORY")
+            self.cursor.execute("PRAGMA read_uncommitted = TRUE")
 
     def close(self):
         """
