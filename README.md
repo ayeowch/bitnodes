@@ -7,9 +7,9 @@ Bitnodes is currently being developed to estimate the size of the Bitcoin networ
 * SQLite >= 3.7.0 (to use WAL journal mode)
 
 ## Usage
-The default configuration in config.cfg should work for most users. To run Bitnodes:
+The default configuration in bitnodes.conf should work for most users. To run Bitnodes:
 
-    $ python bitnodes.py config.cfg
+    $ python bitnodes.py bitnodes.conf
     Writing output to bitnodes.log, press CTRL+C to terminate..
 
 Newly discovered nodes will be added into a SQLite database called bitnodes.db in the `nodes` table.
