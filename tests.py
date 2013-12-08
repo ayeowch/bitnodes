@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# tests.py - Dummy data and tests for bitnodes.
+# tests.py - Dummy data and tests for bitnodes.py.
 #
 # Copyright (c) 2013 Addy Yeow Chin Heng <ayeowch@gmail.com>
 #
@@ -25,7 +25,7 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 """
-Dummy data and tests for bitnodes.
+Dummy data and tests for bitnodes.py.
 """
 
 import time
