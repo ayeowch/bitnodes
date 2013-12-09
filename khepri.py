@@ -35,7 +35,6 @@ import gevent
 import json
 import logging
 import os
-import random
 import redis
 import redis.connection
 import requests
@@ -90,6 +89,15 @@ SETTINGS = {}
 
 
 def connect(redis_conn, key, new):
+    """
+    Establishes connection with a node to:
+    1) Send version message
+    2) Receive version and verack message
+    3) Send getaddr message
+    4) Receive addr message containing list of peering nodes
+    Stores node in Redis with a set TTL.
+    Adds all peering nodes with max. age of 24 hours into the crawl set.
+    """
     handshake_msgs = []
     addr_msg = {}
     tag = None
@@ -155,6 +163,10 @@ def connect(redis_conn, key, new):
 
 
 def refill():
+    """
+    Loads all reachable (green) nodes from Redis into the crawl set and fetches
+    current start height for use by all workers in subsequent crawl.
+    """
     nodes = []  # Reachable (green) nodes
     redis_pipe = REDIS_CONN.pipeline()
 
@@ -165,20 +177,27 @@ def refill():
         tag = REDIS_CONN.hget(key, R_TAG)
         if tag == GREEN:
             nodes.append(key)
-        redis_pipe.sadd('nodes', tuple(key.split("-", 1)))
+            redis_pipe.sadd('nodes', tuple(key.split("-", 1)))
     redis_pipe.execute()
 
-    start_height = int(requests.get(HEIGHT_URL).text)
-    logging.info("[refill] Start height: {}".format(start_height))
-    REDIS_CONN.set('start_height', start_height)
+    last_refill = time.time()
 
     logging.info("[refill] Reachable nodes: {}".format(len(nodes)))
-    open(SETTINGS['json_output'], 'w').write(json.dumps(nodes, indent=2))
+    json_output = "{},{}".format(SETTINGS['json_output'], int(last_refill))
+    open(json_output, 'w').write(json.dumps(nodes, indent=2))
 
-    return time.time()
+    set_start_height()
+
+    return last_refill
 
 
 def cron():
+    """
+    Gets assigned to a worker to perform the following tasks periodically to
+    maintain a continuous crawl:
+    1) Reports the current number of nodes in crawl set
+    2) Refills crawl set after the set refill_delay
+    """
     last_refill = time.time()
 
     while True:
@@ -193,25 +212,41 @@ def cron():
 
 
 def task():
+    """
+    Gets assigned to a worker to pop a node from the crawl set and attempt to
+    establish connection with a new node or an existing node in Redis with
+    50% or below its set TTL.
+    """
     redis_conn = redis.StrictRedis()
 
     while True:
         node = redis_conn.spop('nodes')  # Pop random node from set
         if node is None:
-            gevent.sleep(random.randint(10, 30) * 0.1)  # 1 - 3 secs.
+            gevent.sleep(1)
             continue
 
         node = eval(node)  # Convert string from Redis to tuple
         key = "{}-{}".format(node[0], node[1])
 
         new = True
-        if redis_conn.exists(key):
-            if redis_conn.ttl(key) > 0.5 * SETTINGS['ttl']:
+        ttl = redis_conn.ttl(key)
+        if ttl > 0:  # Key exists
+            if ttl > 0.5 * SETTINGS['ttl']:
                 continue
             new = False
 
         connect(redis_conn, key, new)
-        gevent.sleep(random.randint(1, 3) * 0.1)  # 0.1 - 0.3 sec.
+        gevent.sleep(0.1)
+
+
+def set_start_height():
+    """
+    Fetches current start height from a remote source. The value is then set
+    in Redis for use by all workers.
+    """
+    start_height = int(requests.get(HEIGHT_URL).text)
+    logging.info("Start height: {}".format(start_height))
+    REDIS_CONN.set('start_height', start_height)
 
 
 def init_settings(argv):
@@ -237,7 +272,7 @@ def main(argv):
         print("Usage: khepri.py [config]")
         return 1
 
-    # Initialize settings
+    # Initialize global settings
     init_settings(argv)
 
     # Initialize logger
@@ -263,10 +298,7 @@ def main(argv):
         seeds += 1
     logging.info("Seeds: {}".format(seeds))
 
-    # Get current start height
-    start_height = int(requests.get(HEIGHT_URL).text)
-    logging.info("Start height: {}".format(start_height))
-    REDIS_CONN.set('start_height', start_height)
+    set_start_height()
 
     # Spawn workers (greenlets) including one worker reserved for cron tasks
     workers = []
