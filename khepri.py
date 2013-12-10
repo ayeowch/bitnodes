@@ -69,13 +69,11 @@ NETWORK_ERRORS = [
 ]
 TIMED_OUT = "TIMED OUT"
 
-# Key's name in Redis
-R_PORT = 'P'
-R_TAG = 'T'
-R_USER_AGENT = 'U'
-R_HEIGHT = 'H'
+# Possible fields for a hash in Redis
+TAG_FIELD = 'T'
+DATA_FIELD = 'D'  # __VERSION__\t__USER_AGENT__\t__START_HEIGHT__
 
-# Node's tag in Redis
+# Possible values for a tag field in Redis
 GREEN = 'G'  # Reachable node
 YELLOW = 'Y'  # No response from handshake
 ORANGE = 'O'  # Bitcoin protocol error
@@ -103,7 +101,7 @@ def connect(redis_conn, key, new):
     tag = None
 
     if new:
-        redis_conn.hset(key, R_TAG, "")  # Set Redis hash for a new node
+        redis_conn.hset(key, TAG_FIELD, "")  # Set Redis hash for a new node
 
     address, port = key.split("-", 1)
     start_height = int(redis_conn.get('start_height'))
@@ -124,9 +122,8 @@ def connect(redis_conn, key, new):
         elif err.message and err.message.upper() == TIMED_OUT:
             tag = BLUE
         else:
-            if SETTINGS['debug']:
-                import pdb
-                pdb.set_trace()
+            logging.debug("Unknown error: {}".format(err.message))
+            tag = BLUE
     finally:
         connection.close()
 
@@ -135,11 +132,21 @@ def connect(redis_conn, key, new):
     if len(handshake_msgs) > 0:
         tag = GREEN
 
-        if 'user_agent' in handshake_msgs[0]:
-            redis_pipe.hset(key, R_USER_AGENT, handshake_msgs[0]['user_agent'])
+        node_version = ""
+        if 'version' in handshake_msgs[0]:
+            node_version = handshake_msgs[0]['version']
 
+        node_user_agent = ""
+        if 'user_agent' in handshake_msgs[0]:
+            node_user_agent = handshake_msgs[0]['user_agent']
+
+        node_start_height = ""
         if 'start_height' in handshake_msgs[0]:
-            redis_pipe.hset(key, R_HEIGHT, handshake_msgs[0]['start_height'])
+            node_start_height = handshake_msgs[0]['start_height']
+
+        node_data = "{}\t{}\t{}".format(node_version, node_user_agent,
+                                        node_start_height)
+        redis_pipe.hset(key, DATA_FIELD, node_data)
 
         if 'addr_list' in addr_msg:
             now = time.time()
@@ -157,36 +164,57 @@ def connect(redis_conn, key, new):
     if tag is None:
         tag = YELLOW
 
-    redis_pipe.hset(key, R_TAG, tag)
+    redis_pipe.hset(key, TAG_FIELD, tag)
     redis_pipe.expire(key, SETTINGS['ttl'])
     redis_pipe.execute()
 
 
+def dump(nodes, timestamp):
+    """
+    Dumps data for reachable (green) nodes into timestamp-suffixed JSON file.
+    """
+    json_data = []
+
+    logging.info("[dump] Reachable nodes: {}".format(len(nodes)))
+    for node in nodes:
+        data = REDIS_CONN.hget(node, DATA_FIELD)
+
+        # Expired key
+        if data is None:
+            continue
+
+        (version, user_agent, start_height) = data.split("\t")
+        json_data.append(
+            tuple(node.split("-", 1)) + (version, user_agent, start_height))
+
+    json_output = "{},{}".format(SETTINGS['json_output'], int(timestamp))
+    open(json_output, 'w').write(json.dumps(json_data, indent=2))
+    logging.info("[dump] Wrote {}".format(json_output))
+
+
 def refill():
     """
-    Loads all reachable (green) nodes from Redis into the crawl set and fetches
-    current start height for use by all workers in subsequent crawl.
+    Loads all reachable (green) nodes from Redis into the crawl set.
+    Fetches current start height for use by all workers in subsequent crawl.
+    Dumps data for the reachable nodes into a JSON file.
     """
     nodes = []  # Reachable (green) nodes
-    redis_pipe = REDIS_CONN.pipeline()
 
     keys = REDIS_CONN.keys('*-*')
     logging.info("[refill] Keys: {}".format(len(keys)))
 
+    redis_pipe = REDIS_CONN.pipeline()
     for key in keys:
-        tag = REDIS_CONN.hget(key, R_TAG)
+        tag = REDIS_CONN.hget(key, TAG_FIELD)
         if tag == GREEN:
             nodes.append(key)
             redis_pipe.sadd('nodes', tuple(key.split("-", 1)))
     redis_pipe.execute()
-
     last_refill = time.time()
 
-    logging.info("[refill] Reachable nodes: {}".format(len(nodes)))
-    json_output = "{},{}".format(SETTINGS['json_output'], int(last_refill))
-    open(json_output, 'w').write(json.dumps(nodes, indent=2))
-
     set_start_height()
+
+    dump(nodes, last_refill)
 
     return last_refill
 
