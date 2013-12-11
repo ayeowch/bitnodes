@@ -368,22 +368,29 @@ class Connection:
 
 
 def main():
-    to_addr = ("173.31.208.185", 8333)
+    to_addr = ("162.243.95.129", 8333)
+    handshake_msgs = []
     addr_msg = {}
 
     connection = Connection(to_addr)
     try:
         connection.open()
-        connection.handshake()
+        print("open")
+        handshake_msgs = connection.handshake()
+        print("handshake")
         addr_msg = connection.getaddr()
+        print("getaddr")
     except (ProtocolError, socket.error) as err:
         print("{}: {}".format(err, to_addr))
     finally:
         connection.close()
+        print("close")
 
-    if 'addr_list' in addr_msg:
-        for idx, addr in enumerate(addr_msg['addr_list'], start=1):
-            print("[{}] {}".format(idx, addr))
+    if len(handshake_msgs) > 0:
+        print("{}".format(handshake_msgs[0]))
+        if 'addr_list' in addr_msg:
+            for idx, addr in enumerate(addr_msg['addr_list'], start=1):
+                print("[{}] {}".format(idx, addr))
 
     return 0
 

@@ -76,7 +76,7 @@ DATA_FIELD = 'D'  # __VERSION__\t__USER_AGENT__\t__START_HEIGHT__
 # Possible values for a tag field in Redis
 GREEN = 'G'  # Reachable node
 YELLOW = 'Y'  # No response from handshake
-ORANGE = 'O'  # Bitcoin protocol error
+ORANGE = 'O'  # Partially reachable node due to Bitcoin protocol error
 RED = 'R'  # Network error
 BLUE = 'B'  # Timed out
 
@@ -115,6 +115,8 @@ def connect(redis_conn, key, new):
         handshake_msgs = connection.handshake()
         addr_msg = connection.getaddr()
     except ProtocolError as err:
+        # e.g. node not accepting connection due to max. connections
+        logging.debug("Orange node: {}".format(key))
         tag = ORANGE
     except socket.error as err:
         if err.strerror and err.strerror.upper() in NETWORK_ERRORS:
@@ -162,6 +164,7 @@ def connect(redis_conn, key, new):
                     redis_pipe.sadd('nodes', node)
 
     if tag is None:
+        logging.debug("Yellow node: {}".format(key))
         tag = YELLOW
 
     redis_pipe.hset(key, TAG_FIELD, tag)
@@ -171,11 +174,11 @@ def connect(redis_conn, key, new):
 
 def dump(nodes):
     """
-    Dumps data for reachable (green) nodes into timestamp-suffixed JSON file.
+    Dumps data for reachable nodes into timestamp-suffixed JSON file.
     """
     json_data = []
 
-    logging.info("[dump] Reachable nodes: {}".format(len(nodes)))
+    logging.info("Reachable nodes: {}".format(len(nodes)))
     for node in nodes:
         data = REDIS_CONN.hget(node, DATA_FIELD)
 
@@ -189,25 +192,25 @@ def dump(nodes):
 
     json_output = "{},{}".format(SETTINGS['json_output'], int(time.time()))
     open(json_output, 'w').write(json.dumps(json_data, indent=2))
-    logging.info("[dump] Wrote {}".format(json_output))
+    logging.info("Wrote {}".format(json_output))
 
 
 def restart():
     """
-    Loads all reachable (green) nodes from Redis into the crawl set.
+    Loads all reachable nodes from Redis into the crawl set.
     Dumps data for the reachable nodes into a JSON file.
     Removes keys for all nodes from current crawl.
     Fetches latest start height to start a new crawl.
     """
-    nodes = []  # Reachable (green) nodes
+    nodes = []  # Reachable nodes
 
     keys = REDIS_CONN.keys('*-*')
-    logging.info("[restart] Keys: {}".format(len(keys)))
+    logging.info("Keys: {}".format(len(keys)))
 
     redis_pipe = REDIS_CONN.pipeline()
     for key in keys:
         tag = REDIS_CONN.hget(key, TAG_FIELD)
-        if tag == GREEN:
+        if tag == GREEN or tag == ORANGE:
             nodes.append(key)
             redis_pipe.sadd('nodes', tuple(key.split("-", 1)))
         redis_pipe.delete(key)
@@ -230,7 +233,7 @@ def cron():
 
     while True:
         current_nodes = REDIS_CONN.scard('nodes')
-        logging.info("[cron] Queue: {}".format(current_nodes))
+        logging.info("Queue: {}".format(current_nodes))
 
         if current_nodes == 0:
             restart_threshold += 1
@@ -238,7 +241,7 @@ def cron():
             restart_threshold = 0
 
         if restart_threshold == SETTINGS['restart_threshold']:
-            logging.info("[cron] Restarting")
+            logging.info("Restarting")
             restart()
 
         gevent.sleep(SETTINGS['cron_delay'])
@@ -313,7 +316,8 @@ def main(argv):
     if SETTINGS['debug']:
         loglevel = logging.DEBUG
 
-    logformat = ("%(asctime)s,%(msecs)05.1f %(levelname)s %(message)s")
+    logformat = ("%(asctime)s,%(msecs)05.1f %(levelname)s (%(funcName)s) "
+                 "%(message)s")
     logging.basicConfig(level=loglevel,
                         format=logformat,
                         filename=SETTINGS['logfile'],
@@ -321,7 +325,7 @@ def main(argv):
     print("Writing output to {}, press CTRL+C to terminate..".format(
           SETTINGS['logfile']))
 
-    logging.debug("Removing all keys")
+    logging.info("Removing all keys")
     REDIS_CONN.flushall()
 
     # Get seed nodes
@@ -338,7 +342,7 @@ def main(argv):
     workers.append(gevent.spawn(cron))
     for _ in xrange(SETTINGS['workers'] - 1):
         workers.append(gevent.spawn(task))
-    logging.debug("Workers: {}".format(len(workers)))
+    logging.info("Workers: {}".format(len(workers)))
     gevent.joinall(workers)
 
     return 0
