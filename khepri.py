@@ -169,7 +169,7 @@ def connect(redis_conn, key, new):
     redis_pipe.execute()
 
 
-def dump(nodes, timestamp):
+def dump(nodes):
     """
     Dumps data for reachable (green) nodes into timestamp-suffixed JSON file.
     """
@@ -187,21 +187,22 @@ def dump(nodes, timestamp):
         json_data.append(
             tuple(node.split("-", 1)) + (version, user_agent, start_height))
 
-    json_output = "{},{}".format(SETTINGS['json_output'], int(timestamp))
+    json_output = "{},{}".format(SETTINGS['json_output'], int(time.time()))
     open(json_output, 'w').write(json.dumps(json_data, indent=2))
     logging.info("[dump] Wrote {}".format(json_output))
 
 
-def refill():
+def restart():
     """
     Loads all reachable (green) nodes from Redis into the crawl set.
-    Fetches current start height for use by all workers in subsequent crawl.
     Dumps data for the reachable nodes into a JSON file.
+    Removes keys for all nodes from current crawl.
+    Fetches latest start height to start a new crawl.
     """
     nodes = []  # Reachable (green) nodes
 
     keys = REDIS_CONN.keys('*-*')
-    logging.info("[refill] Keys: {}".format(len(keys)))
+    logging.info("[restart] Keys: {}".format(len(keys)))
 
     redis_pipe = REDIS_CONN.pipeline()
     for key in keys:
@@ -209,14 +210,13 @@ def refill():
         if tag == GREEN:
             nodes.append(key)
             redis_pipe.sadd('nodes', tuple(key.split("-", 1)))
-    redis_pipe.execute()
-    last_refill = time.time()
+        redis_pipe.delete(key)
+
+    dump(nodes)
 
     set_start_height()
 
-    dump(nodes, last_refill)
-
-    return last_refill
+    redis_pipe.execute()
 
 
 def cron():
@@ -224,17 +224,22 @@ def cron():
     Gets assigned to a worker to perform the following tasks periodically to
     maintain a continuous crawl:
     1) Reports the current number of nodes in crawl set
-    2) Refills crawl set after the set refill_delay
+    2) Initiates a new crawl once the crawl set is empty
     """
-    last_refill = time.time()
+    restart_threshold = 0
 
     while True:
         current_nodes = REDIS_CONN.scard('nodes')
         logging.info("[cron] Queue: {}".format(current_nodes))
 
-        if time.time() - last_refill >= SETTINGS['refill_delay']:
-            logging.info("[cron] Refilling queue")
-            last_refill = refill()
+        if current_nodes == 0:
+            restart_threshold += 1
+        else:
+            restart_threshold = 0
+
+        if restart_threshold == SETTINGS['restart_threshold']:
+            logging.info("[cron] Restarting")
+            restart()
 
         gevent.sleep(SETTINGS['cron_delay'])
 
@@ -290,7 +295,7 @@ def init_settings(argv):
     SETTINGS['socket_timeout'] = conf.getint('khepri', 'socket_timeout')
     SETTINGS['cron_delay'] = conf.getint('khepri', 'cron_delay')
     SETTINGS['ttl'] = conf.getint('khepri', 'ttl')
-    SETTINGS['refill_delay'] = conf.getint('khepri', 'refill_delay')
+    SETTINGS['restart_threshold'] = conf.getint('khepri', 'restart_threshold')
     SETTINGS['max_age'] = conf.getint('khepri', 'max_age')
     SETTINGS['json_output'] = conf.get('khepri', 'json_output')
 
