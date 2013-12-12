@@ -85,7 +85,7 @@ import time
 MAGIC_NUMBER = "\xF9\xBE\xB4\xD9"
 PROTOCOL_VERSION = 70001
 SERVICES = 1
-USER_AGENT = "/bitnodes.io:0.1/"
+USER_AGENT = "/Satoshi:0.8.6/"
 START_HEIGHT = 274475
 RELAY = 0
 DEFAULT_PORT = 8333
@@ -308,7 +308,6 @@ class Connection:
         self.to_addr = to_addr
         self.from_addr = from_addr
         self.serializer = Serializer(**config)
-        self.min_protocol_version = PROTOCOL_VERSION
         self.socket_timeout = config.get('socket_timeout', SOCKET_TIMEOUT)
         self.socket = None
 
@@ -342,13 +341,15 @@ class Connection:
 
         # <<< [version] [verack]
         msgs = []
-        data = self.recv(length=148)  # version (124 bytes) + verack (24 bytes)
-        while (len(data) > 0):
-            (msg, data) = self.serializer.deserialize_msg(data)
+        for recv in xrange(2):
+            data = self.recv()
+            try:
+                (msg, data) = self.serializer.deserialize_msg(data)
+            except PayloadTooShortError:
+                remaining_length = self.serializer.required_len - len(data)
+                data += self.recv(length=remaining_length)
+                (msg, data) = self.serializer.deserialize_msg(data)
             msgs.append(msg)
-            if 'version' in msg:
-                self.min_protocol_version = min(PROTOCOL_VERSION,
-                                                msg['version'])
         return msgs
 
     def getaddr(self):
@@ -388,9 +389,11 @@ def main():
 
     if len(handshake_msgs) > 0:
         print("{}".format(handshake_msgs[0]))
+        print("{}".format(handshake_msgs[1]))
         if 'addr_list' in addr_msg:
-            for idx, addr in enumerate(addr_msg['addr_list'], start=1):
+            for idx, addr in enumerate(addr_msg['addr_list'][:30], start=1):
                 print("[{}] {}".format(idx, addr))
+            print("...")
 
     return 0
 
