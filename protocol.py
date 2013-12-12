@@ -339,17 +339,15 @@ class Connection:
             command="version", to_addr=self.to_addr, from_addr=self.from_addr)
         self.send(msg)
 
+        time.sleep(0.5)
+
         # <<< [version] [verack]
         msgs = []
-        for recv in xrange(2):
-            data = self.recv()
-            try:
-                (msg, data) = self.serializer.deserialize_msg(data)
-            except PayloadTooShortError:
-                remaining_length = self.serializer.required_len - len(data)
-                data += self.recv(length=remaining_length)
-                (msg, data) = self.serializer.deserialize_msg(data)
+        data = self.recv()
+        while (len(data) > 0):
+            (msg, data) = self.serializer.deserialize_msg(data)
             msgs.append(msg)
+
         return msgs
 
     def getaddr(self):
@@ -388,8 +386,7 @@ def main():
         print("close")
 
     if len(handshake_msgs) > 0:
-        print("{}".format(handshake_msgs[0]))
-        print("{}".format(handshake_msgs[1]))
+        print("{}".format(handshake_msgs))
         if 'addr_list' in addr_msg:
             for idx, addr in enumerate(addr_msg['addr_list'][:30], start=1):
                 print("[{}] {}".format(idx, addr))
