@@ -86,7 +86,7 @@ MAGIC_NUMBER = "\xF9\xBE\xB4\xD9"
 PROTOCOL_VERSION = 70001
 SERVICES = 1
 USER_AGENT = "/bitnodes.io:0.1/"
-START_HEIGHT = 240842
+START_HEIGHT = 274475
 RELAY = 0
 DEFAULT_PORT = 8333
 MAX_ADDR_COUNT = 1000
@@ -342,7 +342,7 @@ class Connection:
 
         # <<< [version] [verack]
         msgs = []
-        data = self.recv()
+        data = self.recv(length=148)  # version (124 bytes) + verack (24 bytes)
         while (len(data) > 0):
             (msg, data) = self.serializer.deserialize_msg(data)
             msgs.append(msg)
