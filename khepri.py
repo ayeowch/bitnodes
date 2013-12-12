@@ -116,7 +116,6 @@ def connect(redis_conn, key, new):
         addr_msg = connection.getaddr()
     except ProtocolError as err:
         # e.g. node not accepting connection due to max. connections
-        logging.debug("Orange node: {}".format(key))
         tag = ORANGE
     except socket.error as err:
         if err.strerror and err.strerror.upper() in NETWORK_ERRORS:
