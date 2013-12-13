@@ -327,8 +327,11 @@ class Connection:
             data = ""
             while length > 0:
                 partial_data = self.socket.recv(SOCKET_BUFSIZE)
+                if not partial_data:
+                    break  # remote host closed connection
                 data += partial_data
                 length -= len(partial_data)
+
         else:
             data = self.socket.recv(SOCKET_BUFSIZE)
         return data
@@ -339,11 +342,9 @@ class Connection:
             command="version", to_addr=self.to_addr, from_addr=self.from_addr)
         self.send(msg)
 
-        time.sleep(0.5)
-
         # <<< [version] [verack]
         msgs = []
-        data = self.recv()
+        data = self.recv(length=148)  # version (124 bytes) + verack (24 bytes)
         while (len(data) > 0):
             (msg, data) = self.serializer.deserialize_msg(data)
             msgs.append(msg)
@@ -388,7 +389,7 @@ def main():
     if len(handshake_msgs) > 0:
         print("{}".format(handshake_msgs))
         if 'addr_list' in addr_msg:
-            for idx, addr in enumerate(addr_msg['addr_list'][:30], start=1):
+            for idx, addr in enumerate(addr_msg['addr_list'][:10], start=1):
                 print("[{}] {}".format(idx, addr))
             print("...")
 
