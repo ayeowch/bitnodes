@@ -268,12 +268,22 @@ class Serializer:
         timestamp = None
         if has_timestamp:
             timestamp = struct.unpack("<I", data.read(4))[0]
+
+        services = struct.unpack("<Q", data.read(8))[0]
+        _ipv6 = data.read(12)
+        _ipv4 = data.read(4)
+        port = struct.unpack(">H", data.read(2))[0]
+
+        # ipv4-mapped ipv6 address (ipv6 is 16 bytes)
+        ipv6 = socket.inet_ntop(socket.AF_INET6, _ipv6 + _ipv4)
+        ipv4 = socket.inet_ntoa(_ipv4)
+
         return {
             'timestamp': timestamp,
-            'services': struct.unpack("<Q", data.read(8))[0],
-            'ipv6': data.read(12),
-            'ipv4': socket.inet_ntoa(data.read(4)),
-            'port': struct.unpack(">H", data.read(2))[0],
+            'services': services,
+            'ipv6': ipv6,
+            'ipv4': ipv4,
+            'port': port,
         }
 
     def serialize_string(self, data):
