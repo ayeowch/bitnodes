@@ -123,7 +123,7 @@ def connect(redis_conn, key, new):
         elif err.message and err.message.upper() == TIMED_OUT:
             tag = BLUE
         else:
-            logging.debug("Unknown error: {}".format(err.message))
+            logging.warning("Unknown error: {}".format(err.message))
             tag = BLUE
     finally:
         connection.close()
@@ -279,7 +279,11 @@ def set_start_height():
     Fetches current start height from a remote source. The value is then set
     in Redis for use by all workers.
     """
-    start_height = int(requests.get(HEIGHT_URL).text)
+    try:
+        start_height = int(requests.get(HEIGHT_URL).text)
+    except requests.exceptions.RequestException as err:
+        logging.warning("{}".format(err))
+        start_height = int(REDIS_CONN.get('start_height'))
     logging.info("Start height: {}".format(start_height))
     REDIS_CONN.set('start_height', start_height)
 
