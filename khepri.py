@@ -250,7 +250,7 @@ def task():
     """
     Gets assigned to a worker to pop a node from the crawl set and attempt to
     establish connection with a new node or an existing node in Redis with
-    50% or below its set TTL.
+    20% or below its set TTL.
     """
     redis_conn = redis.StrictRedis()
 
@@ -266,7 +266,7 @@ def task():
         new = True
         ttl = redis_conn.ttl(key)
         if ttl > 0:  # Key exists
-            if ttl > 0.5 * SETTINGS['ttl']:
+            if ttl > 0.2 * SETTINGS['ttl']:
                 continue
             new = False
 
