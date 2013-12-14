@@ -255,12 +255,17 @@ class Serializer:
 
     def serialize_network_address(self, addr):
         (ip_address, port) = addr
-        network_address = [
-            struct.pack("<Q", SERVICES),
-            "\x00" * 10 + "\xFF" * 2,      # ipv6 (unused)
-            socket.inet_aton(ip_address),  # ipv4
-            struct.pack(">H", port),
-        ]
+        network_address = [struct.pack("<Q", SERVICES)]
+        if "." in ip_address:
+            # unused (12 bytes) + ipv4 (4 bytes) = ipv4-mapped ipv6 address
+            unused = "\x00" * 10 + "\xFF" * 2
+            network_address.append(
+                unused + socket.inet_pton(socket.AF_INET, ip_address))
+        else:
+            # ipv6 (16 bytes)
+            network_address.append(
+                socket.inet_pton(socket.AF_INET6, ip_address))
+        network_address.append(struct.pack(">H", port))
         network_address = ''.join(network_address)
         return network_address
 
@@ -274,9 +279,13 @@ class Serializer:
         _ipv4 = data.read(4)
         port = struct.unpack(">H", data.read(2))[0]
 
-        # ipv4-mapped ipv6 address (ipv6 is 16 bytes)
         ipv6 = socket.inet_ntop(socket.AF_INET6, _ipv6 + _ipv4)
-        ipv4 = socket.inet_ntoa(_ipv4)
+        ipv4 = socket.inet_ntop(socket.AF_INET, _ipv4)
+
+        if ipv4 in ipv6:
+            ipv6 = ""  # use ipv4
+        else:
+            ipv4 = ""  # use ipv6
 
         return {
             'timestamp': timestamp,
@@ -322,12 +331,12 @@ class Connection:
         self.socket = None
 
     def open(self):
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.settimeout(self.socket_timeout)
-        self.socket.connect(self.to_addr)
+        self.socket = socket.create_connection(self.to_addr,
+                                               self.socket_timeout)
 
     def close(self):
-        self.socket.close()
+        if self.socket:
+            self.socket.close()
 
     def send(self, data):
         self.socket.sendall(data)
@@ -341,7 +350,6 @@ class Connection:
                     break  # remote host closed connection
                 data += partial_data
                 length -= len(partial_data)
-
         else:
             data = self.socket.recv(SOCKET_BUFSIZE)
         return data

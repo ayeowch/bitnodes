@@ -153,13 +153,13 @@ def connect(redis_conn, key, new):
             now = time.time()
 
             for peer in addr_msg['addr_list']:
-                node = (peer['ipv4'], peer['port'])
-
                 timestamp = peer['timestamp']
                 age = now - timestamp  # seconds
 
                 # Add peering node with age <= 24 hours into crawl set
                 if age >= 0 and age <= SETTINGS['max_age']:
+                    node = (peer['ipv4'] if peer['ipv4'] else peer['ipv6'],
+                            peer['port'])
                     redis_pipe.sadd('nodes', node)
 
     if tag is None:
