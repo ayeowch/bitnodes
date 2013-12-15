@@ -123,7 +123,7 @@ def connect(redis_conn, key, new):
         elif err.message and err.message.upper() == TIMED_OUT:
             tag = BLUE
         else:
-            logging.warning("Unknown error: {}".format(err.message))
+            logging.warning("Unhandled socket error: {}".format(err))
             tag = BLUE
     finally:
         connection.close()
@@ -263,6 +263,10 @@ def task():
         node = eval(node)  # Convert string from Redis to tuple
         key = "{}-{}".format(node[0], node[1])
 
+        # Skip IPv6 node
+        if ":" in key and not SETTINGS['ipv6']:
+            continue
+
         new = True
         ttl = redis_conn.ttl(key)
         if ttl > 0:  # Key exists
@@ -303,6 +307,7 @@ def init_settings(argv):
     SETTINGS['ttl'] = conf.getint('khepri', 'ttl')
     SETTINGS['restart_threshold'] = conf.getint('khepri', 'restart_threshold')
     SETTINGS['max_age'] = conf.getint('khepri', 'max_age')
+    SETTINGS['ipv6'] = conf.getboolean('khepri', 'ipv6')
     SETTINGS['json_output'] = conf.get('khepri', 'json_output')
 
 
