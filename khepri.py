@@ -89,6 +89,40 @@ REDIS_CONN = redis.StrictRedis()
 SETTINGS = {}
 
 
+def enumerate_node(redis_pipe, key, version_msg, addr_msg):
+    """
+    Stores version information for a reachable node.
+    Adds all peering nodes with max. age of 24 hours into the crawl set.
+    """
+    version = ""
+    if 'version' in version_msg:
+        version = version_msg['version']
+
+    user_agent = ""
+    if 'user_agent' in version_msg:
+        user_agent = version_msg['user_agent']
+
+    start_height = ""
+    if 'start_height' in version_msg:
+        start_height = version_msg['start_height']
+
+    data = "{}\t{}\t{}".format(version, user_agent, start_height)
+    redis_pipe.hset(key, DATA_FIELD, data)
+
+    if 'addr_list' in addr_msg:
+        now = time.time()
+
+        for peer in addr_msg['addr_list']:
+            timestamp = peer['timestamp']
+            age = now - timestamp  # seconds
+
+            # Add peering node with age <= 24 hours into crawl set
+            if age >= 0 and age <= SETTINGS['max_age']:
+                node = (peer['ipv4'] if peer['ipv4'] else peer['ipv6'],
+                        peer['port'])
+                redis_pipe.sadd('nodes', node)
+
+
 def connect(redis_conn, key, new):
     """
     Establishes connection with a node to:
@@ -97,7 +131,6 @@ def connect(redis_conn, key, new):
     3) Send getaddr message
     4) Receive addr message containing list of peering nodes
     Stores node in Redis with a set TTL.
-    Adds all peering nodes with max. age of 24 hours into the crawl set.
     """
     handshake_msgs = []
     addr_msg = {}
@@ -135,35 +168,7 @@ def connect(redis_conn, key, new):
 
     if len(handshake_msgs) > 0:
         tag = GREEN
-
-        node_version = ""
-        if 'version' in handshake_msgs[0]:
-            node_version = handshake_msgs[0]['version']
-
-        node_user_agent = ""
-        if 'user_agent' in handshake_msgs[0]:
-            node_user_agent = handshake_msgs[0]['user_agent']
-
-        node_start_height = ""
-        if 'start_height' in handshake_msgs[0]:
-            node_start_height = handshake_msgs[0]['start_height']
-
-        node_data = "{}\t{}\t{}".format(node_version, node_user_agent,
-                                        node_start_height)
-        redis_pipe.hset(key, DATA_FIELD, node_data)
-
-        if 'addr_list' in addr_msg:
-            now = time.time()
-
-            for peer in addr_msg['addr_list']:
-                timestamp = peer['timestamp']
-                age = now - timestamp  # seconds
-
-                # Add peering node with age <= 24 hours into crawl set
-                if age >= 0 and age <= SETTINGS['max_age']:
-                    node = (peer['ipv4'] if peer['ipv4'] else peer['ipv6'],
-                            peer['port'])
-                    redis_pipe.sadd('nodes', node)
+        enumerate_node(redis_pipe, key, handshake_msgs[0], addr_msg)
 
     if tag is None:
         logging.debug("Yellow node: {}".format(key))
