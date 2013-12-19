@@ -69,6 +69,13 @@ Reference: https://en.bitcoin.it/wiki/Protocol_specification
             [12] IPV6   (\x00 * 10 + \xFF * 2)              char[12]
             [ 4] IPV4                                       char[4]
         [ 2] PORT       >H                                  uint16_t
+
+    [---PING_PAYLOAD---]
+    [ 8] NONCE          <Q ( random.getrandbits(64) )       uint64_t
+
+    [---PONG_PAYLOAD---]
+    [ 8] NONCE          <Q (nonce from ping)                uint64_t
+
 ---------------------------------------------------------------------
 
 """
@@ -85,7 +92,7 @@ import time
 MAGIC_NUMBER = "\xF9\xBE\xB4\xD9"
 PROTOCOL_VERSION = 70001
 SERVICES = 1
-USER_AGENT = "/Satoshi:0.8.6/"
+USER_AGENT = "/getaddr.bitnodes.io:0.1/"
 START_HEIGHT = 274475
 RELAY = 0
 DEFAULT_PORT = 8333
@@ -144,6 +151,9 @@ class Serializer:
             to_addr = kwargs['to_addr']
             from_addr = kwargs['from_addr']
             payload = self.serialize_version_payload(to_addr, from_addr)
+        elif command == "ping" or command == "pong":
+            nonce = kwargs['nonce']
+            payload = self.serialize_ping_payload(nonce)
 
         msg.extend([
             struct.pack("<I", len(payload)),
@@ -182,6 +192,8 @@ class Serializer:
             msg.update(self.deserialize_version_payload(payload))
         elif msg['command'] == "addr":
             msg.update(self.deserialize_addr_payload(payload))
+        elif msg['command'] == "ping" or msg['command'] == "pong":
+            msg.update(self.deserialize_ping_payload(payload))
 
         return (msg, data.read())
 
@@ -238,6 +250,16 @@ class Serializer:
         except struct.error:
             msg['relay'] = False
 
+        return msg
+
+    def serialize_ping_payload(self, nonce):
+        payload = struct.pack("<Q", nonce),
+        return payload
+
+    def deserialize_ping_payload(self, data):
+        msg = {}
+        data = cStringIO.StringIO(data)
+        msg['nonce'] = struct.unpack("<Q", data.read(8))[0]
         return msg
 
     def deserialize_addr_payload(self, data):
