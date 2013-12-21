@@ -113,13 +113,16 @@ def enumerate_node(redis_pipe, key, version_msg, addr_msg):
         now = time.time()
 
         for peer in addr_msg['addr_list']:
+            address = peer['ipv4'] if peer['ipv4'] else peer['ipv6']
             timestamp = peer['timestamp']
             age = now - timestamp  # seconds
 
+            if SETTINGS['nodes'] and address not in SETTINGS['nodes']:
+                continue
+
             # Add peering node with age <= 24 hours into crawl set
             if age >= 0 and age <= SETTINGS['max_age']:
-                node = (peer['ipv4'] if peer['ipv4'] else peer['ipv6'],
-                        peer['port'])
+                node = (address, peer['port'])
                 redis_pipe.sadd('nodes', node)
 
 
@@ -248,6 +251,7 @@ def cron():
             restart_threshold = 0
 
         if restart_threshold == SETTINGS['restart_threshold']:
+            restart_threshold = 0
             logging.info("Restarting")
             restart()
 
@@ -317,6 +321,10 @@ def init_settings(argv):
     SETTINGS['max_age'] = conf.getint('khepri', 'max_age')
     SETTINGS['ipv6'] = conf.getboolean('khepri', 'ipv6')
     SETTINGS['json_output'] = conf.get('khepri', 'json_output')
+    SETTINGS['nodes'] = None
+    nodes = conf.get('khepri', 'nodes').split(",")
+    if len(nodes) > 0 and len(nodes[0]) > 0:
+        SETTINGS['nodes'] = nodes
 
 
 def main(argv):
@@ -345,8 +353,12 @@ def main(argv):
     REDIS_CONN.flushall()
 
     # Get seed nodes
+    if SETTINGS['nodes']:
+        addresses = SETTINGS['nodes']
+    else:
+        addresses = json.loads(requests.get(SEEDS_URL).text)
     seeds = 0
-    for address in json.loads(requests.get(SEEDS_URL).text):
+    for address in addresses:
         REDIS_CONN.sadd('nodes', (address, DEFAULT_PORT))
         seeds += 1
     logging.info("Seeds: {}".format(seeds))
