@@ -253,7 +253,10 @@ class Serializer:
         return msg
 
     def serialize_ping_payload(self, nonce):
-        payload = struct.pack("<Q", nonce),
+        payload = [
+            struct.pack("<Q", nonce),
+        ]
+        payload = ''.join(payload)
         return payload
 
     def deserialize_ping_payload(self, data):
