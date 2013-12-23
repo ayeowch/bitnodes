@@ -78,10 +78,11 @@ DATA_FIELD = 'D'  # __VERSION__\t__USER_AGENT__\t__START_HEIGHT__
 
 # Possible values for a tag field in Redis
 GREEN = 'G'  # Reachable node
-YELLOW = 'Y'  # No response from handshake
-ORANGE = 'O'  # Partially reachable node due to Bitcoin protocol error
+YELLOW = 'Y'  # Partially reachable node due to Bitcoin protocol error
+ORANGE = 'O'  # No response from handshake
 RED = 'R'  # Network error
 BLUE = 'B'  # Timed out
+VIOLET = 'V'  # Unhandled error
 
 # Global instance of Redis connection
 REDIS_CONN = redis.StrictRedis()
@@ -155,7 +156,7 @@ def connect(redis_conn, key, new):
         addr_msg = connection.getaddr()
     except ProtocolError as err:
         # e.g. node not accepting connection due to max. connections
-        tag = ORANGE
+        tag = YELLOW
     except socket.error as err:
         if err.strerror and err.strerror.upper() in NETWORK_ERRORS:
             tag = RED
@@ -163,7 +164,7 @@ def connect(redis_conn, key, new):
             tag = BLUE
         else:
             logging.warning("Unhandled socket error: {}".format(err))
-            tag = BLUE
+            tag = VIOLET
     finally:
         connection.close()
 
@@ -174,8 +175,8 @@ def connect(redis_conn, key, new):
         enumerate_node(redis_pipe, key, handshake_msgs[0], addr_msg)
 
     if tag is None:
-        logging.debug("Yellow node: {}".format(key))
-        tag = YELLOW
+        logging.debug("Orange node: {}".format(key))
+        tag = ORANGE
 
     redis_pipe.hset(key, TAG_FIELD, tag)
     redis_pipe.expire(key, SETTINGS['ttl'])
@@ -207,10 +208,9 @@ def dump(nodes):
 
 def restart():
     """
-    Loads all reachable nodes from Redis into the crawl set.
     Dumps data for the reachable nodes into a JSON file.
-    Removes keys for all nodes from current crawl.
-    Fetches latest start height to start a new crawl.
+    Fetches latest start height and loads all reachable nodes from Redis into
+    the crawl set to start a new crawl.
     """
     nodes = []  # Reachable nodes
 
@@ -220,10 +220,9 @@ def restart():
     redis_pipe = REDIS_CONN.pipeline()
     for key in keys:
         tag = REDIS_CONN.hget(key, TAG_FIELD)
-        if tag == GREEN or tag == ORANGE:
+        if tag == GREEN:
             nodes.append(key)
             redis_pipe.sadd('nodes', tuple(key.split("-", 1)))
-        redis_pipe.delete(key)
 
     dump(nodes)
 
@@ -234,11 +233,12 @@ def restart():
 
 def cron():
     """
-    Gets assigned to a worker to perform the following tasks periodically to
+    Assigned to a worker to perform the following tasks periodically to
     maintain a continuous crawl:
     1) Reports the current number of nodes in crawl set
     2) Initiates a new crawl once the crawl set is empty
     """
+    start_time = int(time.time())
     restart_threshold = 0
 
     while True:
@@ -251,6 +251,9 @@ def cron():
             restart_threshold = 0
 
         if restart_threshold == SETTINGS['restart_threshold']:
+            elapsed_time = int(time.time()) - start_time
+            logging.info("Elapsed time: {}s".format(elapsed_time))
+            start_time = int(time.time())
             restart_threshold = 0
             logging.info("Restarting")
             restart()
@@ -260,9 +263,9 @@ def cron():
 
 def task():
     """
-    Gets assigned to a worker to pop a node from the crawl set and attempt to
-    establish connection with a new node or an existing node in Redis with
-    20% or below its set TTL.
+    Assigned to a worker to retrieve (pop) a node from the crawl set and
+    attempt to establish connection with a new node or an existing node in
+    Redis after the set idle time.
     """
     redis_conn = redis.StrictRedis()
 
@@ -282,7 +285,7 @@ def task():
         new = True
         ttl = redis_conn.ttl(key)
         if ttl > 0:  # Key exists
-            if ttl > 0.2 * SETTINGS['ttl']:
+            if SETTINGS['ttl'] - ttl <= SETTINGS['reconnect']:
                 continue
             new = False
 
@@ -317,6 +320,7 @@ def init_settings(argv):
     SETTINGS['socket_timeout'] = conf.getint('khepri', 'socket_timeout')
     SETTINGS['cron_delay'] = conf.getint('khepri', 'cron_delay')
     SETTINGS['ttl'] = conf.getint('khepri', 'ttl')
+    SETTINGS['reconnect'] = conf.getint('khepri', 'reconnect')
     SETTINGS['restart_threshold'] = conf.getint('khepri', 'restart_threshold')
     SETTINGS['max_age'] = conf.getint('khepri', 'max_age')
     SETTINGS['ipv6'] = conf.getboolean('khepri', 'ipv6')
