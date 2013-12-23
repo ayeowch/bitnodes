@@ -253,6 +253,10 @@ def cron():
         if restart_threshold == SETTINGS['restart_threshold']:
             elapsed_time = int(time.time()) - start_time
             logging.info("Elapsed time: {}s".format(elapsed_time))
+            # Adjust reconnect based on latest crawl time
+            SETTINGS['reconnect'] = max(elapsed_time * 1.2,
+                                        SETTINGS['reconnect'])
+            logging.info("Reconnect: {}s".format(SETTINGS['reconnect']))
             start_time = int(time.time())
             restart_threshold = 0
             logging.info("Restarting")
@@ -320,7 +324,7 @@ def init_settings(argv):
     SETTINGS['socket_timeout'] = conf.getint('khepri', 'socket_timeout')
     SETTINGS['cron_delay'] = conf.getint('khepri', 'cron_delay')
     SETTINGS['ttl'] = conf.getint('khepri', 'ttl')
-    SETTINGS['reconnect'] = conf.getint('khepri', 'reconnect')
+    SETTINGS['reconnect'] = conf.getint('khepri', 'reconnect')  # Dynamic
     SETTINGS['restart_threshold'] = conf.getint('khepri', 'restart_threshold')
     SETTINGS['max_age'] = conf.getint('khepri', 'max_age')
     SETTINGS['ipv6'] = conf.getboolean('khepri', 'ipv6')
