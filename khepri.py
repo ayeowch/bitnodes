@@ -238,8 +238,9 @@ def cron():
     1) Reports the current number of nodes in crawl set
     2) Initiates a new crawl once the crawl set is empty
     """
-    start_time = int(time.time())
+    start = int(time.time())
     restart_threshold = 0
+    reconnect = SETTINGS['reconnect']  # Initial reconnect (min. value)
 
     while True:
         current_nodes = REDIS_CONN.scard('nodes')
@@ -251,13 +252,13 @@ def cron():
             restart_threshold = 0
 
         if restart_threshold == SETTINGS['restart_threshold']:
-            elapsed_time = int(time.time()) - start_time
-            logging.info("Elapsed time: {}s".format(elapsed_time))
-            # Adjust reconnect based on latest crawl time
-            SETTINGS['reconnect'] = max(elapsed_time * 1.2,
-                                        SETTINGS['reconnect'])
-            logging.info("Reconnect: {}s".format(SETTINGS['reconnect']))
-            start_time = int(time.time())
+            elapsed = int(time.time()) - start
+            logging.info("Elapsed: {}".format(elapsed))
+
+            SETTINGS['reconnect'] = max(reconnect, elapsed * 1.2)
+            logging.info("Reconnect: {}".format(SETTINGS['reconnect']))
+
+            start = int(time.time())
             restart_threshold = 0
             logging.info("Restarting")
             restart()
