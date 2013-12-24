@@ -118,16 +118,13 @@ def enumerate_node(redis_pipe, key, version_msg, addr_msg):
             timestamp = peer['timestamp']
             age = now - timestamp  # seconds
 
-            if SETTINGS['nodes'] and address not in SETTINGS['nodes']:
-                continue
-
             # Add peering node with age <= 24 hours into crawl set
             if age >= 0 and age <= SETTINGS['max_age']:
                 node = (address, peer['port'])
                 redis_pipe.sadd('nodes', node)
 
 
-def connect(redis_conn, key, new):
+def connect(redis_conn, key):
     """
     Establishes connection with a node to:
     1) Send version message
@@ -140,8 +137,7 @@ def connect(redis_conn, key, new):
     addr_msg = {}
     tag = None
 
-    if new:
-        redis_conn.hset(key, TAG_FIELD, "")  # Set Redis hash for a new node
+    redis_conn.hset(key, TAG_FIELD, "")  # Set Redis hash for a new node
 
     address, port = key.split("-", 1)
     start_height = int(redis_conn.get('start_height'))
@@ -209,13 +205,14 @@ def dump(nodes):
 def restart():
     """
     Dumps data for the reachable nodes into a JSON file.
-    Fetches latest start height and loads all reachable nodes from Redis into
-    the crawl set to start a new crawl.
+    Fetches latest start height.
+    Loads all reachable nodes from Redis into the crawl set.
+    Removes keys for all nodes from current crawl.
     """
     nodes = []  # Reachable nodes
 
     keys = REDIS_CONN.keys('*-*')
-    logging.info("Keys: {}".format(len(keys)))
+    logging.debug("Keys: {}".format(len(keys)))
 
     redis_pipe = REDIS_CONN.pipeline()
     for key in keys:
@@ -223,6 +220,7 @@ def restart():
         if tag == GREEN:
             nodes.append(key)
             redis_pipe.sadd('nodes', tuple(key.split("-", 1)))
+        redis_pipe.delete(key)
 
     dump(nodes)
 
@@ -240,7 +238,6 @@ def cron():
     """
     start = int(time.time())
     restart_threshold = 0
-    reconnect = SETTINGS['reconnect']  # Initial reconnect (min. value)
 
     while True:
         current_nodes = REDIS_CONN.scard('nodes')
@@ -255,13 +252,11 @@ def cron():
             elapsed = int(time.time()) - start
             logging.info("Elapsed: {}".format(elapsed))
 
-            SETTINGS['reconnect'] = max(reconnect, elapsed * 1.2)
-            logging.info("Reconnect: {}".format(SETTINGS['reconnect']))
+            logging.info("Restarting")
+            restart()
 
             start = int(time.time())
             restart_threshold = 0
-            logging.info("Restarting")
-            restart()
 
         gevent.sleep(SETTINGS['cron_delay'])
 
@@ -269,8 +264,7 @@ def cron():
 def task():
     """
     Assigned to a worker to retrieve (pop) a node from the crawl set and
-    attempt to establish connection with a new node or an existing node in
-    Redis after the set idle time.
+    attempt to establish connection with a new node.
     """
     redis_conn = redis.StrictRedis()
 
@@ -287,14 +281,10 @@ def task():
         if ":" in key and not SETTINGS['ipv6']:
             continue
 
-        new = True
-        ttl = redis_conn.ttl(key)
-        if ttl > 0:  # Key exists
-            if SETTINGS['ttl'] - ttl <= SETTINGS['reconnect']:
-                continue
-            new = False
+        if redis_conn.exists(key):
+            continue
 
-        connect(redis_conn, key, new)
+        connect(redis_conn, key)
         gevent.sleep(random.randint(1, 2) * 0.1)
 
 
@@ -325,15 +315,10 @@ def init_settings(argv):
     SETTINGS['socket_timeout'] = conf.getint('khepri', 'socket_timeout')
     SETTINGS['cron_delay'] = conf.getint('khepri', 'cron_delay')
     SETTINGS['ttl'] = conf.getint('khepri', 'ttl')
-    SETTINGS['reconnect'] = conf.getint('khepri', 'reconnect')  # Dynamic
     SETTINGS['restart_threshold'] = conf.getint('khepri', 'restart_threshold')
     SETTINGS['max_age'] = conf.getint('khepri', 'max_age')
     SETTINGS['ipv6'] = conf.getboolean('khepri', 'ipv6')
     SETTINGS['json_output'] = conf.get('khepri', 'json_output')
-    SETTINGS['nodes'] = None
-    nodes = conf.get('khepri', 'nodes').split(",")
-    if len(nodes) > 0 and len(nodes[0]) > 0:
-        SETTINGS['nodes'] = nodes
 
 
 def main(argv):
@@ -362,15 +347,10 @@ def main(argv):
     REDIS_CONN.flushall()
 
     # Get seed nodes
-    if SETTINGS['nodes']:
-        addresses = SETTINGS['nodes']
-    else:
-        addresses = json.loads(requests.get(SEEDS_URL).text)
-    seeds = 0
-    for address in addresses:
-        REDIS_CONN.sadd('nodes', (address, DEFAULT_PORT))
-        seeds += 1
-    logging.info("Seeds: {}".format(seeds))
+    seeds = json.loads(requests.get(SEEDS_URL).text)
+    for seed in seeds:
+        REDIS_CONN.sadd('nodes', (seed, DEFAULT_PORT))
+    logging.info("Seeds: {}".format(len(seeds)))
 
     set_start_height()
 
