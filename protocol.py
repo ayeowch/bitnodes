@@ -391,6 +391,8 @@ class Connection:
         while (len(data) > 0):
             (msg, data) = self.serializer.deserialize_msg(data)
             msgs.append(msg)
+        if len(msgs) > 0:
+            msgs = sorted(msgs, key=lambda msg: msg['command'], reverse=True)
 
         return msgs
 
