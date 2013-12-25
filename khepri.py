@@ -181,7 +181,7 @@ def connect(redis_conn, key):
 
 def dump(nodes):
     """
-    Dumps data for reachable nodes into timestamp-suffixed JSON file.
+    Dumps data for reachable nodes into timestamp-prefixed JSON file.
     """
     json_data = []
 
@@ -197,7 +197,8 @@ def dump(nodes):
         json_data.append(
             tuple(node.split("-", 1)) + (version, user_agent, start_height))
 
-    json_output = "{},{}".format(SETTINGS['json_output'], int(time.time()))
+    json_output = os.path.join(SETTINGS['data'],
+                               "{}.json".format(int(time.time())))
     open(json_output, 'w').write(json.dumps(json_data, indent=2))
     logging.info("Wrote {}".format(json_output))
 
@@ -318,7 +319,9 @@ def init_settings(argv):
     SETTINGS['restart_threshold'] = conf.getint('khepri', 'restart_threshold')
     SETTINGS['max_age'] = conf.getint('khepri', 'max_age')
     SETTINGS['ipv6'] = conf.getboolean('khepri', 'ipv6')
-    SETTINGS['json_output'] = conf.get('khepri', 'json_output')
+    SETTINGS['data'] = conf.get('khepri', 'data')
+    if not os.path.exists(SETTINGS['data']):
+        os.makedirs(SETTINGS['data'])
 
 
 def main(argv):
