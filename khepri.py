@@ -121,7 +121,7 @@ def enumerate_node(redis_pipe, key, version_msg, addr_msg):
             # Add peering node with age <= 24 hours into crawl set
             if age >= 0 and age <= SETTINGS['max_age']:
                 node = (address, peer['port'])
-                redis_pipe.sadd('nodes', node)
+                redis_pipe.sadd('pending', node)
 
 
 def connect(redis_conn, key):
@@ -220,7 +220,7 @@ def restart():
         tag = REDIS_CONN.hget(key, TAG_FIELD)
         if tag == GREEN:
             nodes.append(key)
-            redis_pipe.sadd('nodes', tuple(key.split("-", 1)))
+            redis_pipe.sadd('pending', tuple(key.split("-", 1)))
         redis_pipe.delete(key)
 
     dump(nodes)
@@ -241,10 +241,10 @@ def cron():
     restart_threshold = 0
 
     while True:
-        current_nodes = REDIS_CONN.scard('nodes')
-        logging.info("Queue: {}".format(current_nodes))
+        pending_nodes = REDIS_CONN.scard('pending')
+        logging.info("Pending: {}".format(pending_nodes))
 
-        if current_nodes == 0:
+        if pending_nodes == 0:
             restart_threshold += 1
         else:
             restart_threshold = 0
@@ -270,7 +270,7 @@ def task():
     redis_conn = redis.StrictRedis()
 
     while True:
-        node = redis_conn.spop('nodes')  # Pop random node from set
+        node = redis_conn.spop('pending')  # Pop random node from set
         if node is None:
             gevent.sleep(1)
             continue
@@ -352,7 +352,7 @@ def main(argv):
     # Get seed nodes
     seeds = json.loads(requests.get(SEEDS_URL).text)
     for seed in seeds:
-        REDIS_CONN.sadd('nodes', (seed, DEFAULT_PORT))
+        REDIS_CONN.sadd('pending', (seed, DEFAULT_PORT))
     logging.info("Seeds: {}".format(len(seeds)))
 
     set_start_height()
