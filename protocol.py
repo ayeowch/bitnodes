@@ -88,6 +88,7 @@ import socket
 import struct
 import sys
 import time
+from operator import itemgetter
 
 MAGIC_NUMBER = "\xF9\xBE\xB4\xD9"
 PROTOCOL_VERSION = 70001
@@ -392,7 +393,7 @@ class Connection:
             (msg, data) = self.serializer.deserialize_msg(data)
             msgs.append(msg)
         if len(msgs) > 0:
-            msgs = sorted(msgs, key=lambda msg: msg['command'], reverse=True)
+            msgs = sorted(msgs, key=itemgetter('command'), reverse=True)
 
         return msgs
 
