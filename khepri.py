@@ -347,7 +347,12 @@ def main(argv):
           SETTINGS['logfile']))
 
     logging.info("Removing all keys")
-    REDIS_CONN.flushall()
+    keys = REDIS_CONN.keys('*-*')
+    redis_pipe = REDIS_CONN.pipeline()
+    for key in keys:
+        redis_pipe.delete(key)
+    redis_pipe.delete('pending')
+    redis_pipe.execute()
 
     # Get seed nodes
     seeds = json.loads(requests.get(SEEDS_URL).text)
