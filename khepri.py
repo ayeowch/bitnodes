@@ -114,12 +114,11 @@ def enumerate_node(redis_pipe, key, version_msg, addr_msg):
         now = time.time()
 
         for peer in addr_msg['addr_list']:
-            address = peer['ipv4'] if peer['ipv4'] else peer['ipv6']
-            timestamp = peer['timestamp']
-            age = now - timestamp  # seconds
+            age = now - peer['timestamp']  # seconds
 
             # Add peering node with age <= 24 hours into crawl set
             if age >= 0 and age <= SETTINGS['max_age']:
+                address = peer['ipv4'] if peer['ipv4'] else peer['ipv6']
                 node = (address, peer['port'])
                 redis_pipe.sadd('pending', node)
 
