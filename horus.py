@@ -142,9 +142,12 @@ def get_snapshot():
     Returns latest JSON file (based on creation date) containing a snapshot of
     all reachable nodes from a completed crawl.
     """
+    snapshot = None
     ctime = lambda f: os.stat(os.path.join(SETTINGS['data'], f)).st_ctime
-    filename = sorted(listdir(SETTINGS['data']), key=ctime)[-1]
-    return os.path.join(SETTINGS['data'], filename)
+    files = sorted(listdir(SETTINGS['data']), key=ctime, reverse=True)
+    if len(files) > 0:
+        snapshot = os.path.join(SETTINGS['data'], files[0])
+    return snapshot
 
 
 def get_nodes(path):
