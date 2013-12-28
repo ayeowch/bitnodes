@@ -190,6 +190,8 @@ def init_settings(argv):
     SETTINGS['cron_delay'] = conf.getint('horus', 'cron_delay')
     SETTINGS['keepalive_delay'] = conf.getint('horus', 'keepalive_delay')
     SETTINGS['data'] = conf.get('horus', 'data')
+    if not os.path.exists(SETTINGS['data']):
+        os.makedirs(SETTINGS['data'])
 
 
 def main(argv):
