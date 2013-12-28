@@ -412,6 +412,14 @@ class Connection:
 
         return msg
 
+    def ping(self, nonce=None):
+        if nonce is None:
+            nonce = random.getrandbits(64)
+
+        # [ping] >>>
+        msg = self.serializer.serialize_msg(command="ping", nonce=nonce)
+        self.send(msg)
+
 
 def main():
     to_addr = ("162.243.95.129", 8333)
