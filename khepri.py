@@ -119,8 +119,7 @@ def enumerate_node(redis_pipe, key, version_msg, addr_msg):
             # Add peering node with age <= 24 hours into crawl set
             if age >= 0 and age <= SETTINGS['max_age']:
                 address = peer['ipv4'] if peer['ipv4'] else peer['ipv6']
-                node = (address, peer['port'])
-                redis_pipe.sadd('pending', node)
+                redis_pipe.sadd('pending', (address, peer['port']))
 
 
 def connect(redis_conn, key):
@@ -138,7 +137,7 @@ def connect(redis_conn, key):
 
     redis_conn.hset(key, TAG_FIELD, "")  # Set Redis hash for a new node
 
-    address, port = key.split("-", 1)
+    (address, port) = key.split("-", 1)
     start_height = int(redis_conn.get('start_height'))
 
     connection = Connection((address, int(port)),
@@ -219,7 +218,8 @@ def restart():
         tag = REDIS_CONN.hget(key, TAG_FIELD)
         if tag == GREEN:
             nodes.append(key)
-            redis_pipe.sadd('pending', tuple(key.split("-", 1)))
+            (address, port) = key.split("-", 1)
+            redis_pipe.sadd('pending', (address, int(port)))
         redis_pipe.delete(key)
 
     dump(nodes)
@@ -356,7 +356,7 @@ def main(argv):
     # Get seed nodes
     seeds = json.loads(requests.get(SEEDS_URL).text)
     for seed in seeds:
-        REDIS_CONN.sadd('pending', (seed, DEFAULT_PORT))
+        REDIS_CONN.sadd('pending', (str(seed), DEFAULT_PORT))
     logging.info("Seeds: {}".format(len(seeds)))
 
     set_start_height()
