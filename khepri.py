@@ -237,18 +237,12 @@ def cron():
     2) Initiates a new crawl once the crawl set is empty
     """
     start = int(time.time())
-    restart_threshold = 0
 
     while True:
         pending_nodes = REDIS_CONN.scard('pending')
         logging.info("Pending: {}".format(pending_nodes))
 
         if pending_nodes == 0:
-            restart_threshold += 1
-        else:
-            restart_threshold = 0
-
-        if restart_threshold == SETTINGS['restart_threshold']:
             elapsed = int(time.time()) - start
             logging.info("Elapsed: {}".format(elapsed))
 
@@ -256,7 +250,6 @@ def cron():
             restart()
 
             start = int(time.time())
-            restart_threshold = 0
 
         gevent.sleep(SETTINGS['cron_delay'])
 
@@ -315,7 +308,6 @@ def init_settings(argv):
     SETTINGS['socket_timeout'] = conf.getint('khepri', 'socket_timeout')
     SETTINGS['cron_delay'] = conf.getint('khepri', 'cron_delay')
     SETTINGS['ttl'] = conf.getint('khepri', 'ttl')
-    SETTINGS['restart_threshold'] = conf.getint('khepri', 'restart_threshold')
     SETTINGS['max_age'] = conf.getint('khepri', 'max_age')
     SETTINGS['ipv6'] = conf.getboolean('khepri', 'ipv6')
     SETTINGS['data'] = conf.get('khepri', 'data')
