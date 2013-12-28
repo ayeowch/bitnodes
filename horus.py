@@ -57,19 +57,18 @@ def keepalive(connection):
     Periodically sends a ping message to the specified node to maintain open
     connection. All open connections are tracked in open set in Redis.
     """
-    node = connection.socket.getpeername()
-    REDIS_CONN.sadd('open', node)
+    REDIS_CONN.sadd('open', connection.to_addr)
 
     while True:
         try:
             connection.ping()
         except socket.error as err:
-            logging.debug("Disconnected: {} ({})".format(node, err))
+            logging.debug("Closing {} ({})".format(connection.to_addr, err))
             break
         gevent.sleep(SETTINGS['keepalive_delay'])
 
     connection.close()
-    REDIS_CONN.srem('open', node)
+    REDIS_CONN.srem('open', connection.to_addr)
 
 
 def task():
