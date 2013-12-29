@@ -40,6 +40,7 @@ import redis
 import redis.connection
 import socket
 import sys
+import time
 from ConfigParser import ConfigParser
 
 from protocol import ProtocolError, Connection
@@ -52,23 +53,38 @@ REDIS_CONN = redis.StrictRedis()
 SETTINGS = {}
 
 
-def keepalive(connection):
+def keepalive(connection, version_msg):
     """
     Periodically sends a ping message to the specified node to maintain open
-    connection. All open connections are tracked in open set in Redis.
+    connection. Open connections are tracked in open set with the associated
+    data stored in opendata set in Redis.
     """
-    REDIS_CONN.sadd('open', connection.to_addr)
+    redis_pipe = REDIS_CONN.pipeline()
+
+    node = connection.to_addr
+    version = version_msg.get('version', "")
+    user_agent = version_msg.get('user_agent', "")
+    start_height = version_msg.get('start_height', "")
+    now = int(time.time())
+    data = node + (version, user_agent, start_height, now)
+
+    redis_pipe.sadd('open', node)
+    redis_pipe.sadd('opendata', data)
+    redis_pipe.execute()
 
     while True:
         try:
             connection.ping()
         except socket.error as err:
-            logging.debug("Closing {} ({})".format(connection.to_addr, err))
+            logging.debug("Closing {} ({})".format(node, err))
             break
         gevent.sleep(SETTINGS['keepalive_delay'])
 
     connection.close()
-    REDIS_CONN.srem('open', connection.to_addr)
+
+    redis_pipe.srem('open', node)
+    redis_pipe.srem('opendata', data)
+    redis_pipe.execute()
 
 
 def task():
@@ -93,7 +109,7 @@ def task():
         connection.close()
 
     if len(handshake_msgs) > 0:
-        keepalive(connection)
+        keepalive(connection, handshake_msgs[0])
 
 
 def cron(pool):
@@ -219,6 +235,7 @@ def main(argv):
     logging.info("Removing all keys")
     REDIS_CONN.delete('reachable')
     REDIS_CONN.delete('open')
+    REDIS_CONN.delete('opendata')
 
     # Initialize a pool of workers (greenlets)
     pool = gevent.pool.Pool(SETTINGS['workers'])

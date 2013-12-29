@@ -74,7 +74,7 @@ TIMED_OUT = "TIMED OUT"
 
 # Possible fields for a hash in Redis
 TAG_FIELD = 'T'
-DATA_FIELD = 'D'  # __VERSION__\t__USER_AGENT__\t__START_HEIGHT__
+DATA_FIELD = 'D'  # __START_HEIGHT__
 
 # Possible values for a tag field in Redis
 GREEN = 'G'  # Reachable node
@@ -92,23 +92,10 @@ SETTINGS = {}
 
 def enumerate_node(redis_pipe, key, version_msg, addr_msg):
     """
-    Stores version information for a reachable node.
+    Stores start height for a reachable node.
     Adds all peering nodes with max. age of 24 hours into the crawl set.
     """
-    version = ""
-    if 'version' in version_msg:
-        version = version_msg['version']
-
-    user_agent = ""
-    if 'user_agent' in version_msg:
-        user_agent = version_msg['user_agent']
-
-    start_height = ""
-    if 'start_height' in version_msg:
-        start_height = version_msg['start_height']
-
-    data = "{}\t{}\t{}".format(version, user_agent, start_height)
-    redis_pipe.hset(key, DATA_FIELD, data)
+    redis_pipe.hset(key, DATA_FIELD, version_msg.get('start_height', ""))
 
     if 'addr_list' in addr_msg:
         now = time.time()
@@ -185,15 +172,13 @@ def dump(nodes):
 
     logging.info("Reachable nodes: {}".format(len(nodes)))
     for node in nodes:
-        data = REDIS_CONN.hget(node, DATA_FIELD)
+        start_height = REDIS_CONN.hget(node, DATA_FIELD)
 
         # Expired key
-        if data is None:
+        if start_height is None:
             continue
 
-        (version, user_agent, start_height) = data.split("\t")
-        json_data.append(
-            tuple(node.split("-", 1)) + (version, user_agent, start_height))
+        json_data.append(node.split("-", 1) + [start_height])
 
     json_output = os.path.join(SETTINGS['data'],
                                "{}.json".format(int(time.time())))
