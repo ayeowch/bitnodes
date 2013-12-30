@@ -106,7 +106,8 @@ def enumerate_node(redis_pipe, key, version_msg, addr_msg):
             # Add peering node with age <= 24 hours into crawl set
             if age >= 0 and age <= SETTINGS['max_age']:
                 address = peer['ipv4'] if peer['ipv4'] else peer['ipv6']
-                redis_pipe.sadd('pending', (address, peer['port']))
+                port = peer['port'] if peer['port'] > 0 else DEFAULT_PORT
+                redis_pipe.sadd('pending', (address, port))
 
 
 def connect(redis_conn, key):

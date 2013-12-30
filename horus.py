@@ -59,8 +59,6 @@ def keepalive(connection, version_msg):
     connection. Open connections are tracked in open set with the associated
     data stored in opendata set in Redis.
     """
-    redis_pipe = REDIS_CONN.pipeline()
-
     node = connection.to_addr
     version = version_msg.get('version', "")
     user_agent = version_msg.get('user_agent', "")
@@ -68,9 +66,8 @@ def keepalive(connection, version_msg):
     now = int(time.time())
     data = node + (version, user_agent, start_height, now)
 
-    redis_pipe.sadd('open', node)
-    redis_pipe.sadd('opendata', data)
-    redis_pipe.execute()
+    REDIS_CONN.sadd('open', node)
+    REDIS_CONN.sadd('opendata', data)
 
     while True:
         try:
@@ -82,9 +79,8 @@ def keepalive(connection, version_msg):
 
     connection.close()
 
-    redis_pipe.srem('open', node)
-    redis_pipe.srem('opendata', data)
-    redis_pipe.execute()
+    REDIS_CONN.srem('open', node)
+    REDIS_CONN.srem('opendata', data)
 
 
 def task():
@@ -184,14 +180,12 @@ def set_reachable(nodes):
     reachable set in Redis. New workers can be spawned separately to establish
     and maintain connection with these nodes.
     """
-    redis_pipe = REDIS_CONN.pipeline()
     for node in nodes:
         address = str(node[0])
         port = int(node[1])
         start_height = int(node[-1])
         if not REDIS_CONN.sismember('open', (address, port)):
-            redis_pipe.sadd('reachable', (address, port, start_height))
-    redis_pipe.execute()
+            REDIS_CONN.sadd('reachable', (address, port, start_height))
     return REDIS_CONN.scard('reachable')
 
 
