@@ -78,7 +78,7 @@ def keepalive(connection, version_msg):
         except socket.error as err:
             logging.debug("Closing {} ({})".format(node, err))
             break
-        gevent.sleep(SETTINGS['keepalive_delay'])
+        gevent.sleep(SETTINGS['keepalive'])
 
     connection.close()
 
@@ -137,6 +137,9 @@ def cron(pool):
 
             reachable_nodes = set_reachable(nodes)
             logging.info("Reachable nodes: {}".format(reachable_nodes))
+
+            SETTINGS['keepalive'] = int(REDIS_CONN.get('elapsed'))
+            logging.debug("Keepalive: {}".format(SETTINGS['keepalive']))
 
             for _ in xrange(reachable_nodes):
                 pool.spawn(task)
@@ -204,7 +207,7 @@ def init_settings(argv):
     SETTINGS['user_agent'] = conf.get('horus', 'user_agent')
     SETTINGS['socket_timeout'] = conf.getint('horus', 'socket_timeout')
     SETTINGS['cron_delay'] = conf.getint('horus', 'cron_delay')
-    SETTINGS['keepalive_delay'] = conf.getint('horus', 'keepalive_delay')
+    SETTINGS['keepalive'] = conf.getint('horus', 'keepalive')
     SETTINGS['data'] = conf.get('horus', 'data')
     if not os.path.exists(SETTINGS['data']):
         os.makedirs(SETTINGS['data'])
