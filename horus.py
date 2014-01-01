@@ -33,6 +33,7 @@ monkey.patch_all()
 
 import gevent
 import gevent.pool
+import glob
 import json
 import logging
 import os
@@ -115,13 +116,12 @@ def cron(pool):
     1) Checks for a new snapshot
     2) Loads new reachable nodes into the reachable set in Redis
     3) Spawns workers to establish and maintain connection with reachable nodes
+    4) Signals listener to get reachable nodes from opendata set
     """
     snapshot = None
 
     while True:
-        workers = SETTINGS['workers'] - pool.free_count()
-        logging.info("Workers: {}".format(workers))
-        logging.info("Connections: {}".format(REDIS_CONN.scard('open')))
+        logging.debug("")
 
         new_snapshot = get_snapshot()
         if new_snapshot != snapshot:
@@ -140,7 +140,14 @@ def cron(pool):
             for _ in xrange(reachable_nodes):
                 pool.spawn(task)
 
-        gevent.sleep(SETTINGS['cron_delay'])
+            gevent.sleep(SETTINGS['cron_delay'])
+
+            REDIS_CONN.publish('snapshot', int(time.time()))
+            workers = SETTINGS['workers'] - pool.free_count()
+            logging.info("Workers: {}".format(workers))
+            logging.info("Connections: {}".format(REDIS_CONN.scard('open')))
+        else:
+            gevent.sleep(SETTINGS['cron_delay'])
 
 
 def listdir(path):
@@ -158,10 +165,11 @@ def get_snapshot():
     all reachable nodes from a completed crawl.
     """
     snapshot = None
-    ctime = lambda f: os.stat(os.path.join(SETTINGS['data'], f)).st_ctime
-    files = sorted(listdir(SETTINGS['data']), key=ctime, reverse=True)
-    if len(files) > 0:
-        snapshot = os.path.join(SETTINGS['data'], files[0])
+    try:
+        snapshots = glob.iglob("{}/*.json".format(SETTINGS['data']))
+        snapshot = max(snapshots, key=os.path.getctime)
+    except ValueError:
+        pass
     return snapshot
 
 
