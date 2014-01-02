@@ -125,11 +125,14 @@ def cron(pool):
 
         new_snapshot = get_snapshot()
         if new_snapshot != snapshot:
-            snapshot = new_snapshot
-            logging.info("Snapshot: {}".format(snapshot))
+            logging.info("New snapshot: {}".format(new_snapshot))
 
-            nodes = get_nodes(snapshot)
+            nodes = get_nodes(new_snapshot)
+            if len(nodes) == 0:
+                continue
             logging.info("Nodes: {}".format(len(nodes)))
+
+            snapshot = new_snapshot
 
             reachable_nodes = set_reachable(nodes)
             logging.info("Reachable nodes: {}".format(reachable_nodes))
@@ -177,8 +180,12 @@ def get_nodes(path):
     """
     Returns all reachable nodes from a JSON file.
     """
+    nodes = []
     text = open(path, 'r').read()
-    nodes = json.loads(text)
+    try:
+        nodes = json.loads(text)
+    except ValueError:
+        logging.warning("Invalid JSON file: {}".format(path))  # Pending write
     return nodes
 
 
