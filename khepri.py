@@ -182,7 +182,7 @@ def dump(nodes):
 
     json_output = os.path.join(SETTINGS['data'],
                                "{}.json".format(int(time.time())))
-    open(json_output, 'w').write(json.dumps(json_data, indent=2))
+    open(json_output, 'w').write(json.dumps(json_data))
     logging.info("Wrote {}".format(json_output))
 
 
