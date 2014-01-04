@@ -35,7 +35,6 @@ import gevent
 import json
 import logging
 import os
-import random
 import redis
 import redis.connection
 import requests
@@ -265,7 +264,7 @@ def task():
             continue
 
         connect(redis_conn, key)
-        gevent.sleep(random.randint(1, 2) * 0.1)
+        gevent.sleep(0.1)
 
 
 def set_start_height():
