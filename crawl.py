@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# khepri.py - Greenlets-based Bitcoin network crawler.
+# crawl.py - Greenlets-based Bitcoin network crawler.
 #
 # Copyright (c) 2013 Addy Yeow Chin Heng <ayeowch@gmail.com>
 #
@@ -116,7 +116,7 @@ def connect(redis_conn, key):
     2) Receive version and verack message
     3) Send getaddr message
     4) Receive addr message containing list of peering nodes
-    Stores node in Redis with a set TTL.
+    Stores node in Redis.
     """
     handshake_msgs = []
     addr_msg = {}
@@ -124,7 +124,7 @@ def connect(redis_conn, key):
 
     redis_conn.hset(key, TAG_FIELD, "")  # Set Redis hash for a new node
 
-    (address, port) = key.split("-", 1)
+    (address, port) = key[5:].split("-", 1)
     start_height = int(redis_conn.get('start_height'))
 
     connection = Connection((address, int(port)),
@@ -156,11 +156,10 @@ def connect(redis_conn, key):
         enumerate_node(redis_pipe, key, handshake_msgs[0], addr_msg)
 
     if tag is None:
-        logging.debug("Orange node: {}".format(key))
+        logging.debug("Orange: {}".format(key))
         tag = ORANGE
 
     redis_pipe.hset(key, TAG_FIELD, tag)
-    redis_pipe.expire(key, SETTINGS['ttl'])
     redis_pipe.execute()
 
 
@@ -173,12 +172,8 @@ def dump(nodes):
     logging.info("Reachable nodes: {}".format(len(nodes)))
     for node in nodes:
         start_height = REDIS_CONN.hget(node, DATA_FIELD)
-
-        # Expired key
-        if start_height is None:
-            continue
-
-        json_data.append(node.split("-", 1) + [start_height])
+        (address, port) = node[5:].split("-", 1)
+        json_data.append([address, int(port), int(start_height)])
 
     json_output = os.path.join(SETTINGS['data'],
                                "{}.json".format(int(time.time())))
@@ -195,7 +190,7 @@ def restart():
     """
     nodes = []  # Reachable nodes
 
-    keys = REDIS_CONN.keys('*-*')
+    keys = REDIS_CONN.keys('node:*-*')
     logging.debug("Keys: {}".format(len(keys)))
 
     redis_pipe = REDIS_CONN.pipeline()
@@ -203,7 +198,7 @@ def restart():
         tag = REDIS_CONN.hget(key, TAG_FIELD)
         if tag == GREEN:
             nodes.append(key)
-            (address, port) = key.split("-", 1)
+            (address, port) = key[5:].split("-", 1)
             redis_pipe.sadd('pending', (address, int(port)))
         redis_pipe.delete(key)
 
@@ -254,7 +249,7 @@ def task():
             continue
 
         node = eval(node)  # Convert string from Redis to tuple
-        key = "{}-{}".format(node[0], node[1])
+        key = "node:{}-{}".format(node[0], node[1])
 
         # Skip IPv6 node
         if ":" in key and not SETTINGS['ipv6']:
@@ -287,23 +282,22 @@ def init_settings(argv):
     """
     conf = ConfigParser()
     conf.read(argv[1])
-    SETTINGS['logfile'] = conf.get('khepri', 'logfile')
-    SETTINGS['workers'] = conf.getint('khepri', 'workers')
-    SETTINGS['debug'] = conf.getboolean('khepri', 'debug')
-    SETTINGS['user_agent'] = conf.get('khepri', 'user_agent')
-    SETTINGS['socket_timeout'] = conf.getint('khepri', 'socket_timeout')
-    SETTINGS['cron_delay'] = conf.getint('khepri', 'cron_delay')
-    SETTINGS['ttl'] = conf.getint('khepri', 'ttl')
-    SETTINGS['max_age'] = conf.getint('khepri', 'max_age')
-    SETTINGS['ipv6'] = conf.getboolean('khepri', 'ipv6')
-    SETTINGS['data'] = conf.get('khepri', 'data')
+    SETTINGS['logfile'] = conf.get('crawl', 'logfile')
+    SETTINGS['workers'] = conf.getint('crawl', 'workers')
+    SETTINGS['debug'] = conf.getboolean('crawl', 'debug')
+    SETTINGS['user_agent'] = conf.get('crawl', 'user_agent')
+    SETTINGS['socket_timeout'] = conf.getint('crawl', 'socket_timeout')
+    SETTINGS['cron_delay'] = conf.getint('crawl', 'cron_delay')
+    SETTINGS['max_age'] = conf.getint('crawl', 'max_age')
+    SETTINGS['ipv6'] = conf.getboolean('crawl', 'ipv6')
+    SETTINGS['data'] = conf.get('crawl', 'data')
     if not os.path.exists(SETTINGS['data']):
         os.makedirs(SETTINGS['data'])
 
 
 def main(argv):
     if len(argv) < 2 or not os.path.exists(argv[1]):
-        print("Usage: khepri.py [config]")
+        print("Usage: crawl.py [config]")
         return 1
 
     # Initialize global settings
@@ -324,7 +318,7 @@ def main(argv):
           SETTINGS['logfile']))
 
     logging.info("Removing all keys")
-    keys = REDIS_CONN.keys('*-*')
+    keys = REDIS_CONN.keys('node:*-*')
     redis_pipe = REDIS_CONN.pipeline()
     for key in keys:
         redis_pipe.delete(key)
