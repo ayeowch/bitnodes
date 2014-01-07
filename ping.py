@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# horus.py - Greenlets-based Bitcoin network pinger.
+# ping.py - Greenlets-based Bitcoin network pinger.
 #
 # Copyright (c) 2013 Addy Yeow Chin Heng <ayeowch@gmail.com>
 #
@@ -65,18 +65,23 @@ def keepalive(connection, version_msg):
     user_agent = version_msg.get('user_agent', "")
     start_height = version_msg.get('start_height', "")
     now = int(time.time())
-    data = node + (version, user_agent, start_height, now)
+    data = node + (version, user_agent, now)
 
     REDIS_CONN.sadd('open', node)
     REDIS_CONN.sadd('opendata', data)
 
+    start_height_key = "start_height:{}-{}".format(node[0], node[1])
+    start_height_ttl = SETTINGS['keepalive'] * 2  # > keepalive
+    REDIS_CONN.setex(start_height_key, start_height_ttl, start_height)
+
     while True:
+        gevent.sleep(SETTINGS['keepalive'])
+        REDIS_CONN.setex(start_height_key, start_height_ttl, start_height)
         try:
             connection.ping()
         except socket.error as err:
             logging.debug("Closing {} ({})".format(node, err))
             break
-        gevent.sleep(SETTINGS['keepalive'])
 
     connection.close()
 
@@ -153,15 +158,6 @@ def cron(pool):
             gevent.sleep(SETTINGS['cron_delay'])
 
 
-def listdir(path):
-    """
-    Returns all but hidden files under the specified path.
-    """
-    for filename in os.listdir(path):
-        if not filename.startswith('.'):
-            yield filename
-
-
 def get_snapshot():
     """
     Returns latest JSON file (based on creation date) containing a snapshot of
@@ -196,9 +192,9 @@ def set_reachable(nodes):
     and maintain connection with these nodes.
     """
     for node in nodes:
-        address = str(node[0])
-        port = int(node[1])
-        start_height = int(node[-1])
+        address = node[0]
+        port = node[1]
+        start_height = node[2]
         if not REDIS_CONN.sismember('open', (address, port)):
             REDIS_CONN.sadd('reachable', (address, port, start_height))
     return REDIS_CONN.scard('reachable')
@@ -210,21 +206,21 @@ def init_settings(argv):
     """
     conf = ConfigParser()
     conf.read(argv[1])
-    SETTINGS['logfile'] = conf.get('horus', 'logfile')
-    SETTINGS['workers'] = conf.getint('horus', 'workers')
-    SETTINGS['debug'] = conf.getboolean('horus', 'debug')
-    SETTINGS['user_agent'] = conf.get('horus', 'user_agent')
-    SETTINGS['socket_timeout'] = conf.getint('horus', 'socket_timeout')
-    SETTINGS['cron_delay'] = conf.getint('horus', 'cron_delay')
-    SETTINGS['keepalive'] = conf.getint('horus', 'keepalive')
-    SETTINGS['data'] = conf.get('horus', 'data')
+    SETTINGS['logfile'] = conf.get('ping', 'logfile')
+    SETTINGS['workers'] = conf.getint('ping', 'workers')
+    SETTINGS['debug'] = conf.getboolean('ping', 'debug')
+    SETTINGS['user_agent'] = conf.get('ping', 'user_agent')
+    SETTINGS['socket_timeout'] = conf.getint('ping', 'socket_timeout')
+    SETTINGS['cron_delay'] = conf.getint('ping', 'cron_delay')
+    SETTINGS['keepalive'] = conf.getint('ping', 'keepalive')
+    SETTINGS['data'] = conf.get('ping', 'data')
     if not os.path.exists(SETTINGS['data']):
         os.makedirs(SETTINGS['data'])
 
 
 def main(argv):
     if len(argv) < 2 or not os.path.exists(argv[1]):
-        print("Usage: horus.py [config]")
+        print("Usage: ping.py [config]")
         return 1
 
     # Initialize global settings
