@@ -109,6 +109,7 @@ def main():
             nodes = REDIS_CONN.smembers('opendata')
             logging.info("Nodes: {}".format(len(nodes)))
             export_nodes(nodes, timestamp)
+            REDIS_CONN.publish('export', timestamp)
 
     return 0
 
