@@ -48,8 +48,12 @@ from protocol import ProtocolError, Connection
 
 redis.connection.socket = gevent.socket
 
-# Global instance of Redis connection
-REDIS_CONN = redis.StrictRedis()
+# Redis connection setup
+REDIS_HOST = os.environ.get('REDIS_HOST', "localhost")
+REDIS_PORT = int(os.environ.get('REDIS_PORT', 6379))
+REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD', None)
+REDIS_CONN = redis.StrictRedis(host=REDIS_HOST, port=REDIS_PORT,
+                               password=REDIS_PASSWORD)
 
 SETTINGS = {}
 
@@ -165,7 +169,7 @@ def get_snapshot():
     """
     snapshot = None
     try:
-        snapshots = glob.iglob("{}/*.json".format(SETTINGS['data']))
+        snapshots = glob.iglob("{}/*.json".format(SETTINGS['crawl_dir']))
         snapshot = max(snapshots, key=os.path.getctime)
     except ValueError:
         pass
@@ -213,9 +217,9 @@ def init_settings(argv):
     SETTINGS['socket_timeout'] = conf.getint('ping', 'socket_timeout')
     SETTINGS['cron_delay'] = conf.getint('ping', 'cron_delay')
     SETTINGS['keepalive'] = conf.getint('ping', 'keepalive')
-    SETTINGS['data'] = conf.get('ping', 'data')
-    if not os.path.exists(SETTINGS['data']):
-        os.makedirs(SETTINGS['data'])
+    SETTINGS['crawl_dir'] = conf.get('ping', 'crawl_dir')
+    if not os.path.exists(SETTINGS['crawl_dir']):
+        os.makedirs(SETTINGS['crawl_dir'])
 
 
 def main(argv):
