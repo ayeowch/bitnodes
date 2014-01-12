@@ -28,6 +28,7 @@
 Resolves hostname and GeoIP data for each reachable node.
 """
 
+from gevent import socket
 import gevent
 import logging
 import os
@@ -36,12 +37,16 @@ import random
 import redis
 import redis.connection
 import sys
-from gevent import socket
+from ConfigParser import ConfigParser
 
 redis.connection.socket = socket
 
-# Global instance of Redis connection
-REDIS_CONN = redis.StrictRedis()
+# Redis connection setup
+REDIS_HOST = os.environ.get('REDIS_HOST', "localhost")
+REDIS_PORT = int(os.environ.get('REDIS_PORT', 6379))
+REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD', None)
+REDIS_CONN = redis.StrictRedis(host=REDIS_HOST, port=REDIS_PORT,
+                               password=REDIS_PASSWORD)
 
 # MaxMind databases
 GEOIP4 = pygeoip.GeoIP("geoip/GeoLiteCity.dat", pygeoip.MMAP_CACHE)
@@ -52,6 +57,8 @@ ASN6 = pygeoip.GeoIP("geoip/GeoIPASNumv6.dat", pygeoip.MMAP_CACHE)
 # Worker (resolver) status
 RESOLVED = 2
 FAILED = 1  # Failed socket.gethostbyaddr()
+
+SETTINGS = {}
 
 
 def resolve_nodes(nodes):
@@ -110,10 +117,10 @@ def status(workers):
 
 def set_data(address, field, value):
     """
-    Stores data for an address in Redis with a TTL randomize within 2 hours
-    spread to distribute expiring keys across multiple times.
+    Stores data for an address in Redis with a randomize TTL randomize to
+    distribute expiring keys across multiple times.
     """
-    ttl = random.randint(86400 - 3600, 86400 + 3600)
+    ttl = random.randint(SETTINGS['min_ttl'], SETTINGS['max_ttl'])
     redis_pipe = REDIS_CONN.pipeline()
     redis_pipe.hset('resolve:{}'.format(address), field, value)
     redis_pipe.expire('resolve:{}'.format(address), ttl)
@@ -192,16 +199,39 @@ def raw_geoip(address):
     return (city, country, latitude, longitude, timezone, asn, org)
 
 
-def main():
-    logfile = os.path.basename(__file__).replace(".py", ".log")
+def init_settings(argv):
+    """
+    Populates SETTINGS with key-value pairs from configuration file.
+    """
+    conf = ConfigParser()
+    conf.read(argv[1])
+    SETTINGS['logfile'] = conf.get('resolve', 'logfile')
+    SETTINGS['debug'] = conf.getboolean('resolve', 'debug')
+    SETTINGS['min_ttl'] = conf.getint('resolve', 'min_ttl')
+    SETTINGS['max_ttl'] = conf.getint('resolve', 'max_ttl')
+
+
+def main(argv):
+    if len(argv) < 2 or not os.path.exists(argv[1]):
+        print("Usage: resolve.py [config]")
+        return 1
+
+    # Initialize global settings
+    init_settings(argv)
+
+    # Initialize logger
     loglevel = logging.INFO
+    if SETTINGS['debug']:
+        loglevel = logging.DEBUG
+
     logformat = ("%(asctime)s,%(msecs)05.1f %(levelname)s (%(funcName)s) "
                  "%(message)s")
     logging.basicConfig(level=loglevel,
                         format=logformat,
-                        filename=logfile,
+                        filename=SETTINGS['logfile'],
                         filemode='w')
-    print("Writing output to {}, press CTRL+C to terminate..".format(logfile))
+    print("Writing output to {}, press CTRL+C to terminate..".format(
+          SETTINGS['logfile']))
 
     pubsub = REDIS_CONN.pubsub()
     pubsub.subscribe('snapshot')
@@ -220,4 +250,4 @@ def main():
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    sys.exit(main(sys.argv))

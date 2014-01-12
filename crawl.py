@@ -83,8 +83,12 @@ RED = 'R'  # Network error
 BLUE = 'B'  # Timed out
 VIOLET = 'V'  # Unhandled error
 
-# Global instance of Redis connection
-REDIS_CONN = redis.StrictRedis()
+# Redis connection setup
+REDIS_HOST = os.environ.get('REDIS_HOST', "localhost")
+REDIS_PORT = int(os.environ.get('REDIS_PORT', 6379))
+REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD', None)
+REDIS_CONN = redis.StrictRedis(host=REDIS_HOST, port=REDIS_PORT,
+                               password=REDIS_PASSWORD)
 
 SETTINGS = {}
 
@@ -175,7 +179,7 @@ def dump(nodes):
         (address, port) = node[5:].split("-", 1)
         json_data.append([address, int(port), int(start_height)])
 
-    json_output = os.path.join(SETTINGS['data'],
+    json_output = os.path.join(SETTINGS['crawl_dir'],
                                "{}.json".format(int(time.time())))
     open(json_output, 'w').write(json.dumps(json_data))
     logging.info("Wrote {}".format(json_output))
@@ -240,7 +244,8 @@ def task():
     Assigned to a worker to retrieve (pop) a node from the crawl set and
     attempt to establish connection with a new node.
     """
-    redis_conn = redis.StrictRedis()
+    redis_conn = redis.StrictRedis(host=REDIS_HOST, port=REDIS_PORT,
+                                   password=REDIS_PASSWORD)
 
     while True:
         node = redis_conn.spop('pending')  # Pop random node from set
@@ -290,9 +295,9 @@ def init_settings(argv):
     SETTINGS['cron_delay'] = conf.getint('crawl', 'cron_delay')
     SETTINGS['max_age'] = conf.getint('crawl', 'max_age')
     SETTINGS['ipv6'] = conf.getboolean('crawl', 'ipv6')
-    SETTINGS['data'] = conf.get('crawl', 'data')
-    if not os.path.exists(SETTINGS['data']):
-        os.makedirs(SETTINGS['data'])
+    SETTINGS['crawl_dir'] = conf.get('crawl', 'crawl_dir')
+    if not os.path.exists(SETTINGS['crawl_dir']):
+        os.makedirs(SETTINGS['crawl_dir'])
 
 
 def main(argv):

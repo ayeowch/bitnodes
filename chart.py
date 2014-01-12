@@ -35,12 +35,23 @@ import os
 import redis
 import sys
 import threading
+from ConfigParser import ConfigParser
 
-# Global instance of Redis connection
-REDIS_CONN = redis.StrictRedis()
+# Redis source connection setup
+REDIS_HOST_SRC = os.environ.get('REDIS_HOST_SRC', "localhost")
+REDIS_PORT_SRC = int(os.environ.get('REDIS_PORT_SRC', 6379))
+REDIS_PASSWORD_SRC = os.environ.get('REDIS_PASSWORD_SRC', None)
+REDIS_CONN_SRC = redis.StrictRedis(host=REDIS_HOST_SRC, port=REDIS_PORT_SRC,
+                                   password=REDIS_PASSWORD_SRC)
 
-# Minimum chart interval, i.e. seconds between 2 ticks
-INTERVAL = 600
+# Redis destination connection setup
+REDIS_HOST_DST = os.environ.get('REDIS_HOST_DST', "localhost")
+REDIS_PORT_DST = int(os.environ.get('REDIS_PORT_DST', 6379))
+REDIS_PASSWORD_DST = os.environ.get('REDIS_PASSWORD_DST', None)
+REDIS_CONN_DST = redis.StrictRedis(host=REDIS_HOST_DST, port=REDIS_PORT_DST,
+                                   password=REDIS_PASSWORD_DST)
+
+SETTINGS = {}
 
 
 def get_chart_data(nodes, prev_nodes):
@@ -113,15 +124,11 @@ def save_chart_data(data, timestamp, tick):
     Saves chart data for current tick in a timestamp-prefixed JSON file and
     updates the time series data in Redis.
     """
-    chart_dir = "data/chart"
-    if not os.path.exists(chart_dir):
-        os.makedirs(chart_dir)
-
-    dump = os.path.join(chart_dir, "{}.json".format(tick))
+    dump = os.path.join(SETTINGS['chart_dir'], "{}.json".format(tick))
     open(dump, 'w').write(json.dumps(data))
     logging.info("Wrote {}".format(dump))
 
-    redis_pipe = REDIS_CONN.pipeline()
+    redis_pipe = REDIS_CONN_DST.pipeline()
     redis_pipe.zadd("t:m:timestamp", tick, "{}:{}".format(tick, timestamp))
     redis_pipe.zadd("t:m:nodes", tick, "{}:{}".format(tick, data['nodes']))
     redis_pipe.zadd("t:m:ipv4", tick, "{}:{}".format(tick, data['ipv4']))
@@ -158,55 +165,83 @@ def replay():
     Removes chart data and replays the published timestamps from export.py to
     recreate chart data.
     """
-    keys = REDIS_CONN.keys('t:*')
-    redis_pipe = REDIS_CONN.pipeline()
+    keys = REDIS_CONN_DST.keys('t:*')
+    redis_pipe = REDIS_CONN_DST.pipeline()
     for key in keys:
         redis_pipe.delete(key)
     redis_pipe.execute()
 
-    files = sorted(glob.iglob("data/export/*.json"), key=os.path.getctime)
+    files = sorted(glob.iglob("{}/*.json".format(SETTINGS['export_dir'])),
+                   key=os.path.getctime)
     for dump in files:
         timestamp = os.path.basename(dump).rstrip(".json")
-        REDIS_CONN.publish('export', timestamp)
+        REDIS_CONN_SRC.publish('export', timestamp)
 
 
-def main():
-    logfile = os.path.basename(__file__).replace(".py", ".log")
+def init_settings(argv):
+    """
+    Populates SETTINGS with key-value pairs from configuration file.
+    """
+    conf = ConfigParser()
+    conf.read(argv[1])
+    SETTINGS['logfile'] = conf.get('chart', 'logfile')
+    SETTINGS['debug'] = conf.getboolean('chart', 'debug')
+    SETTINGS['interval'] = conf.getint('chart', 'interval')
+    SETTINGS['export_dir'] = conf.get('chart', 'export_dir')
+    SETTINGS['chart_dir'] = conf.get('chart', 'chart_dir')
+    if not os.path.exists(SETTINGS['chart_dir']):
+        os.makedirs(SETTINGS['chart_dir'])
+
+
+def main(argv):
+    if len(argv) < 2 or not os.path.exists(argv[1]):
+        print("Usage: chart.py [config]")
+        return 1
+
+    # Initialize global settings
+    init_settings(argv)
+
+    # Initialize logger
     loglevel = logging.INFO
+    if SETTINGS['debug']:
+        loglevel = logging.DEBUG
+
     logformat = ("%(asctime)s,%(msecs)05.1f %(levelname)s (%(funcName)s) "
                  "%(message)s")
     logging.basicConfig(level=loglevel,
                         format=logformat,
-                        filename=logfile,
+                        filename=SETTINGS['logfile'],
                         filemode='w')
-    print("Writing output to {}, press CTRL+C to terminate..".format(logfile))
+    print("Writing output to {}, press CTRL+C to terminate..".format(
+          SETTINGS['logfile']))
 
     threading.Thread(target=replay).start()
 
     prev_nodes = set()
 
-    pubsub = REDIS_CONN.pubsub()
+    pubsub = REDIS_CONN_SRC.pubsub()
     pubsub.subscribe('export')
     for msg in pubsub.listen():
         # 'export' message is published by export.py after exporting enumerated
         # data for all reachable nodes.
         if msg['channel'] == 'export' and msg['type'] == 'message':
             timestamp = int(msg['data'])  # From ping.py's 'snapshot' message
-            tick = timestamp - (timestamp % INTERVAL)
+            tick = timestamp - (timestamp % SETTINGS['interval'])
             logging.info("Timestamp: {}".format(timestamp))
             logging.info("Tick: {}".format(tick))
 
             # Only the first snapshot before the next interval is used to
             # generate the chart data for each tick.
-            if REDIS_CONN.zcount("t:m:nodes", tick, tick) == 0:
-                dump = "data/export/{}.json".format(timestamp)
+            if REDIS_CONN_DST.zcount("t:m:nodes", tick, tick) == 0:
+                dump = os.path.join(SETTINGS['export_dir'],
+                                    "{}.json".format(timestamp))
                 nodes = json.loads(open(dump, "r").read(), encoding="latin-1")
                 data, prev_nodes = get_chart_data(nodes, prev_nodes)
                 save_chart_data(data, timestamp, tick)
-                REDIS_CONN.publish('chart', tick)
+                REDIS_CONN_DST.publish('chart', tick)
 
     return 0
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    sys.exit(main(sys.argv))

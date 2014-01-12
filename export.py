@@ -34,9 +34,16 @@ import os
 import redis
 import sys
 import time
+from ConfigParser import ConfigParser
 
-# Global instance of Redis connection
-REDIS_CONN = redis.StrictRedis()
+# Redis connection setup
+REDIS_HOST = os.environ.get('REDIS_HOST', "localhost")
+REDIS_PORT = int(os.environ.get('REDIS_PORT', 6379))
+REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD', None)
+REDIS_CONN = redis.StrictRedis(host=REDIS_HOST, port=REDIS_PORT,
+                               password=REDIS_PASSWORD)
+
+SETTINGS = {}
 
 
 def get_row(node):
@@ -78,25 +85,45 @@ def export_nodes(nodes, timestamp):
     elapsed = end - start
     logging.info("Elapsed: {}".format(elapsed))
 
-    export_dir = "data/export"
-    if not os.path.exists(export_dir):
-        os.makedirs(export_dir)
-
-    dump = os.path.join(export_dir, "{}.json".format(timestamp))
+    dump = os.path.join(SETTINGS['export_dir'], "{}.json".format(timestamp))
     open(dump, 'w').write(json.dumps(rows, encoding="latin-1"))
     logging.info("Wrote {}".format(dump))
 
 
-def main():
-    logfile = os.path.basename(__file__).replace(".py", ".log")
+def init_settings(argv):
+    """
+    Populates SETTINGS with key-value pairs from configuration file.
+    """
+    conf = ConfigParser()
+    conf.read(argv[1])
+    SETTINGS['logfile'] = conf.get('export', 'logfile')
+    SETTINGS['debug'] = conf.getboolean('export', 'debug')
+    SETTINGS['export_dir'] = conf.get('export', 'export_dir')
+    if not os.path.exists(SETTINGS['export_dir']):
+        os.makedirs(SETTINGS['export_dir'])
+
+
+def main(argv):
+    if len(argv) < 2 or not os.path.exists(argv[1]):
+        print("Usage: export.py [config]")
+        return 1
+
+    # Initialize global settings
+    init_settings(argv)
+
+    # Initialize logger
     loglevel = logging.INFO
+    if SETTINGS['debug']:
+        loglevel = logging.DEBUG
+
     logformat = ("%(asctime)s,%(msecs)05.1f %(levelname)s (%(funcName)s) "
                  "%(message)s")
     logging.basicConfig(level=loglevel,
                         format=logformat,
-                        filename=logfile,
+                        filename=SETTINGS['logfile'],
                         filemode='w')
-    print("Writing output to {}, press CTRL+C to terminate..".format(logfile))
+    print("Writing output to {}, press CTRL+C to terminate..".format(
+          SETTINGS['logfile']))
 
     pubsub = REDIS_CONN.pubsub()
     pubsub.subscribe('resolve')
@@ -115,4 +142,4 @@ def main():
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    sys.exit(main(sys.argv))
