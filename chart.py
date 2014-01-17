@@ -64,9 +64,8 @@ def get_chart_data(nodes, prev_nodes):
         'ipv4': 0,
         'ipv6': 0,
         'user_agents': {},
-        'cities': {},
         'countries': {},
-        'timezones': {},
+        'coordinates': {},
         'orgs': {},
         'join': 0,
         'leave': 0,
@@ -91,9 +90,9 @@ def get_chart_data(nodes, prev_nodes):
         address = node[0]
         port = node[1]
         user_agent = node[3]
-        city = node[7]
         country = node[8]
-        timezone = node[11]
+        latitude = node[9]
+        longitude = node[10]
         org = node[13]
 
         curr_nodes.add((address, port))
@@ -106,11 +105,12 @@ def get_chart_data(nodes, prev_nodes):
         data['user_agents'][user_agent] = data['user_agents'].get(
             user_agent, 0) + 1
 
-        city = "%s, %s" % (city, country)
-        data['cities'][city] = data['cities'].get(city, 0) + 1
-
         data['countries'][country] = data['countries'].get(country, 0) + 1
-        data['timezones'][timezone] = data['timezones'].get(timezone, 0) + 1
+
+        coordinate = "%s,%s" % (latitude, longitude)
+        data['coordinates'][coordinate] = data['coordinates'].get(
+            coordinate, 0) + 1
+
         data['orgs'][org] = data['orgs'].get(org, 0) + 1
 
     data['join'] = len(curr_nodes - prev_nodes)
@@ -119,7 +119,7 @@ def get_chart_data(nodes, prev_nodes):
     return data, curr_nodes
 
 
-def save_chart_data(data, timestamp, tick):
+def save_chart_data(data, tick):
     """
     Saves chart data for current tick in a timestamp-prefixed JSON file and
     updates the time series data in Redis.
@@ -129,7 +129,6 @@ def save_chart_data(data, timestamp, tick):
     logging.info("Wrote {}".format(dump))
 
     redis_pipe = REDIS_CONN_DST.pipeline()
-    redis_pipe.zadd("t:m:timestamp", tick, "{}:{}".format(tick, timestamp))
     redis_pipe.zadd("t:m:nodes", tick, "{}:{}".format(tick, data['nodes']))
     redis_pipe.zadd("t:m:ipv4", tick, "{}:{}".format(tick, data['ipv4']))
     redis_pipe.zadd("t:m:ipv6", tick, "{}:{}".format(tick, data['ipv6']))
@@ -138,17 +137,13 @@ def save_chart_data(data, timestamp, tick):
         key = "t:m:user_agent:%s" % user_agent[0]
         redis_pipe.zadd(key, tick, "{}:{}".format(tick, user_agent[1]))
 
-    for city in data['cities'].items():
-        key = "t:m:city:%s" % city[0]
-        redis_pipe.zadd(key, tick, "{}:{}".format(tick, city[1]))
-
     for country in data['countries'].items():
         key = "t:m:country:%s" % country[0]
         redis_pipe.zadd(key, tick, "{}:{}".format(tick, country[1]))
 
-    for timezone in data['timezones'].items():
-        key = "t:m:timezone:%s" % timezone[0]
-        redis_pipe.zadd(key, tick, "{}:{}".format(tick, timezone[1]))
+    for coordinate in data['coordinates'].items():
+        key = "t:m:coordinate:%s" % coordinate[0]
+        redis_pipe.zadd(key, tick, "{}:{}".format(tick, coordinate[1]))
 
     for org in data['orgs'].items():
         key = "t:m:org:%s" % org[0]
@@ -237,7 +232,7 @@ def main(argv):
                                     "{}.json".format(timestamp))
                 nodes = json.loads(open(dump, "r").read(), encoding="latin-1")
                 data, prev_nodes = get_chart_data(nodes, prev_nodes)
-                save_chart_data(data, timestamp, tick)
+                save_chart_data(data, tick)
                 REDIS_CONN_DST.publish('chart', tick)
 
     return 0
