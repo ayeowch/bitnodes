@@ -54,34 +54,13 @@ SEEDS_URL = "http://getaddr.bitnodes.io/seeds/"
 # crawl set refill.
 HEIGHT_URL = "https://dazzlepod.com/bitcoin/getblockcount/"
 
-# Known connection errors
-NETWORK_ERRORS = [
-    "ADDRESS FAMILY NOT SUPPORTED BY PROTOCOL FAMILY",
-    "BROKEN PIPE",
-    "CONNECTION REFUSED",
-    "CONNECTION RESET BY PEER",
-    "CONNECTION TIMED OUT",
-    "INVALID ARGUMENT",
-    "NETWORK IS UNREACHABLE",
-    "NO ROUTE TO HOST",
-    "OPERATION TIMED OUT",
-    "PROTOCOL NOT AVAILABLE",
-    "PERMISSION DENIED",
-    "PROTOCOL ERROR",
-]
-TIMED_OUT = "TIMED OUT"
-
 # Possible fields for a hash in Redis
 TAG_FIELD = 'T'
 DATA_FIELD = 'D'  # __START_HEIGHT__
 
 # Possible values for a tag field in Redis
 GREEN = 'G'  # Reachable node
-YELLOW = 'Y'  # Partially reachable node due to Bitcoin protocol error
-ORANGE = 'O'  # No response from handshake
-RED = 'R'  # Network error
-BLUE = 'B'  # Timed out
-VIOLET = 'V'  # Unhandled error
+RED = 'R'  # Unreachable node
 
 # Redis connection setup
 REDIS_HOST = os.environ.get('REDIS_HOST', "localhost")
@@ -113,7 +92,7 @@ def enumerate_node(redis_pipe, key, version_msg, addr_msg):
                 redis_pipe.sadd('pending', (address, port))
 
 
-def connect(redis_conn, key):
+def connect(key):
     """
     Establishes connection with a node to:
     1) Send version message
@@ -126,10 +105,10 @@ def connect(redis_conn, key):
     addr_msg = {}
     tag = None
 
-    redis_conn.hset(key, TAG_FIELD, "")  # Set Redis hash for a new node
+    REDIS_CONN.hset(key, TAG_FIELD, "")  # Set Redis hash for a new node
 
     (address, port) = key[5:].split("-", 1)
-    start_height = int(redis_conn.get('start_height'))
+    start_height = int(REDIS_CONN.get('start_height'))
 
     connection = Connection((address, int(port)),
                             socket_timeout=SETTINGS['socket_timeout'],
@@ -140,28 +119,19 @@ def connect(redis_conn, key):
         handshake_msgs = connection.handshake()
         addr_msg = connection.getaddr()
     except ProtocolError as err:
-        # e.g. node not accepting connection due to max. connections
-        tag = YELLOW
+        logging.debug("{}".format(err))
     except socket.error as err:
-        if err.strerror and err.strerror.upper() in NETWORK_ERRORS:
-            tag = RED
-        elif err.message and err.message.upper() == TIMED_OUT:
-            tag = BLUE
-        else:
-            logging.warning("Unhandled socket error: {}".format(err))
-            tag = VIOLET
+        logging.debug("{}".format(err))
     finally:
         connection.close()
 
-    redis_pipe = redis_conn.pipeline()
+    redis_pipe = REDIS_CONN.pipeline()
 
     if len(handshake_msgs) > 0:
         tag = GREEN
         enumerate_node(redis_pipe, key, handshake_msgs[0], addr_msg)
-
-    if tag is None:
-        logging.debug("Orange: {}".format(key))
-        tag = ORANGE
+    else:
+        tag = RED
 
     redis_pipe.hset(key, TAG_FIELD, tag)
     redis_pipe.execute()
@@ -194,7 +164,7 @@ def restart():
     """
     nodes = []  # Reachable nodes
 
-    keys = REDIS_CONN.keys('node:*-*')
+    keys = REDIS_CONN.keys('node:*')
     logging.debug("Keys: {}".format(len(keys)))
 
     redis_pipe = REDIS_CONN.pipeline()
@@ -244,11 +214,8 @@ def task():
     Assigned to a worker to retrieve (pop) a node from the crawl set and
     attempt to establish connection with a new node.
     """
-    redis_conn = redis.StrictRedis(host=REDIS_HOST, port=REDIS_PORT,
-                                   password=REDIS_PASSWORD)
-
     while True:
-        node = redis_conn.spop('pending')  # Pop random node from set
+        node = REDIS_CONN.spop('pending')  # Pop random node from set
         if node is None:
             gevent.sleep(1)
             continue
@@ -260,10 +227,10 @@ def task():
         if ":" in key and not SETTINGS['ipv6']:
             continue
 
-        if redis_conn.exists(key):
+        if REDIS_CONN.exists(key):
             continue
 
-        connect(redis_conn, key)
+        connect(key)
         gevent.sleep(0.1)
 
 
@@ -323,7 +290,7 @@ def main(argv):
           SETTINGS['logfile']))
 
     logging.info("Removing all keys")
-    keys = REDIS_CONN.keys('node:*-*')
+    keys = REDIS_CONN.keys('node:*')
     redis_pipe = REDIS_CONN.pipeline()
     for key in keys:
         redis_pipe.delete(key)
