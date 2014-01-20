@@ -35,6 +35,7 @@ import gevent
 import json
 import logging
 import os
+import random
 import redis
 import redis.connection
 import requests
@@ -47,20 +48,12 @@ from protocol import ProtocolError, Connection, DEFAULT_PORT
 
 redis.connection.socket = gevent.socket
 
-# Seed nodes to bootstrap the initial crawl
-SEEDS_URL = "http://getaddr.bitnodes.io/seeds/"
-
-# Height is set at the start of a new crawl and updated periodically during
-# crawl set refill.
-HEIGHT_URL = "https://dazzlepod.com/bitcoin/getblockcount/"
-
 # Possible fields for a hash in Redis
 TAG_FIELD = 'T'
 DATA_FIELD = 'D'  # __START_HEIGHT__
 
 # Possible values for a tag field in Redis
 GREEN = 'G'  # Reachable node
-RED = 'R'  # Unreachable node
 
 # Redis connection setup
 REDIS_HOST = os.environ.get('REDIS_HOST', "localhost")
@@ -92,7 +85,7 @@ def enumerate_node(redis_pipe, key, version_msg, addr_msg):
                 redis_pipe.sadd('pending', (address, port))
 
 
-def connect(key):
+def connect(redis_conn, key):
     """
     Establishes connection with a node to:
     1) Send version message
@@ -103,12 +96,12 @@ def connect(key):
     """
     handshake_msgs = []
     addr_msg = {}
-    tag = None
+    tag = ""
 
-    REDIS_CONN.hset(key, TAG_FIELD, "")  # Set Redis hash for a new node
+    redis_conn.hset(key, TAG_FIELD, tag)  # Set Redis hash for a new node
 
     (address, port) = key[5:].split("-", 1)
-    start_height = int(REDIS_CONN.get('start_height'))
+    start_height = int(redis_conn.get('start_height'))
 
     connection = Connection((address, int(port)),
                             socket_timeout=SETTINGS['socket_timeout'],
@@ -125,16 +118,14 @@ def connect(key):
     finally:
         connection.close()
 
-    redis_pipe = REDIS_CONN.pipeline()
-
+    redis_pipe = redis_conn.pipeline()
     if len(handshake_msgs) > 0:
         tag = GREEN
         enumerate_node(redis_pipe, key, handshake_msgs[0], addr_msg)
-    else:
-        tag = RED
-
-    redis_pipe.hset(key, TAG_FIELD, tag)
+        redis_pipe.hset(key, TAG_FIELD, tag)
     redis_pipe.execute()
+
+    return tag
 
 
 def dump(nodes):
@@ -214,8 +205,11 @@ def task():
     Assigned to a worker to retrieve (pop) a node from the crawl set and
     attempt to establish connection with a new node.
     """
+    redis_conn = redis.StrictRedis(host=REDIS_HOST, port=REDIS_PORT,
+                                   password=REDIS_PASSWORD)
+
     while True:
-        node = REDIS_CONN.spop('pending')  # Pop random node from set
+        node = redis_conn.spop('pending')  # Pop random node from set
         if node is None:
             gevent.sleep(1)
             continue
@@ -227,11 +221,14 @@ def task():
         if ":" in key and not SETTINGS['ipv6']:
             continue
 
-        if REDIS_CONN.exists(key):
+        if redis_conn.exists(key):
             continue
 
-        connect(key)
-        gevent.sleep(0.1)
+        tag = connect(redis_conn, key)
+        if tag == GREEN:
+            gevent.sleep(random.randint(5, 10) * 0.1)
+        else:
+            gevent.sleep(random.randint(1, 5) * 0.1)
 
 
 def set_start_height():
@@ -240,7 +237,7 @@ def set_start_height():
     in Redis for use by all workers.
     """
     try:
-        start_height = int(requests.get(HEIGHT_URL).text)
+        start_height = int(requests.get(SETTINGS['height_url']).text)
     except requests.exceptions.RequestException as err:
         logging.warning("{}".format(err))
         start_height = int(REDIS_CONN.get('start_height'))
@@ -255,6 +252,8 @@ def init_settings(argv):
     conf = ConfigParser()
     conf.read(argv[1])
     SETTINGS['logfile'] = conf.get('crawl', 'logfile')
+    SETTINGS['seeds'] = conf.get('crawl', 'seeds')
+    SETTINGS['height_url'] = conf.get('crawl', 'height_url')
     SETTINGS['workers'] = conf.getint('crawl', 'workers')
     SETTINGS['debug'] = conf.getboolean('crawl', 'debug')
     SETTINGS['user_agent'] = conf.get('crawl', 'user_agent')
@@ -298,7 +297,7 @@ def main(argv):
     redis_pipe.execute()
 
     # Get seed nodes
-    seeds = json.loads(requests.get(SEEDS_URL).text)
+    seeds = json.loads(open(SETTINGS['seeds'], 'r').read())
     for seed in seeds:
         REDIS_CONN.sadd('pending', (str(seed), DEFAULT_PORT))
     logging.info("Seeds: {}".format(len(seeds)))
