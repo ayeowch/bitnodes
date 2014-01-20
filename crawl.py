@@ -35,7 +35,6 @@ import gevent
 import json
 import logging
 import os
-import random
 import redis
 import redis.connection
 import requests
@@ -96,9 +95,8 @@ def connect(redis_conn, key):
     """
     handshake_msgs = []
     addr_msg = {}
-    tag = ""
 
-    redis_conn.hset(key, TAG_FIELD, tag)  # Set Redis hash for a new node
+    redis_conn.hset(key, TAG_FIELD, "")  # Set Redis hash for a new node
 
     (address, port) = key[5:].split("-", 1)
     start_height = int(redis_conn.get('start_height'))
@@ -120,12 +118,9 @@ def connect(redis_conn, key):
 
     redis_pipe = redis_conn.pipeline()
     if len(handshake_msgs) > 0:
-        tag = GREEN
         enumerate_node(redis_pipe, key, handshake_msgs[0], addr_msg)
-        redis_pipe.hset(key, TAG_FIELD, tag)
+        redis_pipe.hset(key, TAG_FIELD, GREEN)
     redis_pipe.execute()
-
-    return tag
 
 
 def dump(nodes):
@@ -224,11 +219,8 @@ def task():
         if redis_conn.exists(key):
             continue
 
-        tag = connect(redis_conn, key)
-        if tag == GREEN:
-            gevent.sleep(random.randint(5, 10) * 0.1)
-        else:
-            gevent.sleep(random.randint(1, 5) * 0.1)
+        connect(redis_conn, key)
+        gevent.sleep(0)
 
 
 def set_start_height():
