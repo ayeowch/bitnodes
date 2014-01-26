@@ -54,12 +54,13 @@ REDIS_CONN_DST = redis.StrictRedis(host=REDIS_HOST_DST, port=REDIS_PORT_DST,
 SETTINGS = {}
 
 
-def get_chart_data(nodes, prev_nodes):
+def get_chart_data(tick, nodes, prev_nodes):
     """
     Generates chart data for current tick using enumerated data for all
     reachable nodes.
     """
     data = {
+        't': tick,
         'nodes': len(nodes),
         'ipv4': 0,
         'ipv6': 0,
@@ -119,16 +120,12 @@ def get_chart_data(nodes, prev_nodes):
     return data, curr_nodes
 
 
-def save_chart_data(data, tick):
+def save_chart_data(tick, data):
     """
-    Saves chart data for current tick in a timestamp-prefixed JSON file and
-    updates the time series data in Redis.
+    Saves chart data for current tick in Redis.
     """
-    dump = os.path.join(SETTINGS['chart_dir'], "{}.json".format(tick))
-    open(dump, 'w').write(json.dumps(data))
-    logging.info("Wrote {}".format(dump))
-
     redis_pipe = REDIS_CONN_DST.pipeline()
+    redis_pipe.set("t:m:last", json.dumps(data))
     redis_pipe.zadd("t:m:nodes", tick, "{}:{}".format(tick, data['nodes']))
     redis_pipe.zadd("t:m:ipv4", tick, "{}:{}".format(tick, data['ipv4']))
     redis_pipe.zadd("t:m:ipv6", tick, "{}:{}".format(tick, data['ipv6']))
@@ -183,9 +180,6 @@ def init_settings(argv):
     SETTINGS['debug'] = conf.getboolean('chart', 'debug')
     SETTINGS['interval'] = conf.getint('chart', 'interval')
     SETTINGS['export_dir'] = conf.get('chart', 'export_dir')
-    SETTINGS['chart_dir'] = conf.get('chart', 'chart_dir')
-    if not os.path.exists(SETTINGS['chart_dir']):
-        os.makedirs(SETTINGS['chart_dir'])
 
 
 def main(argv):
@@ -222,17 +216,18 @@ def main(argv):
         if msg['channel'] == 'export' and msg['type'] == 'message':
             timestamp = int(msg['data'])  # From ping.py's 'snapshot' message
             tick = timestamp - (timestamp % SETTINGS['interval'])
-            logging.info("Timestamp: {}".format(timestamp))
-            logging.info("Tick: {}".format(tick))
 
             # Only the first snapshot before the next interval is used to
             # generate the chart data for each tick.
             if REDIS_CONN_DST.zcount("t:m:nodes", tick, tick) == 0:
+                logging.info("Timestamp: {}".format(timestamp))
+                logging.info("Tick: {}".format(tick))
+
                 dump = os.path.join(SETTINGS['export_dir'],
                                     "{}.json".format(timestamp))
                 nodes = json.loads(open(dump, "r").read(), encoding="latin-1")
-                data, prev_nodes = get_chart_data(nodes, prev_nodes)
-                save_chart_data(data, tick)
+                data, prev_nodes = get_chart_data(tick, nodes, prev_nodes)
+                save_chart_data(tick, data)
                 REDIS_CONN_DST.publish('chart', tick)
 
     return 0
