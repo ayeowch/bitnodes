@@ -208,7 +208,8 @@ def main(argv):
         # data for all reachable nodes.
         if msg['channel'] == 'export' and msg['type'] == 'message':
             timestamp = int(msg['data'])  # From ping.py's 'snapshot' message
-            tick = timestamp - (timestamp % SETTINGS['interval'])
+            tick = (timestamp - (timestamp % SETTINGS['interval'])
+                ) + SETTINGS['interval']
 
             # Only the first snapshot before the next interval is used to
             # generate the chart data for each tick.
