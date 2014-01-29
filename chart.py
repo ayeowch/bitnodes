@@ -113,12 +113,13 @@ def get_chart_data(tick, nodes, prev_nodes):
     return data, curr_nodes
 
 
-def save_chart_data(tick, data):
+def save_chart_data(tick, timestamp, data):
     """
     Saves chart data for current tick in Redis.
     """
     redis_pipe = REDIS_CONN.pipeline()
     redis_pipe.set("t:m:last", json.dumps(data))
+    redis_pipe.zadd("t:m:timestamp", tick, "{}:{}".format(tick, timestamp))
     redis_pipe.zadd("t:m:nodes", tick, "{}:{}".format(tick, data['nodes']))
     redis_pipe.zadd("t:m:ipv4", tick, "{}:{}".format(tick, data['ipv4']))
     redis_pipe.zadd("t:m:ipv6", tick, "{}:{}".format(tick, data['ipv6']))
@@ -221,7 +222,7 @@ def main(argv):
                                     "{}.json".format(timestamp))
                 nodes = json.loads(open(dump, "r").read(), encoding="latin-1")
                 data, prev_nodes = get_chart_data(tick, nodes, prev_nodes)
-                save_chart_data(tick, data)
+                save_chart_data(tick, timestamp, data)
                 REDIS_CONN.publish('chart', tick)
 
     return 0
