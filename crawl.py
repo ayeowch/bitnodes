@@ -69,7 +69,7 @@ def enumerate_node(redis_pipe, key, version_msg, addr_msg):
     Stores start height for a reachable node.
     Adds all peering nodes with max. age of 24 hours into the crawl set.
     """
-    redis_pipe.hset(key, DATA_FIELD, version_msg.get('start_height', ""))
+    redis_pipe.hset(key, DATA_FIELD, version_msg.get('start_height', 0))
 
     if 'addr_list' in addr_msg:
         now = time.time()
