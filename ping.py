@@ -67,7 +67,7 @@ def keepalive(connection, version_msg):
     node = connection.to_addr
     version = version_msg.get('version', "")
     user_agent = version_msg.get('user_agent', "")
-    start_height = version_msg.get('start_height', "")
+    start_height = version_msg.get('start_height', 0)
     now = int(time.time())
     data = node + (version, user_agent, now)
 
