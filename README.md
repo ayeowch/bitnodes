@@ -1,5 +1,5 @@
 # Bitnodes
-Bitnodes is currently being developed to estimate the size of the Bitcoin network by finding all the peering nodes in the network. The current methodology involves sending [getaddr](https://en.bitcoin.it/wiki/Protocol_specification#getaddr) message to find all the peering nodes in the network starting from a set of seed nodes. Bitnodes uses Bitcoin protocol version 70001, so nodes with older protocol version will be skipped.
+Bitnodes is currently being developed to estimate the size of the Bitcoin network by finding all the reachable nodes in the network. The current methodology involves sending [getaddr](https://en.bitcoin.it/wiki/Protocol_specification#getaddr) message recursively to find all the reachable nodes in the network starting from a set of seed nodes. Bitnodes uses Bitcoin protocol version 70001 (i.e. >= /Satoshi:0.7.x/), so nodes with older protocol version will be skipped.
 
 ## Setup
 See [Provisioning Bitcoin Network Crawler](https://github.com/ayeowch/bitnodes/wiki/Provisioning-Bitcoin-Network-Crawler)
