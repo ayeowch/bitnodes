@@ -28,6 +28,7 @@
 Resolves hostname and GeoIP data for each reachable node.
 """
 
+from decimal import Decimal
 from gevent import socket
 import gevent
 import logging
@@ -174,6 +175,7 @@ def raw_geoip(address):
     org = None
 
     geoip_record = None
+    prec = Decimal('.000001')
     if ":" in address:
         geoip_record = GEOIP6.record_by_addr(address)
     else:
@@ -181,8 +183,8 @@ def raw_geoip(address):
     if geoip_record:
         city = geoip_record['city']
         country = geoip_record['country_code']
-        latitude = geoip_record['latitude']
-        longitude = geoip_record['longitude']
+        latitude = float(Decimal(geoip_record['latitude']).quantize(prec))
+        longitude = float(Decimal(geoip_record['longitude']).quantize(prec))
         timezone = geoip_record['time_zone']
 
     asn_record = None
