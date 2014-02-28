@@ -390,7 +390,12 @@ class Connection:
         msgs = []
         data = self.recv(length=148)  # version (124 bytes) + verack (24 bytes)
         while (len(data) > 0):
-            (msg, data) = self.serializer.deserialize_msg(data)
+            try:
+                (msg, data) = self.serializer.deserialize_msg(data)
+            except PayloadTooShortError:
+                data += self.recv(
+                    length=self.serializer.required_len - len(data))
+                (msg, data) = self.serializer.deserialize_msg(data)
             msgs.append(msg)
         if len(msgs) > 0:
             msgs = sorted(msgs, key=itemgetter('command'), reverse=True)
@@ -422,7 +427,8 @@ class Connection:
 
 
 def main():
-    to_addr = ("162.243.95.129", 8333)
+    to_addr = ("88.198.62.174", 8333)
+
     handshake_msgs = []
     addr_msg = {}
 
