@@ -51,6 +51,8 @@ def export_nodes(nodes):
     """
     nodes = sorted(nodes, key=operator.itemgetter(4))[:SETTINGS['nodes']]
     min_height = SETTINGS['min_height']
+    min_age = SETTINGS['min_age']
+    now = int(time.time())
     auth_nodes = [node for node in nodes if node[0] == SETTINGS['auth_node']]
     if auth_nodes > 0:
         min_height = auth_nodes[0][5]
@@ -61,9 +63,11 @@ def export_nodes(nodes):
     for node in nodes:
         address = node[0]
         port = node[1]
+        age = now - node[4]
         height = node[5]
         asn = node[12]
-        if port == DEFAULT_PORT and asn not in asns and height >= min_height:
+        if (port == DEFAULT_PORT and asn not in asns and
+                age >= min_age and height >= min_height):
             if ":" in address:
                 aaaa_records.append("@\tIN\tAAAA\t{}".format(address))
             else:
@@ -104,6 +108,7 @@ def init_settings(argv):
     SETTINGS['export_dir'] = conf.get('seeder', 'export_dir')
     SETTINGS['nodes'] = conf.getint('seeder', 'nodes')
     SETTINGS['min_height'] = conf.getint('seeder', 'min_height')
+    SETTINGS['min_age'] = conf.getint('seeder', 'min_age')
     SETTINGS['auth_node'] = conf.get('seeder', 'auth_node')
     SETTINGS['zone_file'] = conf.get('seeder', 'zone_file')
     SETTINGS['template'] = conf.get('seeder', 'template')
