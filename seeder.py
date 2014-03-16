@@ -137,7 +137,7 @@ def main(argv):
                         filemode='w')
     print("Writing output to {}, press CTRL+C to terminate..".format(
           SETTINGS['logfile']))
-    
+
     threading.Thread(target=cron).start()
 
     return 0
