@@ -146,7 +146,20 @@ def save_chart_data(tick, timestamp, data):
     redis_pipe.execute()
 
 
-def replay():
+def purge_old_ticks():
+    """
+    Called periodically to remove old ticks from Redis.
+    """
+    keep = SETTINGS['ttl'] / SETTINGS['interval']  # Ticks to keep
+    removed = 0
+    keys = REDIS_CONN.keys('t:*')
+    for key in keys:
+        if key != "t:m:last":
+            removed += REDIS_CONN.zremrangebyrank(key, 0, -(keep + 1))
+    logging.info("Removed: {} ticks".format(removed))
+
+
+def replay_ticks():
     """
     Removes chart data and replays the published timestamps from export.py to
     recreate chart data.
@@ -159,6 +172,8 @@ def replay():
 
     files = sorted(glob.iglob("{}/*.json".format(SETTINGS['export_dir'])),
                    key=os.path.getctime)
+    if len(files) > SETTINGS['replay']:
+        files = files[len(files) - SETTINGS['replay']:]
     for dump in files:
         timestamp = os.path.basename(dump).rstrip(".json")
         REDIS_CONN.publish('export', timestamp)
@@ -174,6 +189,8 @@ def init_settings(argv):
     SETTINGS['debug'] = conf.getboolean('chart', 'debug')
     SETTINGS['interval'] = conf.getint('chart', 'interval')
     SETTINGS['export_dir'] = conf.get('chart', 'export_dir')
+    SETTINGS['replay'] = conf.getint('chart', 'replay')
+    SETTINGS['ttl'] = conf.getint('chart', 'ttl')
 
 
 def main(argv):
@@ -198,7 +215,7 @@ def main(argv):
     print("Writing output to {}, press CTRL+C to terminate..".format(
           SETTINGS['logfile']))
 
-    threading.Thread(target=replay).start()
+    threading.Thread(target=replay_ticks).start()
 
     prev_nodes = set()
 
@@ -209,14 +226,17 @@ def main(argv):
         # data for all reachable nodes.
         if msg['channel'] == 'export' and msg['type'] == 'message':
             timestamp = int(msg['data'])  # From ping.py's 'snapshot' message
-            tick = (timestamp - (timestamp % SETTINGS['interval'])
-                ) + SETTINGS['interval']
+
+            # Normalize timestamp to fixed length tick
+            floor = timestamp - (timestamp % SETTINGS['interval'])
+            tick = floor + SETTINGS['interval']
 
             # Only the first snapshot before the next interval is used to
             # generate the chart data for each tick.
             if REDIS_CONN.zcount("t:m:nodes", tick, tick) == 0:
                 logging.info("Timestamp: {}".format(timestamp))
                 logging.info("Tick: {}".format(tick))
+                purge_old_ticks()
 
                 dump = os.path.join(SETTINGS['export_dir'],
                                     "{}.json".format(timestamp))
