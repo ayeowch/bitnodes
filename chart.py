@@ -170,8 +170,7 @@ def replay_ticks():
         redis_pipe.delete(key)
     redis_pipe.execute()
 
-    files = sorted(glob.iglob("{}/*.json".format(SETTINGS['export_dir'])),
-                   key=os.path.getctime)
+    files = sorted(glob.iglob("{}/*.json".format(SETTINGS['export_dir'])))
     if len(files) > SETTINGS['replay']:
         files = files[len(files) - SETTINGS['replay']:]
     for dump in files:

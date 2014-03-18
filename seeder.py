@@ -54,7 +54,7 @@ def export_nodes(nodes):
     min_age = SETTINGS['min_age']
     now = int(time.time())
     auth_nodes = [node for node in nodes if node[0] == SETTINGS['auth_node']]
-    if auth_nodes > 0:
+    if len(auth_nodes) > 0:
         min_height = auth_nodes[0][5]
     logging.info("Min. height: {}".format(min_height))
     asns = []
@@ -90,8 +90,7 @@ def cron():
     """
     while True:
         time.sleep(5)
-        dump = sorted(glob.iglob("{}/*.json".format(SETTINGS['export_dir'])),
-                      key=os.path.getctime)[-1]
+        dump = max(glob.iglob("{}/*.json".format(SETTINGS['export_dir'])))
         logging.info("Dump: {}".format(dump))
         nodes = json.loads(open(dump, "r").read(), encoding="latin-1")
         export_nodes(nodes)

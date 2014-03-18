@@ -169,8 +169,7 @@ def get_snapshot():
     """
     snapshot = None
     try:
-        snapshots = glob.iglob("{}/*.json".format(SETTINGS['crawl_dir']))
-        snapshot = max(snapshots, key=os.path.getctime)
+        snapshot = max(glob.iglob("{}/*.json".format(SETTINGS['crawl_dir'])))
     except ValueError:
         pass
     return snapshot
