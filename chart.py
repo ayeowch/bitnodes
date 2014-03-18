@@ -146,19 +146,6 @@ def save_chart_data(tick, timestamp, data):
     redis_pipe.execute()
 
 
-def purge_old_ticks():
-    """
-    Called periodically to remove old ticks from Redis.
-    """
-    keep = SETTINGS['ttl'] / SETTINGS['interval']  # Ticks to keep
-    removed = 0
-    keys = REDIS_CONN.keys('t:*')
-    for key in keys:
-        if key != "t:m:last":
-            removed += REDIS_CONN.zremrangebyrank(key, 0, -(keep + 1))
-    logging.info("Removed: {} ticks".format(removed))
-
-
 def replay_ticks():
     """
     Removes chart data and replays the published timestamps from export.py to
@@ -189,7 +176,6 @@ def init_settings(argv):
     SETTINGS['interval'] = conf.getint('chart', 'interval')
     SETTINGS['export_dir'] = conf.get('chart', 'export_dir')
     SETTINGS['replay'] = conf.getint('chart', 'replay')
-    SETTINGS['ttl'] = conf.getint('chart', 'ttl')
 
 
 def main(argv):
@@ -235,7 +221,6 @@ def main(argv):
             if REDIS_CONN.zcount("t:m:nodes", tick, tick) == 0:
                 logging.info("Timestamp: {}".format(timestamp))
                 logging.info("Tick: {}".format(tick))
-                purge_old_ticks()
 
                 dump = os.path.join(SETTINGS['export_dir'],
                                     "{}.json".format(timestamp))
