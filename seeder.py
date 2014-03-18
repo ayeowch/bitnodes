@@ -57,6 +57,10 @@ def export_nodes(nodes):
     if len(auth_nodes) > 0:
         min_height = auth_nodes[0][5]
     logging.info("Min. height: {}".format(min_height))
+    oldest = now - min(nodes, key=operator.itemgetter(4))[4]
+    if oldest < min_age:
+        min_age = oldest
+    logging.info("Min. age: {}".format(min_age))
     asns = []
     a_records = []
     aaaa_records = []
