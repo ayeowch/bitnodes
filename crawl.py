@@ -49,7 +49,6 @@ redis.connection.socket = gevent.socket
 
 # Possible fields for a hash in Redis
 TAG_FIELD = 'T'
-DATA_FIELD = 'D'  # __START_HEIGHT__
 
 # Possible values for a tag field in Redis
 GREEN = 'G'  # Reachable node
@@ -64,12 +63,12 @@ REDIS_CONN = redis.StrictRedis(host=REDIS_HOST, port=REDIS_PORT,
 SETTINGS = {}
 
 
-def enumerate_node(redis_pipe, key, version_msg, addr_msg):
+def enumerate_node(redis_pipe, start_height_key, version_msg, addr_msg):
     """
     Stores start height for a reachable node.
     Adds all peering nodes with max. age of 24 hours into the crawl set.
     """
-    redis_pipe.hset(key, DATA_FIELD, version_msg.get('start_height', 0))
+    redis_pipe.set(start_height_key, version_msg.get('start_height', 0))
 
     if 'addr_list' in addr_msg:
         now = time.time()
@@ -118,7 +117,9 @@ def connect(redis_conn, key):
 
     redis_pipe = redis_conn.pipeline()
     if len(handshake_msgs) > 0:
-        enumerate_node(redis_pipe, key, handshake_msgs[0], addr_msg)
+        start_height_key = "start_height:{}-{}".format(address, port)
+        version_msg = handshake_msgs[0]
+        enumerate_node(redis_pipe, start_height_key, version_msg, addr_msg)
         redis_pipe.hset(key, TAG_FIELD, GREEN)
     redis_pipe.execute()
 
@@ -131,8 +132,9 @@ def dump(nodes):
 
     logging.info("Reachable nodes: {}".format(len(nodes)))
     for node in nodes:
-        start_height = REDIS_CONN.hget(node, DATA_FIELD)
         (address, port) = node[5:].split("-", 1)
+        start_height = REDIS_CONN.get(
+            "start_height:{}-{}".format(address, port))
         json_data.append([address, int(port), int(start_height)])
 
     json_output = os.path.join(SETTINGS['crawl_dir'],
