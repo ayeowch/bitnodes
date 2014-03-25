@@ -80,7 +80,7 @@ def keepalive(connection, version_msg):
 
     while True:
         gevent.sleep(SETTINGS['keepalive'])
-        REDIS_CONN.setex(start_height_key, start_height_ttl, start_height)
+        REDIS_CONN.expire(start_height_key, start_height_ttl)
         try:
             connection.ping()
         except socket.error as err:
