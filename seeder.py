@@ -49,11 +49,11 @@ def export_nodes(nodes):
     Exports nodes as A and AAAA records into DNS zone file. Nodes are selected
     from oldest (longest uptime) to newest each with unique AS number.
     """
+    auth_nodes = [node for node in nodes if node[0] == SETTINGS['auth_node']]
     nodes = sorted(nodes, key=operator.itemgetter(4))[:SETTINGS['nodes']]
     min_height = SETTINGS['min_height']
     min_age = SETTINGS['min_age']
     now = int(time.time())
-    auth_nodes = [node for node in nodes if node[0] == SETTINGS['auth_node']]
     if len(auth_nodes) > 0:
         min_height = auth_nodes[0][5]
     logging.info("Min. height: {}".format(min_height))
