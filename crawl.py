@@ -232,7 +232,7 @@ def set_start_height():
     """
     try:
         start_height = int(requests.get(SETTINGS['height_url']).text)
-    except requests.exceptions.RequestException as err:
+    except (requests.exceptions.RequestException, ValueError) as err:
         logging.warning("{}".format(err))
         start_height = int(REDIS_CONN.get('start_height'))
     logging.info("Start height: {}".format(start_height))
