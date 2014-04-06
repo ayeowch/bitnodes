@@ -59,7 +59,7 @@ def export_nodes(nodes):
     logging.info("Min. height: {}".format(min_height))
     oldest = now - min(nodes, key=operator.itemgetter(4))[4]
     if oldest < min_age:
-        min_age = oldest
+        min_age = oldest - (0.01 * oldest)  # Max. 1% newer than oldest
     logging.info("Min. age: {}".format(min_age))
     asns = []
     a_records = []
