@@ -43,10 +43,9 @@ from ConfigParser import ConfigParser
 redis.connection.socket = socket
 
 # Redis connection setup
-REDIS_HOST = os.environ.get('REDIS_HOST', "localhost")
-REDIS_PORT = int(os.environ.get('REDIS_PORT', 6379))
+REDIS_SOCKET = os.environ.get('REDIS_SOCKET', "/tmp/redis.sock")
 REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD', None)
-REDIS_CONN = redis.StrictRedis(host=REDIS_HOST, port=REDIS_PORT,
+REDIS_CONN = redis.StrictRedis(unix_socket_path=REDIS_SOCKET,
                                password=REDIS_PASSWORD)
 
 # MaxMind databases

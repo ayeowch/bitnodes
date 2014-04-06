@@ -54,10 +54,9 @@ TAG_FIELD = 'T'
 GREEN = 'G'  # Reachable node
 
 # Redis connection setup
-REDIS_HOST = os.environ.get('REDIS_HOST', "localhost")
-REDIS_PORT = int(os.environ.get('REDIS_PORT', 6379))
+REDIS_SOCKET = os.environ.get('REDIS_SOCKET', "/tmp/redis.sock")
 REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD', None)
-REDIS_CONN = redis.StrictRedis(host=REDIS_HOST, port=REDIS_PORT,
+REDIS_CONN = redis.StrictRedis(unix_socket_path=REDIS_SOCKET,
                                password=REDIS_PASSWORD)
 
 SETTINGS = {}
@@ -202,7 +201,7 @@ def task():
     Assigned to a worker to retrieve (pop) a node from the crawl set and
     attempt to establish connection with a new node.
     """
-    redis_conn = redis.StrictRedis(host=REDIS_HOST, port=REDIS_PORT,
+    redis_conn = redis.StrictRedis(unix_socket_path=REDIS_SOCKET,
                                    password=REDIS_PASSWORD)
 
     while True:
