@@ -72,10 +72,6 @@ Reference: https://en.bitcoin.it/wiki/Protocol_specification
 
     [---PING_PAYLOAD---]
     [ 8] NONCE          <Q ( random.getrandbits(64) )       uint64_t
-
-    [---PONG_PAYLOAD---]
-    [ 8] NONCE          <Q (nonce from ping)                uint64_t
-
 ---------------------------------------------------------------------
 
 """
@@ -152,7 +148,7 @@ class Serializer:
             to_addr = kwargs['to_addr']
             from_addr = kwargs['from_addr']
             payload = self.serialize_version_payload(to_addr, from_addr)
-        elif command == "ping" or command == "pong":
+        elif command == "ping":
             nonce = kwargs['nonce']
             payload = self.serialize_ping_payload(nonce)
 
@@ -193,8 +189,6 @@ class Serializer:
             msg.update(self.deserialize_version_payload(payload))
         elif msg['command'] == "addr":
             msg.update(self.deserialize_addr_payload(payload))
-        elif msg['command'] == "ping" or msg['command'] == "pong":
-            msg.update(self.deserialize_ping_payload(payload))
 
         return (msg, data.read())
 
@@ -259,12 +253,6 @@ class Serializer:
         ]
         payload = ''.join(payload)
         return payload
-
-    def deserialize_ping_payload(self, data):
-        msg = {}
-        data = cStringIO.StringIO(data)
-        msg['nonce'] = struct.unpack("<Q", data.read(8))[0]
-        return msg
 
     def deserialize_addr_payload(self, data):
         msg = {}
