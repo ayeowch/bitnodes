@@ -72,18 +72,23 @@ Reference: https://en.bitcoin.it/wiki/Protocol_specification
 
     [---PING_PAYLOAD---]
     [ 8] NONCE          <Q ( random.getrandbits(64) )       uint64_t
----------------------------------------------------------------------
 
+    [---INV_PAYLOAD---]
+    [..] COUNT          variable integer
+    [..] INVENTORY      multiple of COUNT (max 50000)
+        [ 4] TYPE       <I                                  uint32_t
+        [32] HASH                                           char[32]
+---------------------------------------------------------------------
 """
 
 import binascii
-import cStringIO
 import hashlib
 import random
 import socket
 import struct
 import sys
 import time
+from cStringIO import StringIO
 from operator import itemgetter
 
 MAGIC_NUMBER = "\xF9\xBE\xB4\xD9"
@@ -169,7 +174,7 @@ class Serializer:
             raise HeaderTooShortError("got {} of {} bytes".format(
                 data_len, HEADER_LEN))
 
-        data = cStringIO.StringIO(data)
+        data = StringIO(data)
         header = data.read(HEADER_LEN)
         msg.update(self.deserialize_header(header))
 
@@ -189,12 +194,14 @@ class Serializer:
             msg.update(self.deserialize_version_payload(payload))
         elif msg['command'] == "addr":
             msg.update(self.deserialize_addr_payload(payload))
+        elif msg['command'] == "inv":
+            msg.update(self.deserialize_inv_payload(payload))
 
         return (msg, data.read())
 
     def deserialize_header(self, data):
         msg = {}
-        data = cStringIO.StringIO(data)
+        data = StringIO(data)
 
         msg['magic_number'] = data.read(4)
         if msg['magic_number'] != MAGIC_NUMBER:
@@ -225,7 +232,7 @@ class Serializer:
 
     def deserialize_version_payload(self, data):
         msg = {}
-        data = cStringIO.StringIO(data)
+        data = StringIO(data)
 
         msg['version'] = struct.unpack("<i", data.read(4))[0]
         if msg['version'] < PROTOCOL_VERSION:
@@ -256,7 +263,7 @@ class Serializer:
 
     def deserialize_addr_payload(self, data):
         msg = {}
-        data = cStringIO.StringIO(data)
+        data = StringIO(data)
 
         msg['count'] = self.deserialize_int(data)
         msg['addr_list'] = []
@@ -264,6 +271,18 @@ class Serializer:
             network_address = self.deserialize_network_address(
                 data, has_timestamp=True)
             msg['addr_list'].append(network_address)
+
+        return msg
+
+    def deserialize_inv_payload(self, data):
+        msg = {}
+        data = StringIO(data)
+
+        msg['count'] = self.deserialize_int(data)
+        msg['inventory'] = []
+        for _ in xrange(msg['count']):
+            inventory = self.deserialize_inventory(data)
+            msg['inventory'].append(inventory)
 
         return msg
 
@@ -309,6 +328,15 @@ class Serializer:
             'port': port,
         }
 
+    def deserialize_inventory(self, data):
+        inv_type = struct.unpack("<I", data.read(4))[0]
+        inv_hash = data.read(32)
+
+        return {
+            'type': inv_type,
+            'hash': inv_hash,
+        }
+
     def serialize_string(self, data):
         length = len(data)
         if length < 0xFD:
@@ -343,6 +371,9 @@ class Connection:
         self.serializer = Serializer(**config)
         self.socket_timeout = config.get('socket_timeout', SOCKET_TIMEOUT)
         self.socket = None
+        # Bytes that have been read off the network buffer but not immediately
+        # used should be stored here to maintain a valid data stream.
+        self.recv_buf = ""
 
     def open(self):
         self.socket = socket.create_connection(self.to_addr,
@@ -402,6 +433,7 @@ class Connection:
         except PayloadTooShortError:
             data += self.recv(length=self.serializer.required_len - len(data))
             (msg, data) = self.serializer.deserialize_msg(data)
+        self.recv_buf = data
 
         return msg
 
@@ -413,33 +445,46 @@ class Connection:
         msg = self.serializer.serialize_msg(command="ping", nonce=nonce)
         self.send(msg)
 
+    def listen(self):
+        data = self.recv_buf
+        while True:
+            data += self.recv()
+            try:
+                (msg, data) = self.serializer.deserialize_msg(data)
+            except PayloadTooShortError:
+                data += self.recv(
+                    length=self.serializer.required_len - len(data))
+                (msg, data) = self.serializer.deserialize_msg(data)
+            yield msg
+
 
 def main():
-    to_addr = ("88.198.62.174", 8333)
+    to_addr = ("148.251.238.178", 8333)
 
     handshake_msgs = []
     addr_msg = {}
 
-    connection = Connection(to_addr)
+    connection = Connection(to_addr, socket_timeout=900)
     try:
-        connection.open()
         print("open")
-        handshake_msgs = connection.handshake()
+        connection.open()
+
         print("handshake")
-        addr_msg = connection.getaddr()
+        handshake_msgs = connection.handshake()
+
         print("getaddr")
+        addr_msg = connection.getaddr()
+
+        print("listen")
+        for msg in connection.listen():
+            if msg['command'] == "inv":
+                print(msg)
+
     except (ProtocolError, socket.error) as err:
         print("{}: {}".format(err, to_addr))
-    finally:
-        connection.close()
-        print("close")
 
-    if len(handshake_msgs) > 0:
-        print("{}".format(handshake_msgs))
-        if 'addr_list' in addr_msg:
-            for idx, addr in enumerate(addr_msg['addr_list'][:10], start=1):
-                print("[{}] {}".format(idx, addr))
-            print("...")
+    print("close")
+    connection.close()
 
     return 0
 
