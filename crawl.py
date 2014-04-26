@@ -71,7 +71,7 @@ def enumerate_node(redis_pipe, start_height_key, version_msg, addr_msgs):
     now = time.time()
     redis_pipe.set(start_height_key, version_msg.get('start_height', 0))
 
-    for addr_msg in addr_msgs:
+    for addr_msg in addr_msgs[:1]:
         if 'addr_list' in addr_msg:
             for peer in addr_msg['addr_list']:
                 age = now - peer['timestamp']  # seconds
