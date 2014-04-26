@@ -62,24 +62,28 @@ REDIS_CONN = redis.StrictRedis(unix_socket_path=REDIS_SOCKET,
 SETTINGS = {}
 
 
-def enumerate_node(redis_pipe, start_height_key, version_msg, addr_msg):
+def enumerate_node(redis_pipe, start_height_key, version_msg, addr_msgs):
     """
     Stores start height for a reachable node.
     Adds all peering nodes with max. age of 24 hours into the crawl set.
     """
+    peers = 0
+    now = time.time()
     redis_pipe.set(start_height_key, version_msg.get('start_height', 0))
 
-    if 'addr_list' in addr_msg:
-        now = time.time()
+    for addr_msg in addr_msgs:
+        if 'addr_list' in addr_msg:
+            for peer in addr_msg['addr_list']:
+                age = now - peer['timestamp']  # seconds
 
-        for peer in addr_msg['addr_list']:
-            age = now - peer['timestamp']  # seconds
+                # Add peering node with age <= 24 hours into crawl set
+                if age >= 0 and age <= SETTINGS['max_age']:
+                    address = peer['ipv4'] if peer['ipv4'] else peer['ipv6']
+                    port = peer['port'] if peer['port'] > 0 else DEFAULT_PORT
+                    redis_pipe.sadd('pending', (address, port))
+                    peers += 1
 
-            # Add peering node with age <= 24 hours into crawl set
-            if age >= 0 and age <= SETTINGS['max_age']:
-                address = peer['ipv4'] if peer['ipv4'] else peer['ipv6']
-                port = peer['port'] if peer['port'] > 0 else DEFAULT_PORT
-                redis_pipe.sadd('pending', (address, port))
+    return peers
 
 
 def connect(redis_conn, key):
@@ -92,7 +96,7 @@ def connect(redis_conn, key):
     Stores node in Redis.
     """
     handshake_msgs = []
-    addr_msg = {}
+    addr_msgs = []
 
     redis_conn.hset(key, TAG_FIELD, "")  # Set Redis hash for a new node
 
@@ -106,7 +110,7 @@ def connect(redis_conn, key):
     try:
         connection.open()
         handshake_msgs = connection.handshake()
-        addr_msg = connection.getaddr()
+        addr_msgs = connection.getaddr()
     except ProtocolError as err:
         logging.debug("{}: {}".format(connection.to_addr, err))
     except socket.error as err:
@@ -118,7 +122,9 @@ def connect(redis_conn, key):
     if len(handshake_msgs) > 0:
         start_height_key = "start_height:{}-{}".format(address, port)
         version_msg = handshake_msgs[0]
-        enumerate_node(redis_pipe, start_height_key, version_msg, addr_msg)
+        peers = enumerate_node(redis_pipe, start_height_key, version_msg,
+                               addr_msgs)
+        logging.debug("[{}] Peers: {}".format(connection.to_addr, peers))
         redis_pipe.hset(key, TAG_FIELD, GREEN)
     redis_pipe.execute()
 
