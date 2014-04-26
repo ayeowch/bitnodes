@@ -1,0 +1,6 @@
+*.log
+*.out
+*.pyc
+data/*
+geoip/*.dat
+rsync.sh
