@@ -133,7 +133,7 @@ class IncompatibleClientError(ProtocolError):
     pass
 
 
-class Serializer:
+class Serializer(object):
     def __init__(self, **config):
         self.user_agent = config.get('user_agent', USER_AGENT)
         self.start_height = config.get('start_height', START_HEIGHT)
@@ -362,7 +362,7 @@ class Serializer:
         return length
 
 
-class Connection:
+class Connection(object):
     def __init__(self, to_addr, from_addr=("0.0.0.0", 0), **config):
         if to_addr[1] == 0:
             to_addr = (to_addr[0], DEFAULT_PORT)
@@ -371,9 +371,6 @@ class Connection:
         self.serializer = Serializer(**config)
         self.socket_timeout = config.get('socket_timeout', SOCKET_TIMEOUT)
         self.socket = None
-        # Bytes that have been read off the network buffer but not immediately
-        # used should be stored here to maintain a valid data stream.
-        self.recv_buf = ""
 
     def open(self):
         self.socket = socket.create_connection(self.to_addr,
@@ -408,7 +405,7 @@ class Connection:
         # <<< [version] [verack]
         msgs = []
         data = self.recv(length=148)  # version (124 bytes) + verack (24 bytes)
-        while (len(data) > 0):
+        while len(data) > 0:
             try:
                 (msg, data) = self.serializer.deserialize_msg(data)
             except PayloadTooShortError:
@@ -417,7 +414,10 @@ class Connection:
                 (msg, data) = self.serializer.deserialize_msg(data)
             msgs.append(msg)
         if len(msgs) > 0:
-            msgs = sorted(msgs, key=itemgetter('command'), reverse=True)
+            commands = ["version", "verack"]
+            msgs[:] = sorted(
+                [msg for msg in msgs if msg.get('command') in commands],
+                key=itemgetter('command'), reverse=True)
 
         return msgs
 
@@ -427,15 +427,21 @@ class Connection:
         self.send(msg)
 
         # <<< [addr]
+        msgs = []
         data = self.recv()
-        try:
-            (msg, data) = self.serializer.deserialize_msg(data)
-        except PayloadTooShortError:
-            data += self.recv(length=self.serializer.required_len - len(data))
-            (msg, data) = self.serializer.deserialize_msg(data)
-        self.recv_buf = data
+        while len(data) > 0:
+            try:
+                (msg, data) = self.serializer.deserialize_msg(data)
+            except PayloadTooShortError:
+                data += self.recv(
+                    length=self.serializer.required_len - len(data))
+                (msg, data) = self.serializer.deserialize_msg(data)
+            msgs.append(msg)
+        if len(msgs) > 0:
+            commands = ["addr"]
+            msgs[:] = [msg for msg in msgs if msg.get('command') in commands]
 
-        return msg
+        return msgs
 
     def ping(self, nonce=None):
         if nonce is None:
@@ -446,7 +452,7 @@ class Connection:
         self.send(msg)
 
     def listen(self):
-        data = self.recv_buf
+        data = ""
         while True:
             data += self.recv()
             try:
@@ -462,7 +468,7 @@ def main():
     to_addr = ("148.251.238.178", 8333)
 
     handshake_msgs = []
-    addr_msg = {}
+    addr_msgs = []
 
     connection = Connection(to_addr, socket_timeout=900)
     try:
@@ -473,7 +479,7 @@ def main():
         handshake_msgs = connection.handshake()
 
         print("getaddr")
-        addr_msg = connection.getaddr()
+        addr_msgs = connection.getaddr()
 
         print("listen")
         for msg in connection.listen():
