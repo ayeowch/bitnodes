@@ -136,7 +136,7 @@ def save_inv(node, msgs):
     """
     Adds inv messages received from node into the inv set in Redis.
     """
-    now = int(time.time())
+    now = int(time.time() * 1000)  # in ms
     redis_pipe = REDIS_CONN.pipeline()
 
     for msg in msgs:
