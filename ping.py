@@ -60,8 +60,8 @@ SETTINGS = {}
 def keepalive(connection, version_msg):
     """
     Periodically sends a ping message to the specified node to maintain open
-    connection. Open connections are tracked in open set with the associated
-    data stored in opendata set in Redis.
+    connection and yields received inv messages. Open connections are tracked
+    in open set with the associated data stored in opendata set in Redis.
     """
     node = connection.to_addr
     version = version_msg.get('version', "")
@@ -77,15 +77,27 @@ def keepalive(connection, version_msg):
     start_height_ttl = SETTINGS['keepalive'] * 2  # > keepalive
     REDIS_CONN.setex(start_height_key, start_height_ttl, start_height)
 
+    last_ping = now
     while True:
-        gevent.sleep(SETTINGS['keepalive'])
-        REDIS_CONN.expire(start_height_key, start_height_ttl)
+        if time.time() > last_ping + SETTINGS['keepalive']:
+            REDIS_CONN.expire(start_height_key, start_height_ttl)
+            try:
+                logging.debug("Ping: {}".format(node))
+                connection.ping()
+            except socket.error as err:
+                logging.debug("Closing {} ({})".format(node, err))
+                break
+            last_ping = time.time()
         try:
-            connection.ping()
-        except socket.error as err:
+            msgs = connection.get_messages(commands=["inv"])
+        except socket.timeout as err:
+            logging.debug("{}: {}".format(node, err))
+        except (ProtocolError, socket.error) as err:
             logging.debug("Closing {} ({})".format(node, err))
             break
-
+        else:
+            yield msgs
+        gevent.sleep()
     connection.close()
 
     REDIS_CONN.srem('open', node)
@@ -105,16 +117,36 @@ def task():
                             socket_timeout=SETTINGS['socket_timeout'],
                             user_agent=SETTINGS['user_agent'],
                             start_height=start_height)
+
     try:
         connection.open()
         handshake_msgs = connection.handshake()
-    except ProtocolError as err:
-        connection.close()
-    except socket.error as err:
+    except (ProtocolError, socket.error) as err:
+        logging.debug("Closing {} ({})".format(connection.to_addr, err))
         connection.close()
 
-    if len(handshake_msgs) > 0:
-        keepalive(connection, handshake_msgs[0])
+    if len(handshake_msgs) == 0:
+        return
+
+    for msgs in keepalive(connection, handshake_msgs[0]):
+        save_inv(connection.to_addr, msgs)
+
+
+def save_inv(node, msgs):
+    """
+    Adds inv messages received from node into the inv set in Redis.
+    """
+    now = int(time.time())
+    redis_pipe = REDIS_CONN.pipeline()
+
+    for msg in msgs:
+        logging.debug("{}: {} inv".format(node, msg['count']))
+        for inv in msg['inventory']:
+            logging.debug("[{}] {}:{}".format(now, inv['type'], inv['hash']))
+            key = "inv:{}:{}".format(inv['type'], inv['hash'])
+            redis_pipe.zadd(key, now, node)
+
+    redis_pipe.execute()
 
 
 def cron(pool):
@@ -145,7 +177,10 @@ def cron(pool):
             reachable_nodes = set_reachable(nodes)
             logging.info("Reachable nodes: {}".format(reachable_nodes))
 
-            SETTINGS['keepalive'] = int(REDIS_CONN.get('elapsed'))
+            try:
+                SETTINGS['keepalive'] = int(REDIS_CONN.get('elapsed'))
+            except TypeError as err:
+                logging.warning(err)
             logging.debug("Keepalive: {}".format(SETTINGS['keepalive']))
 
             for _ in xrange(reachable_nodes):
@@ -169,8 +204,8 @@ def get_snapshot():
     snapshot = None
     try:
         snapshot = max(glob.iglob("{}/*.json".format(SETTINGS['crawl_dir'])))
-    except ValueError:
-        pass
+    except ValueError as err:
+        logging.warning(err)
     return snapshot
 
 
@@ -182,8 +217,8 @@ def get_nodes(path):
     text = open(path, 'r').read()
     try:
         nodes = json.loads(text)
-    except ValueError:
-        logging.warning("Invalid JSON file: {}".format(path))  # Pending write
+    except ValueError as err:
+        logging.warning(err)
     return nodes
 
 
