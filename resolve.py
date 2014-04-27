@@ -145,9 +145,7 @@ def raw_hostname(address):
     hostname = address
     try:
         hostname = socket.gethostbyaddr(address)[0]
-    except socket.gaierror as err:
-        logging.debug("{}: {}".format(address, err))
-    except socket.herror as err:
+    except (socket.gaierror, socket.herror) as err:
         logging.debug("{}: {}".format(address, err))
     return hostname
 

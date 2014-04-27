@@ -111,9 +111,7 @@ def connect(redis_conn, key):
         connection.open()
         handshake_msgs = connection.handshake()
         addr_msgs = connection.getaddr()
-    except ProtocolError as err:
-        logging.debug("{}: {}".format(connection.to_addr, err))
-    except socket.error as err:
+    except (ProtocolError, socket.error) as err:
         logging.debug("{}: {}".format(connection.to_addr, err))
     finally:
         connection.close()

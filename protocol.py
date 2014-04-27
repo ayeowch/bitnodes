@@ -76,7 +76,7 @@ Reference: https://en.bitcoin.it/wiki/Protocol_specification
     [---INV_PAYLOAD---]
     [..] COUNT          variable integer
     [..] INVENTORY      multiple of COUNT (max 50000)
-        [ 4] TYPE       <I                                  uint32_t
+        [ 4] TYPE       <I (0=error, 1=tx, 2=block)         uint32_t
         [32] HASH                                           char[32]
 ---------------------------------------------------------------------
 """
@@ -330,11 +330,10 @@ class Serializer(object):
 
     def deserialize_inventory(self, data):
         inv_type = struct.unpack("<I", data.read(4))[0]
-        inv_hash = data.read(32)
-
+        inv_hash = data.read(32)[::-1]  # big-endian to little-endian
         return {
             'type': inv_type,
-            'hash': inv_hash,
+            'hash': binascii.hexlify(inv_hash),
         }
 
     def serialize_string(self, data):
@@ -396,15 +395,9 @@ class Connection(object):
             data = self.socket.recv(SOCKET_BUFSIZE)
         return data
 
-    def handshake(self):
-        # [version] >>>
-        msg = self.serializer.serialize_msg(
-            command="version", to_addr=self.to_addr, from_addr=self.from_addr)
-        self.send(msg)
-
-        # <<< [version] [verack]
+    def get_messages(self, length=0, commands=None):
         msgs = []
-        data = self.recv(length=148)  # version (124 bytes) + verack (24 bytes)
+        data = self.recv(length=length)
         while len(data) > 0:
             try:
                 (msg, data) = self.serializer.deserialize_msg(data)
@@ -413,11 +406,20 @@ class Connection(object):
                     length=self.serializer.required_len - len(data))
                 (msg, data) = self.serializer.deserialize_msg(data)
             msgs.append(msg)
+        if len(msgs) > 0 and commands:
+            msgs[:] = [msg for msg in msgs if msg.get('command') in commands]
+        return msgs
+
+    def handshake(self):
+        # [version] >>>
+        msg = self.serializer.serialize_msg(
+            command="version", to_addr=self.to_addr, from_addr=self.from_addr)
+        self.send(msg)
+
+        # <<< [version 124 bytes] [verack 24 bytes]
+        msgs = self.get_messages(length=148, commands=["version", "verack"])
         if len(msgs) > 0:
-            commands = ["version", "verack"]
-            msgs[:] = sorted(
-                [msg for msg in msgs if msg.get('command') in commands],
-                key=itemgetter('command'), reverse=True)
+            msgs[:] = sorted(msgs, key=itemgetter('command'), reverse=True)
 
         return msgs
 
@@ -426,20 +428,8 @@ class Connection(object):
         msg = self.serializer.serialize_msg(command="getaddr")
         self.send(msg)
 
-        # <<< [addr]
-        msgs = []
-        data = self.recv()
-        while len(data) > 0:
-            try:
-                (msg, data) = self.serializer.deserialize_msg(data)
-            except PayloadTooShortError:
-                data += self.recv(
-                    length=self.serializer.required_len - len(data))
-                (msg, data) = self.serializer.deserialize_msg(data)
-            msgs.append(msg)
-        if len(msgs) > 0:
-            commands = ["addr"]
-            msgs[:] = [msg for msg in msgs if msg.get('command') in commands]
+        # <<< [addr]..
+        msgs = self.get_messages(commands=["addr"])
 
         return msgs
 
@@ -450,18 +440,6 @@ class Connection(object):
         # [ping] >>>
         msg = self.serializer.serialize_msg(command="ping", nonce=nonce)
         self.send(msg)
-
-    def listen(self):
-        data = ""
-        while True:
-            data += self.recv()
-            try:
-                (msg, data) = self.serializer.deserialize_msg(data)
-            except PayloadTooShortError:
-                data += self.recv(
-                    length=self.serializer.required_len - len(data))
-                (msg, data) = self.serializer.deserialize_msg(data)
-            yield msg
 
 
 def main():
@@ -480,11 +458,6 @@ def main():
 
         print("getaddr")
         addr_msgs = connection.getaddr()
-
-        print("listen")
-        for msg in connection.listen():
-            if msg['command'] == "inv":
-                print(msg)
 
     except (ProtocolError, socket.error) as err:
         print("{}: {}".format(err, to_addr))
