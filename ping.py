@@ -145,6 +145,7 @@ def save_inv(node, msgs):
             logging.debug("[{}] {}:{}".format(now, inv['type'], inv['hash']))
             key = "inv:{}:{}".format(inv['type'], inv['hash'])
             redis_pipe.zadd(key, now, node)
+            redis_pipe.expire(key, 86400)
 
     redis_pipe.execute()
 
