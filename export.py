@@ -55,7 +55,10 @@ def get_row(node):
     port = node[1]
 
     start_height = REDIS_CONN.get('start_height:{}-{}'.format(address, port))
-    start_height = (int(start_height),)
+    if start_height is None:
+        start_height = (0,)
+    else:
+        start_height = (int(start_height),)
 
     hostname = REDIS_CONN.hget('resolve:{}'.format(address), 'hostname')
     hostname = (hostname,)
