@@ -98,7 +98,6 @@ USER_AGENT = "/getaddr.bitnodes.io:0.1/"
 START_HEIGHT = 274475
 RELAY = 0
 DEFAULT_PORT = 8333
-MAX_ADDR_COUNT = 1000
 
 SOCKET_BUFSIZE = 8192
 SOCKET_TIMEOUT = 15
@@ -130,6 +129,10 @@ class InvalidPayloadChecksum(ProtocolError):
 
 
 class IncompatibleClientError(ProtocolError):
+    pass
+
+
+class ReadError(ProtocolError):
     pass
 
 
@@ -307,7 +310,11 @@ class Serializer(object):
         if has_timestamp:
             timestamp = struct.unpack("<I", data.read(4))[0]
 
-        services = struct.unpack("<Q", data.read(8))[0]
+        try:
+            services = struct.unpack("<Q", data.read(8))[0]
+        except struct.error as err:
+            raise ReadError(err)
+
         _ipv6 = data.read(12)
         _ipv4 = data.read(4)
         port = struct.unpack(">H", data.read(2))[0]
