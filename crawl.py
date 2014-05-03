@@ -242,6 +242,23 @@ def set_start_height():
     REDIS_CONN.set('start_height', start_height)
 
 
+def set_pending():
+    """
+    Initializes pending set in Redis with a list of reachable nodes from DNS
+    seeders to bootstrap the crawler.
+    """
+    for seeder in SETTINGS['seeders']:
+        nodes = []
+        try:
+            nodes = socket.getaddrinfo(seeder, None)
+        except socket.gaierror as err:
+            logging.warning("{}".format(err))
+            continue
+        for node in nodes:
+            address = node[-1][0]
+            REDIS_CONN.sadd('pending', (address, DEFAULT_PORT))
+
+
 def init_settings(argv):
     """
     Populates SETTINGS with key-value pairs from configuration file.
@@ -249,7 +266,7 @@ def init_settings(argv):
     conf = ConfigParser()
     conf.read(argv[1])
     SETTINGS['logfile'] = conf.get('crawl', 'logfile')
-    SETTINGS['seeds'] = conf.get('crawl', 'seeds')
+    SETTINGS['seeders'] = conf.get('crawl', 'seeders').strip().split("\n")
     SETTINGS['height_url'] = conf.get('crawl', 'height_url')
     SETTINGS['workers'] = conf.getint('crawl', 'workers')
     SETTINGS['debug'] = conf.getboolean('crawl', 'debug')
@@ -293,12 +310,7 @@ def main(argv):
     redis_pipe.delete('pending')
     redis_pipe.execute()
 
-    # Get seed nodes
-    seeds = json.loads(open(SETTINGS['seeds'], 'r').read())
-    for seed in seeds:
-        REDIS_CONN.sadd('pending', (str(seed), DEFAULT_PORT))
-    logging.info("Seeds: {}".format(len(seeds)))
-
+    set_pending()
     set_start_height()
 
     # Spawn workers (greenlets) including one worker reserved for cron tasks
