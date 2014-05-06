@@ -49,13 +49,12 @@ def export_nodes(nodes):
     Exports nodes as A and AAAA records into DNS zone file. Nodes are selected
     from oldest (longest uptime) to newest each with unique AS number.
     """
-    auth_nodes = [node for node in nodes if node[0] == SETTINGS['auth_node']]
     nodes = sorted(nodes, key=operator.itemgetter(4))[:SETTINGS['nodes']]
-    min_height = SETTINGS['min_height']
+    heights = sorted(set([node[5] for node in nodes]))  # Unique heights
+    height = heights[int(0.9 * len(heights))]  # 90th percentile height
+    min_height = max(SETTINGS['min_height'], height)
     min_age = SETTINGS['min_age']
     now = int(time.time())
-    if len(auth_nodes) > 0:
-        min_height = auth_nodes[0][5]
     logging.info("Min. height: {}".format(min_height))
     oldest = now - min(nodes, key=operator.itemgetter(4))[4]
     if oldest < min_age:
@@ -116,7 +115,6 @@ def init_settings(argv):
     SETTINGS['nodes'] = conf.getint('seeder', 'nodes')
     SETTINGS['min_height'] = conf.getint('seeder', 'min_height')
     SETTINGS['min_age'] = conf.getint('seeder', 'min_age')
-    SETTINGS['auth_node'] = conf.get('seeder', 'auth_node')
     SETTINGS['zone_file'] = conf.get('seeder', 'zone_file')
     SETTINGS['template'] = conf.get('seeder', 'template')
     SETTINGS['a_records'] = conf.getint('seeder', 'a_records')
