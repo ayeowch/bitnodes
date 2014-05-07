@@ -51,7 +51,7 @@ def export_nodes(nodes):
     """
     nodes = sorted(nodes, key=operator.itemgetter(4))[:SETTINGS['nodes']]
     heights = sorted(set([node[5] for node in nodes]))  # Unique heights
-    height = heights[int(0.9 * len(heights))]  # 90th percentile height
+    height = heights[int(0.999 * len(heights))]  # 99.9th percentile height
     min_height = max(SETTINGS['min_height'], height)
     min_age = SETTINGS['min_age']
     now = int(time.time())
