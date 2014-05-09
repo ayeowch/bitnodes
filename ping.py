@@ -59,9 +59,9 @@ SETTINGS = {}
 
 def keepalive(connection, version_msg):
     """
-    Sends a ping message 3 minutes to the specified node to maintain open
-    connection and yields received inv messages. Open connections are tracked
-    in open set with the associated data stored in opendata set in Redis.
+    Periodically sends a ping message to the specified node to maintain open
+    connection. Open connections are tracked in open set with the associated
+    data stored in opendata set in Redis.
     """
     node = connection.to_addr
     version = version_msg.get('version', "")
@@ -72,29 +72,19 @@ def keepalive(connection, version_msg):
     REDIS_CONN.sadd('open', node)
     REDIS_CONN.sadd('opendata', data)
 
-    last_ping = now
-
     while True:
-        if time.time() > last_ping + 180:
-            try:
-                connection.ping()
-            except socket.error as err:
-                logging.debug("Closing {} ({})".format(node, err))
-                break
-            last_ping = time.time()
-
         try:
-            msgs = connection.get_messages(commands=["inv"])
-        except socket.timeout as err:
-            logging.debug("{}: {}".format(node, err))
-        except (ProtocolError, socket.error) as err:
+            connection.ping()
+        except socket.error as err:
             logging.debug("Closing {} ({})".format(node, err))
             break
-        else:
-            yield msgs
 
-        # Cut CPU usage at the expense of 50ms slack for inv timestamps
-        gevent.sleep(0.05)
+        try:
+            ttl = int(REDIS_CONN.get('elapsed'))
+        except TypeError as err:
+            ttl = 60
+
+        gevent.sleep(ttl)
 
     connection.close()
 
@@ -128,25 +118,7 @@ def task():
     if len(handshake_msgs) == 0:
         return
 
-    for msgs in keepalive(connection, handshake_msgs[0]):
-        save_inv(connection.to_addr, msgs)
-
-
-def save_inv(node, msgs):
-    """
-    Adds inv messages received from node into the inv set in Redis.
-    """
-    redis_pipe = REDIS_CONN.pipeline()
-
-    for msg in msgs:
-        logging.debug("{}: {} inv".format(node, msg['count']))
-        for inv in msg['inventory']:
-            logging.debug("{}:{}".format(inv['type'], inv['hash']))
-            key = "inv:{}:{}".format(inv['type'], inv['hash'])
-            redis_pipe.zadd(key, msg['timestamp'], node)
-            redis_pipe.expire(key, 10800)
-
-    redis_pipe.execute()
+    keepalive(connection, handshake_msgs[0])
 
 
 def cron(pool):

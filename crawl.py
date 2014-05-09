@@ -196,6 +196,7 @@ def cron():
         if pending_nodes == 0:
             REDIS_CONN.set('crawl:master:state', "starting")
             elapsed = int(time.time()) - start
+            REDIS_CONN.set('elapsed', elapsed)
             logging.info("Elapsed: {}".format(elapsed))
             logging.info("Restarting")
             restart()
