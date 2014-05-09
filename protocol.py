@@ -82,6 +82,7 @@ Reference: https://en.bitcoin.it/wiki/Protocol_specification
 """
 
 import binascii
+import gevent
 import hashlib
 import random
 import socket
@@ -95,11 +96,11 @@ MAGIC_NUMBER = "\xF9\xBE\xB4\xD9"
 PROTOCOL_VERSION = 70001
 SERVICES = 1
 USER_AGENT = "/getaddr.bitnodes.io:0.1/"
-START_HEIGHT = 274475
-RELAY = 0
+START_HEIGHT = 290000
+RELAY = 1  # set to 1 to receive all txs
 DEFAULT_PORT = 8333
 
-SOCKET_BUFSIZE = 8192
+SOCKET_BUFSIZE = 4096
 SOCKET_TIMEOUT = 15
 HEADER_LEN = 24
 
@@ -278,7 +279,9 @@ class Serializer(object):
         return msg
 
     def deserialize_inv_payload(self, data):
-        msg = {}
+        msg = {
+            'timestamp': int(time.time() * 1000),  # milliseconds
+        }
         data = StringIO(data)
 
         msg['count'] = self.deserialize_int(data)
@@ -384,20 +387,26 @@ class Connection(object):
 
     def close(self):
         if self.socket:
-            self.socket.close()
+            try:
+                self.socket.shutdown(socket.SHUT_RDWR)
+            except socket.error:
+                pass
+            finally:
+                self.socket.close()
 
     def send(self, data):
         self.socket.sendall(data)
 
     def recv(self, length=0):
         if length > 0:
-            data = ""
+            chunks = []
             while length > 0:
-                partial_data = self.socket.recv(SOCKET_BUFSIZE)
-                if not partial_data:
+                chunk = self.socket.recv(SOCKET_BUFSIZE)
+                if not chunk:
                     break  # remote host closed connection
-                data += partial_data
-                length -= len(partial_data)
+                chunks.append(chunk)
+                length -= len(chunk)
+            data = ''.join(chunks)
         else:
             data = self.socket.recv(SOCKET_BUFSIZE)
         return data
@@ -406,6 +415,7 @@ class Connection(object):
         msgs = []
         data = self.recv(length=length)
         while len(data) > 0:
+            gevent.sleep(0)
             try:
                 (msg, data) = self.serializer.deserialize_msg(data)
             except PayloadTooShortError:
@@ -455,7 +465,7 @@ def main():
     handshake_msgs = []
     addr_msgs = []
 
-    connection = Connection(to_addr, socket_timeout=900)
+    connection = Connection(to_addr)
     try:
         print("open")
         connection.open()
@@ -471,6 +481,8 @@ def main():
 
     print("close")
     connection.close()
+
+    print(handshake_msgs)
 
     return 0
 

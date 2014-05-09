@@ -59,35 +59,20 @@ SETTINGS = {}
 
 def keepalive(connection, version_msg):
     """
-    Periodically sends a ping message to the specified node to maintain open
-    connection and yields received inv messages. Open connections are tracked
-    in open set with the associated data stored in opendata set in Redis.
+    Maintains open connection with the specified node by yielding inv messages.
+    Open connections are tracked in open set with the associated data stored in
+    opendata set in Redis.
     """
     node = connection.to_addr
     version = version_msg.get('version', "")
     user_agent = version_msg.get('user_agent', "")
-    start_height = version_msg.get('start_height', 0)
     now = int(time.time())
     data = node + (version, user_agent, now)
 
     REDIS_CONN.sadd('open', node)
     REDIS_CONN.sadd('opendata', data)
 
-    start_height_key = "start_height:{}-{}".format(node[0], node[1])
-    start_height_ttl = SETTINGS['keepalive'] * 2  # > keepalive
-    REDIS_CONN.setex(start_height_key, start_height_ttl, start_height)
-
-    last_ping = now
     while True:
-        if time.time() > last_ping + SETTINGS['keepalive']:
-            REDIS_CONN.expire(start_height_key, start_height_ttl)
-            try:
-                logging.debug("Ping: {}".format(node))
-                connection.ping()
-            except socket.error as err:
-                logging.debug("Closing {} ({})".format(node, err))
-                break
-            last_ping = time.time()
         try:
             msgs = connection.get_messages(commands=["inv"])
         except socket.timeout as err:
@@ -97,7 +82,10 @@ def keepalive(connection, version_msg):
             break
         else:
             yield msgs
-        gevent.sleep()
+
+        # Cut CPU usage at the expense of 50ms slack for inv timestamps
+        gevent.sleep(0.05)
+
     connection.close()
 
     REDIS_CONN.srem('open', node)
@@ -110,6 +98,8 @@ def task():
     attempt to establish and maintain connection with the node.
     """
     node = REDIS_CONN.spop('reachable')
+    if node is None:
+        return
     (address, port, start_height) = eval(node)
 
     handshake_msgs = []
@@ -136,16 +126,15 @@ def save_inv(node, msgs):
     """
     Adds inv messages received from node into the inv set in Redis.
     """
-    now = int(time.time() * 1000)  # in ms
     redis_pipe = REDIS_CONN.pipeline()
 
     for msg in msgs:
         logging.debug("{}: {} inv".format(node, msg['count']))
         for inv in msg['inventory']:
-            logging.debug("[{}] {}:{}".format(now, inv['type'], inv['hash']))
+            logging.debug("{}:{}".format(inv['type'], inv['hash']))
             key = "inv:{}:{}".format(inv['type'], inv['hash'])
-            redis_pipe.zadd(key, now, node)
-            redis_pipe.expire(key, 86400)
+            redis_pipe.zadd(key, msg['timestamp'], node)
+            redis_pipe.expire(key, 10800)
 
     redis_pipe.execute()
 
@@ -154,47 +143,45 @@ def cron(pool):
     """
     Assigned to a worker to perform the following tasks periodically to
     maintain a continuous network-wide connections:
+
+    [Master]
     1) Checks for a new snapshot
     2) Loads new reachable nodes into the reachable set in Redis
-    3) Spawns workers to establish and maintain connection with reachable nodes
-    4) Signals listener to get reachable nodes from opendata set
+    3) Signals listener to get reachable nodes from opendata set
+
+    [Master/Slave]
+    1) Spawns workers to establish and maintain connection with reachable nodes
     """
     snapshot = None
 
     while True:
-        logging.debug("")
+        if SETTINGS['master']:
+            new_snapshot = get_snapshot()
 
-        new_snapshot = get_snapshot()
-        if new_snapshot != snapshot:
-            logging.info("New snapshot: {}".format(new_snapshot))
+            if new_snapshot != snapshot:
+                logging.info("New snapshot: {}".format(new_snapshot))
+                nodes = get_nodes(new_snapshot)
+                if len(nodes) == 0:
+                    continue
+                snapshot = new_snapshot
 
-            nodes = get_nodes(new_snapshot)
-            if len(nodes) == 0:
-                continue
-            logging.info("Nodes: {}".format(len(nodes)))
+                logging.info("Nodes: {}".format(len(nodes)))
 
-            snapshot = new_snapshot
+                reachable_nodes = set_reachable(nodes)
+                logging.info("New reachable nodes: {}".format(reachable_nodes))
 
-            reachable_nodes = set_reachable(nodes)
-            logging.info("Reachable nodes: {}".format(reachable_nodes))
+                REDIS_CONN.publish('snapshot', int(time.time()))
 
-            try:
-                SETTINGS['keepalive'] = int(REDIS_CONN.get('elapsed'))
-            except TypeError as err:
-                logging.warning(err)
-            logging.debug("Keepalive: {}".format(SETTINGS['keepalive']))
+            connections = REDIS_CONN.scard('open')
+            logging.info("Connections: {}".format(connections))
 
-            for _ in xrange(reachable_nodes):
-                pool.spawn(task)
+        for _ in xrange(min(REDIS_CONN.scard('reachable'), pool.free_count())):
+            pool.spawn(task)
 
-            gevent.sleep(SETTINGS['cron_delay'])
+        workers = SETTINGS['workers'] - pool.free_count()
+        logging.info("Workers: {}".format(workers))
 
-            REDIS_CONN.publish('snapshot', int(time.time()))
-            workers = SETTINGS['workers'] - pool.free_count()
-            logging.info("Workers: {}".format(workers))
-            logging.info("Connections: {}".format(REDIS_CONN.scard('open')))
-        else:
-            gevent.sleep(SETTINGS['cron_delay'])
+        gevent.sleep(SETTINGS['cron_delay'])
 
 
 def get_snapshot():
@@ -250,15 +237,15 @@ def init_settings(argv):
     SETTINGS['user_agent'] = conf.get('ping', 'user_agent')
     SETTINGS['socket_timeout'] = conf.getint('ping', 'socket_timeout')
     SETTINGS['cron_delay'] = conf.getint('ping', 'cron_delay')
-    SETTINGS['keepalive'] = conf.getint('ping', 'keepalive')
     SETTINGS['crawl_dir'] = conf.get('ping', 'crawl_dir')
     if not os.path.exists(SETTINGS['crawl_dir']):
         os.makedirs(SETTINGS['crawl_dir'])
+    SETTINGS['master'] = argv[2] == "master"
 
 
 def main(argv):
-    if len(argv) < 2 or not os.path.exists(argv[1]):
-        print("Usage: ping.py [config]")
+    if len(argv) < 3 or not os.path.exists(argv[1]):
+        print("Usage: ping.py [config] [master|slave]")
         return 1
 
     # Initialize global settings
@@ -269,19 +256,20 @@ def main(argv):
     if SETTINGS['debug']:
         loglevel = logging.DEBUG
 
-    logformat = ("%(asctime)s,%(msecs)05.1f %(levelname)s (%(funcName)s) "
-                 "%(message)s")
+    logformat = ("[%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s "
+                 "(%(funcName)s) %(message)s")
     logging.basicConfig(level=loglevel,
                         format=logformat,
                         filename=SETTINGS['logfile'],
-                        filemode='w')
+                        filemode='a')
     print("Writing output to {}, press CTRL+C to terminate..".format(
           SETTINGS['logfile']))
 
-    logging.info("Removing all keys")
-    REDIS_CONN.delete('reachable')
-    REDIS_CONN.delete('open')
-    REDIS_CONN.delete('opendata')
+    if SETTINGS['master']:
+        logging.info("Removing all keys")
+        REDIS_CONN.delete('reachable')
+        REDIS_CONN.delete('open')
+        REDIS_CONN.delete('opendata')
 
     # Initialize a pool of workers (greenlets)
     pool = gevent.pool.Pool(SETTINGS['workers'])
