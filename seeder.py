@@ -95,11 +95,12 @@ def cron():
         time.sleep(5)
         dump = max(glob.iglob("{}/*.json".format(SETTINGS['export_dir'])))
         logging.info("Dump: {}".format(dump))
+        nodes = []
         try:
             nodes = json.loads(open(dump, "r").read(), encoding="latin-1")
         except ValueError:
             logging.warning("Write pending")
-        else:
+        if len(nodes) > 0:
             export_nodes(nodes)
 
 
