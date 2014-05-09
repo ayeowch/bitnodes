@@ -59,9 +59,9 @@ SETTINGS = {}
 
 def keepalive(connection, version_msg):
     """
-    Maintains open connection with the specified node by yielding inv messages.
-    Open connections are tracked in open set with the associated data stored in
-    opendata set in Redis.
+    Sends a ping message 3 minutes to the specified node to maintain open
+    connection and yields received inv messages. Open connections are tracked
+    in open set with the associated data stored in opendata set in Redis.
     """
     node = connection.to_addr
     version = version_msg.get('version', "")
@@ -72,7 +72,17 @@ def keepalive(connection, version_msg):
     REDIS_CONN.sadd('open', node)
     REDIS_CONN.sadd('opendata', data)
 
+    last_ping = now
+
     while True:
+        if time.time() > last_ping + 180:
+            try:
+                connection.ping()
+            except socket.error as err:
+                logging.debug("Closing {} ({})".format(node, err))
+                break
+            last_ping = time.time()
+
         try:
             msgs = connection.get_messages(commands=["inv"])
         except socket.timeout as err:
