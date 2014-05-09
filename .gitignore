@@ -1,6 +1,8 @@
 *.log
 *.out
 *.pyc
+.DS_Store
 data/*
 geoip/*.dat
 rsync.sh
+test/*

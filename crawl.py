@@ -37,7 +37,6 @@ import logging
 import os
 import redis
 import redis.connection
-import requests
 import socket
 import sys
 import time
@@ -46,12 +45,6 @@ from ConfigParser import ConfigParser
 from protocol import ProtocolError, Connection, DEFAULT_PORT
 
 redis.connection.socket = gevent.socket
-
-# Possible fields for a hash in Redis
-TAG_FIELD = 'T'
-
-# Possible values for a tag field in Redis
-GREEN = 'G'  # Reachable node
 
 # Redis connection setup
 REDIS_SOCKET = os.environ.get('REDIS_SOCKET', "/tmp/redis.sock")
@@ -62,16 +55,14 @@ REDIS_CONN = redis.StrictRedis(unix_socket_path=REDIS_SOCKET,
 SETTINGS = {}
 
 
-def enumerate_node(redis_pipe, start_height_key, version_msg, addr_msgs):
+def enumerate_node(redis_pipe, addr_msgs):
     """
-    Stores start height for a reachable node.
     Adds all peering nodes with max. age of 24 hours into the crawl set.
     """
     peers = 0
     now = time.time()
-    redis_pipe.set(start_height_key, version_msg.get('start_height', 0))
 
-    for addr_msg in addr_msgs[:1]:
+    for addr_msg in addr_msgs:
         if 'addr_list' in addr_msg:
             for peer in addr_msg['addr_list']:
                 age = now - peer['timestamp']  # seconds
@@ -98,16 +89,21 @@ def connect(redis_conn, key):
     handshake_msgs = []
     addr_msgs = []
 
-    redis_conn.hset(key, TAG_FIELD, "")  # Set Redis hash for a new node
+    redis_conn.hset(key, 'state', "")  # Set Redis hash for a new node
 
     (address, port) = key[5:].split("-", 1)
-    start_height = int(redis_conn.get('start_height'))
+    start_height = redis_conn.get('start_height')
+    if start_height is None:
+        start_height = 0
+    else:
+        start_height = int(start_height)
 
     connection = Connection((address, int(port)),
                             socket_timeout=SETTINGS['socket_timeout'],
                             user_agent=SETTINGS['user_agent'],
                             start_height=start_height)
     try:
+        logging.debug("Connecting to {}".format(connection.to_addr))
         connection.open()
         handshake_msgs = connection.handshake()
         addr_msgs = connection.getaddr()
@@ -116,42 +112,52 @@ def connect(redis_conn, key):
     finally:
         connection.close()
 
+    gevent.sleep(1)
     redis_pipe = redis_conn.pipeline()
     if len(handshake_msgs) > 0:
         start_height_key = "start_height:{}-{}".format(address, port)
-        version_msg = handshake_msgs[0]
-        peers = enumerate_node(redis_pipe, start_height_key, version_msg,
-                               addr_msgs)
-        logging.debug("[{}] Peers: {}".format(connection.to_addr, peers))
-        redis_pipe.hset(key, TAG_FIELD, GREEN)
+        redis_pipe.setex(start_height_key, SETTINGS['max_age'],
+                         handshake_msgs[0].get('start_height', 0))
+        peers = enumerate_node(redis_pipe, addr_msgs)
+        logging.debug("{} Peers: {}".format(connection.to_addr, peers))
+        redis_pipe.hset(key, 'state', "up")
     redis_pipe.execute()
 
 
 def dump(nodes):
     """
-    Dumps data for reachable nodes into timestamp-prefixed JSON file.
+    Dumps data for reachable nodes into timestamp-prefixed JSON file and
+    returns max. start height from the nodes.
     """
     json_data = []
+    max_start_height = REDIS_CONN.get('start_height')
+    if max_start_height is None:
+        max_start_height = 0
+    else:
+        max_start_height = int(max_start_height)
 
     logging.info("Reachable nodes: {}".format(len(nodes)))
     for node in nodes:
         (address, port) = node[5:].split("-", 1)
-        start_height = REDIS_CONN.get(
-            "start_height:{}-{}".format(address, port))
-        json_data.append([address, int(port), int(start_height)])
+        start_height = int(REDIS_CONN.get(
+            "start_height:{}-{}".format(address, port)))
+        json_data.append([address, int(port), start_height])
+        max_start_height = max(start_height, max_start_height)
 
     json_output = os.path.join(SETTINGS['crawl_dir'],
                                "{}.json".format(int(time.time())))
     open(json_output, 'w').write(json.dumps(json_data))
     logging.info("Wrote {}".format(json_output))
 
+    return max_start_height
+
 
 def restart():
     """
     Dumps data for the reachable nodes into a JSON file.
-    Fetches latest start height.
     Loads all reachable nodes from Redis into the crawl set.
     Removes keys for all nodes from current crawl.
+    Updates start height in Redis.
     """
     nodes = []  # Reachable nodes
 
@@ -160,16 +166,16 @@ def restart():
 
     redis_pipe = REDIS_CONN.pipeline()
     for key in keys:
-        tag = REDIS_CONN.hget(key, TAG_FIELD)
-        if tag == GREEN:
+        state = REDIS_CONN.hget(key, 'state')
+        if state == "up":
             nodes.append(key)
             (address, port) = key[5:].split("-", 1)
             redis_pipe.sadd('pending', (address, int(port)))
         redis_pipe.delete(key)
 
-    dump(nodes)
-
-    set_start_height()
+    start_height = dump(nodes)
+    redis_pipe.set('start_height', start_height)
+    logging.info("Start height: {}".format(start_height))
 
     redis_pipe.execute()
 
@@ -188,14 +194,13 @@ def cron():
         logging.info("Pending: {}".format(pending_nodes))
 
         if pending_nodes == 0:
+            REDIS_CONN.set('crawl:master:state', "starting")
             elapsed = int(time.time()) - start
-            REDIS_CONN.set('elapsed', elapsed)
             logging.info("Elapsed: {}".format(elapsed))
-
             logging.info("Restarting")
             restart()
-
             start = int(time.time())
+            REDIS_CONN.set('crawl:master:state', "running")
 
         gevent.sleep(SETTINGS['cron_delay'])
 
@@ -209,6 +214,10 @@ def task():
                                    password=REDIS_PASSWORD)
 
     while True:
+        if not SETTINGS['master']:
+            while REDIS_CONN.get('crawl:master:state') != "running":
+                gevent.sleep(SETTINGS['socket_timeout'])
+
         node = redis_conn.spop('pending')  # Pop random node from set
         if node is None:
             gevent.sleep(1)
@@ -225,21 +234,6 @@ def task():
             continue
 
         connect(redis_conn, key)
-        gevent.sleep(0)
-
-
-def set_start_height():
-    """
-    Fetches current start height from a remote source. The value is then set
-    in Redis for use by all workers.
-    """
-    try:
-        start_height = int(requests.get(SETTINGS['height_url']).text)
-    except (requests.exceptions.RequestException, ValueError) as err:
-        logging.warning("{}".format(err))
-        start_height = int(REDIS_CONN.get('start_height'))
-    logging.info("Start height: {}".format(start_height))
-    REDIS_CONN.set('start_height', start_height)
 
 
 def set_pending():
@@ -267,7 +261,6 @@ def init_settings(argv):
     conf.read(argv[1])
     SETTINGS['logfile'] = conf.get('crawl', 'logfile')
     SETTINGS['seeders'] = conf.get('crawl', 'seeders').strip().split("\n")
-    SETTINGS['height_url'] = conf.get('crawl', 'height_url')
     SETTINGS['workers'] = conf.getint('crawl', 'workers')
     SETTINGS['debug'] = conf.getboolean('crawl', 'debug')
     SETTINGS['user_agent'] = conf.get('crawl', 'user_agent')
@@ -278,11 +271,12 @@ def init_settings(argv):
     SETTINGS['crawl_dir'] = conf.get('crawl', 'crawl_dir')
     if not os.path.exists(SETTINGS['crawl_dir']):
         os.makedirs(SETTINGS['crawl_dir'])
+    SETTINGS['master'] = argv[2] == "master"
 
 
 def main(argv):
-    if len(argv) < 2 or not os.path.exists(argv[1]):
-        print("Usage: crawl.py [config]")
+    if len(argv) < 3 or not os.path.exists(argv[1]):
+        print("Usage: crawl.py [config] [master|slave]")
         return 1
 
     # Initialize global settings
@@ -293,30 +287,31 @@ def main(argv):
     if SETTINGS['debug']:
         loglevel = logging.DEBUG
 
-    logformat = ("%(asctime)s,%(msecs)05.1f %(levelname)s (%(funcName)s) "
-                 "%(message)s")
+    logformat = ("[%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s "
+                 "(%(funcName)s) %(message)s")
     logging.basicConfig(level=loglevel,
                         format=logformat,
                         filename=SETTINGS['logfile'],
-                        filemode='w')
+                        filemode='a')
     print("Writing output to {}, press CTRL+C to terminate..".format(
           SETTINGS['logfile']))
 
-    logging.info("Removing all keys")
-    keys = REDIS_CONN.keys('node:*')
-    redis_pipe = REDIS_CONN.pipeline()
-    for key in keys:
-        redis_pipe.delete(key)
-    redis_pipe.delete('pending')
-    redis_pipe.execute()
-
-    set_pending()
-    set_start_height()
+    if SETTINGS['master']:
+        REDIS_CONN.set('crawl:master:state', "starting")
+        logging.info("Removing all keys")
+        keys = REDIS_CONN.keys('node:*')
+        redis_pipe = REDIS_CONN.pipeline()
+        for key in keys:
+            redis_pipe.delete(key)
+        redis_pipe.delete('pending')
+        redis_pipe.execute()
+        set_pending()
 
     # Spawn workers (greenlets) including one worker reserved for cron tasks
     workers = []
-    workers.append(gevent.spawn(cron))
-    for _ in xrange(SETTINGS['workers'] - 1):
+    if SETTINGS['master']:
+        workers.append(gevent.spawn(cron))
+    for _ in xrange(SETTINGS['workers'] - len(workers)):
         workers.append(gevent.spawn(task))
     logging.info("Workers: {}".format(len(workers)))
     gevent.joinall(workers)
