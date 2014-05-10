@@ -72,19 +72,32 @@ def keepalive(connection, version_msg):
     REDIS_CONN.sadd('open', node)
     REDIS_CONN.sadd('opendata', data)
 
-    while True:
-        try:
-            connection.ping()
-        except socket.error as err:
-            logging.debug("Closing {} ({})".format(node, err))
-            break
+    last_ping = now
 
+    while True:
         try:
             ttl = int(REDIS_CONN.get('elapsed'))
         except TypeError as err:
             ttl = 60
 
-        gevent.sleep(ttl)
+        if time.time() > last_ping + ttl:
+            try:
+                connection.ping()
+            except socket.error as err:
+                logging.debug("Closing {} ({})".format(node, err))
+                break
+            last_ping = time.time()
+
+        # Sink received messages to flush them off socket buffer
+        try:
+            connection.get_messages()
+        except socket.timeout as err:
+            pass
+        except (ProtocolError, socket.error) as err:
+            logging.debug("Closing {} ({})".format(node, err))
+            break
+
+        gevent.sleep(0.3)
 
     connection.close()
 
@@ -141,10 +154,11 @@ def cron(pool):
             new_snapshot = get_snapshot()
 
             if new_snapshot != snapshot:
-                logging.info("New snapshot: {}".format(new_snapshot))
                 nodes = get_nodes(new_snapshot)
                 if len(nodes) == 0:
                     continue
+
+                logging.info("New snapshot: {}".format(new_snapshot))
                 snapshot = new_snapshot
 
                 logging.info("Nodes: {}".format(len(nodes)))
@@ -152,6 +166,8 @@ def cron(pool):
                 reachable_nodes = set_reachable(nodes)
                 logging.info("New reachable nodes: {}".format(reachable_nodes))
 
+                # Allow connections to stabilize before publishing snapshot
+                gevent.sleep(SETTINGS['cron_delay'])
                 REDIS_CONN.publish('snapshot', int(time.time()))
 
             connections = REDIS_CONN.scard('open')
