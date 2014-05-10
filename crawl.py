@@ -112,7 +112,7 @@ def connect(redis_conn, key):
     finally:
         connection.close()
 
-    gevent.sleep(1)
+    gevent.sleep(0.3)
     redis_pipe = redis_conn.pipeline()
     if len(handshake_msgs) > 0:
         start_height_key = "start_height:{}-{}".format(address, port)
