@@ -73,6 +73,9 @@ Reference: https://en.bitcoin.it/wiki/Protocol_specification
     [---PING_PAYLOAD---]
     [ 8] NONCE          <Q ( random.getrandbits(64) )       uint64_t
 
+    [---PONG_PAYLOAD---]
+    [ 8] NONCE          <Q ( nonce from ping )              uint64_t
+
     [---INV_PAYLOAD---]
     [..] COUNT          variable integer
     [..] INVENTORY      multiple of COUNT (max 50000)
@@ -157,7 +160,7 @@ class Serializer(object):
             to_addr = kwargs['to_addr']
             from_addr = kwargs['from_addr']
             payload = self.serialize_version_payload(to_addr, from_addr)
-        elif command == "ping":
+        elif command == "ping" or command == "pong":
             nonce = kwargs['nonce']
             payload = self.serialize_ping_payload(nonce)
 
@@ -196,6 +199,8 @@ class Serializer(object):
 
         if msg['command'] == "version":
             msg.update(self.deserialize_version_payload(payload))
+        elif msg['command'] == "ping":
+            msg.update(self.deserialize_ping_payload(payload))
         elif msg['command'] == "addr":
             msg.update(self.deserialize_addr_payload(payload))
         elif msg['command'] == "inv":
@@ -264,6 +269,13 @@ class Serializer(object):
         ]
         payload = ''.join(payload)
         return payload
+
+    def deserialize_ping_payload(self, data):
+        data = StringIO(data)
+        msg = {
+            'nonce': struct.unpack("<Q", data.read(8))[0],
+        }
+        return msg
 
     def deserialize_addr_payload(self, data):
         msg = {}
@@ -456,6 +468,11 @@ class Connection(object):
 
         # [ping] >>>
         msg = self.serializer.serialize_msg(command="ping", nonce=nonce)
+        self.send(msg)
+
+    def pong(self, nonce):
+        # [pong] >>>
+        msg = self.serializer.serialize_msg(command="pong", nonce=nonce)
         self.send(msg)
 
 
