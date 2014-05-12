@@ -88,17 +88,14 @@ def keepalive(connection, version_msg):
                 break
             last_ping = time.time()
 
+        # Sink received messages to flush them off socket buffer
         try:
-            msgs = connection.get_messages(commands=["ping"])
+            connection.get_messages()
         except socket.timeout as err:
             pass
         except (ProtocolError, socket.error) as err:
             logging.debug("Closing {} ({})".format(node, err))
             break
-        else:
-            for msg in msgs:
-                logging.debug("Pong {} ({})".format(node, msg['nonce']))
-                connection.pong(msg['nonce'])
 
         gevent.sleep(0.3)
 

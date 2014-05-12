@@ -434,6 +434,8 @@ class Connection(object):
                 data += self.recv(
                     length=self.serializer.required_len - len(data))
                 (msg, data) = self.serializer.deserialize_msg(data)
+            if msg.get('command') == "ping":
+                self.pong(msg['nonce'])  # respond to ping immediately
             msgs.append(msg)
         if len(msgs) > 0 and commands:
             msgs[:] = [msg for msg in msgs if msg.get('command') in commands]
