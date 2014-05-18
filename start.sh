@@ -16,3 +16,5 @@ python -u export.py export.conf > export.out 2>&1 &
 python -u chart.py chart.conf > chart.out 2>&1 &
 
 python -u seeder.py seeder.conf > seeder.out 2>&1 &
+
+python -u pcap.py pcap.conf > pcap.out 2>&1 &
