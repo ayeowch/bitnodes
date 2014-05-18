@@ -272,8 +272,12 @@ class Serializer(object):
 
     def deserialize_ping_payload(self, data):
         data = StringIO(data)
+        try:
+            nonce = struct.unpack("<Q", data.read(8))[0]
+        except struct.error as err:
+            raise ReadError(err)
         msg = {
-            'nonce': struct.unpack("<Q", data.read(8))[0],
+            'nonce': nonce,
         }
         return msg
 
