@@ -139,8 +139,12 @@ def dump(nodes):
     logging.info("Reachable nodes: {}".format(len(nodes)))
     for node in nodes:
         (address, port) = node[5:].split("-", 1)
-        start_height = int(REDIS_CONN.get(
-            "start_height:{}-{}".format(address, port)))
+        try:
+            start_height = int(REDIS_CONN.get(
+                "start_height:{}-{}".format(address, port)))
+        except TypeError as err:
+            logging.warning("start_height:{}-{} missing".format(address, port))
+            start_height = 0
         json_data.append([address, int(port), start_height])
         max_start_height = max(start_height, max_start_height)
 
