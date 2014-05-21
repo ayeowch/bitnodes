@@ -60,7 +60,7 @@ def save_invs(timestamp, node, invs):
         logging.debug("[{}] {}:{}".format(timestamp, inv['type'], inv['hash']))
         key = "inv:{}:{}".format(inv['type'], inv['hash'])
         redis_pipe.zadd(key, timestamp, node)
-        redis_pipe.expire(key, 10800)  # Expires in 3 hours
+        redis_pipe.expire(key, 18000)  # Expires in 5 hours
     redis_pipe.execute()
 
 
