@@ -336,7 +336,11 @@ class Serializer(object):
 
         _ipv6 = data.read(12)
         _ipv4 = data.read(4)
-        port = struct.unpack(">H", data.read(2))[0]
+
+        try:
+            port = struct.unpack(">H", data.read(2))[0]
+        except struct.error as err:
+            raise ReadError(err)
 
         ipv6 = socket.inet_ntop(socket.AF_INET6, _ipv6 + _ipv4)
         ipv4 = socket.inet_ntop(socket.AF_INET, _ipv4)
