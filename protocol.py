@@ -327,7 +327,10 @@ class Serializer(object):
     def deserialize_network_address(self, data, has_timestamp=False):
         timestamp = None
         if has_timestamp:
-            timestamp = struct.unpack("<I", data.read(4))[0]
+            try:
+                timestamp = struct.unpack("<I", data.read(4))[0]
+            except struct.error as err:
+                raise ReadError(err)
 
         try:
             services = struct.unpack("<Q", data.read(8))[0]
