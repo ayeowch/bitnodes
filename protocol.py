@@ -249,7 +249,12 @@ class Serializer(object):
                 msg['version'], PROTOCOL_VERSION))
 
         msg['services'] = struct.unpack("<Q", data.read(8))[0]
-        msg['timestamp'] = struct.unpack("<q", data.read(8))[0]
+
+        try:
+            msg['timestamp'] = struct.unpack("<q", data.read(8))[0]
+        except struct.error as err:
+            raise ReadError(err)
+
         msg['to_addr'] = self.deserialize_network_address(data)
         msg['from_addr'] = self.deserialize_network_address(data)
         msg['nonce'] = struct.unpack("<Q", data.read(8))[0]
