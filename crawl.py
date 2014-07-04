@@ -40,6 +40,7 @@ import redis.connection
 import socket
 import sys
 import time
+from collections import Counter
 from ConfigParser import ConfigParser
 
 from protocol import ProtocolError, Connection, DEFAULT_PORT
@@ -127,14 +128,9 @@ def connect(redis_conn, key):
 def dump(nodes):
     """
     Dumps data for reachable nodes into timestamp-prefixed JSON file and
-    returns max. start height from the nodes.
+    returns most common height from the nodes.
     """
     json_data = []
-    max_start_height = REDIS_CONN.get('start_height')
-    if max_start_height is None:
-        max_start_height = 0
-    else:
-        max_start_height = int(max_start_height)
 
     logging.info("Reachable nodes: {}".format(len(nodes)))
     for node in nodes:
@@ -146,14 +142,13 @@ def dump(nodes):
             logging.warning("start_height:{}-{} missing".format(address, port))
             start_height = 0
         json_data.append([address, int(port), start_height])
-        max_start_height = max(start_height, max_start_height)
 
     json_output = os.path.join(SETTINGS['crawl_dir'],
                                "{}.json".format(int(time.time())))
     open(json_output, 'w').write(json.dumps(json_data))
     logging.info("Wrote {}".format(json_output))
 
-    return max_start_height
+    return Counter([node[-1] for node in json_data]).most_common(1)[0][0]
 
 
 def restart():
