@@ -34,12 +34,19 @@ import logging
 import operator
 import os
 import random
+import redis
 import sys
 import threading
 import time
 from ConfigParser import ConfigParser
 
 from protocol import DEFAULT_PORT
+
+# Redis connection setup
+REDIS_SOCKET = os.environ.get('REDIS_SOCKET', "/tmp/redis.sock")
+REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD', None)
+REDIS_CONN = redis.StrictRedis(unix_socket_path=REDIS_SOCKET,
+                               password=REDIS_PASSWORD)
 
 SETTINGS = {}
 
@@ -50,9 +57,11 @@ def export_nodes(nodes):
     from oldest (longest uptime) to newest each with unique AS number.
     """
     nodes = sorted(nodes, key=operator.itemgetter(4))[:SETTINGS['nodes']]
-    heights = sorted(set([node[5] for node in nodes]))  # Unique heights
-    height = heights[int(0.999 * len(heights))]  # 99.9th percentile height
-    min_height = max(SETTINGS['min_height'], height)
+    min_height = REDIS_CONN.get('start_height')
+    if min_height is None:
+        min_height = SETTINGS['min_height']
+    else:
+        min_height = int(min_height)
     min_age = SETTINGS['min_age']
     now = int(time.time())
     logging.info("Min. height: {}".format(min_height))
