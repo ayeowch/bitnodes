@@ -53,8 +53,8 @@ SETTINGS = {}
 
 def export_nodes(nodes):
     """
-    Exports nodes as A and AAAA records into DNS zone file. Nodes are selected
-    from oldest (longest uptime) to newest each with unique AS number.
+    Exports nodes as A and AAAA records. Nodes are selected from oldest
+    (longest uptime) to newest each with unique AS number.
     """
     nodes = sorted(nodes, key=operator.itemgetter(4))[:SETTINGS['nodes']]
     min_height = REDIS_CONN.get('start_height')
@@ -85,6 +85,13 @@ def export_nodes(nodes):
             else:
                 a_records.append("@\tIN\tA\t{}".format(address))
             asns.append(asn)
+    return (a_records, aaaa_records)
+
+
+def save_zone_file(a_records, aaaa_records):
+    """
+    Saves A and AAAA records in DNS zone file.
+    """
     random.shuffle(a_records)
     random.shuffle(aaaa_records)
     logging.info("A records: {}".format(len(a_records)))
@@ -92,8 +99,7 @@ def export_nodes(nodes):
     a_records = "\n".join(a_records[:SETTINGS['a_records']]) + "\n"
     aaaa_records = "\n".join(aaaa_records[:SETTINGS['aaaa_records']]) + "\n"
     template = open(SETTINGS['template'], "r").read()
-    open(SETTINGS['zone_file'], "w").write(
-        template + a_records + aaaa_records)
+    open(SETTINGS['zone_file'], "w").write(template + a_records + aaaa_records)
 
 
 def cron():
@@ -110,7 +116,9 @@ def cron():
         except ValueError:
             logging.warning("Write pending")
         if len(nodes) > 0:
-            export_nodes(nodes)
+            (a_records, aaaa_records) = export_nodes(nodes)
+            if len(a_records) > 0 and len(aaaa_records) > 0:
+                save_zone_file(a_records, aaaa_records)
 
 
 def init_settings(argv):
