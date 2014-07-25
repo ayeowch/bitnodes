@@ -259,7 +259,11 @@ class Serializer(object):
         msg['from_addr'] = self.deserialize_network_address(data)
         msg['nonce'] = struct.unpack("<Q", data.read(8))[0]
         msg['user_agent'] = self.deserialize_string(data)
-        msg['start_height'] = struct.unpack("<i", data.read(4))[0]
+
+        try:
+            msg['start_height'] = struct.unpack("<i", data.read(4))[0]
+        except struct.error as err:
+            raise ReadError(err)
 
         try:
             msg['relay'] = struct.unpack("<?", data.read(1))[0]
