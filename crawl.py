@@ -93,16 +93,16 @@ def connect(redis_conn, key):
     redis_conn.hset(key, 'state', "")  # Set Redis hash for a new node
 
     (address, port) = key[5:].split("-", 1)
-    start_height = redis_conn.get('start_height')
-    if start_height is None:
-        start_height = 0
+    height = redis_conn.get('height')
+    if height is None:
+        height = 0
     else:
-        start_height = int(start_height)
+        height = int(height)
 
     connection = Connection((address, int(port)),
                             socket_timeout=SETTINGS['socket_timeout'],
                             user_agent=SETTINGS['user_agent'],
-                            start_height=start_height)
+                            height=height)
     try:
         logging.debug("Connecting to {}".format(connection.to_addr))
         connection.open()
@@ -116,9 +116,9 @@ def connect(redis_conn, key):
     gevent.sleep(0.3)
     redis_pipe = redis_conn.pipeline()
     if len(handshake_msgs) > 0:
-        start_height_key = "start_height:{}-{}".format(address, port)
-        redis_pipe.setex(start_height_key, SETTINGS['max_age'],
-                         handshake_msgs[0].get('start_height', 0))
+        height_key = "height:{}-{}".format(address, port)
+        redis_pipe.setex(height_key, SETTINGS['max_age'],
+                         handshake_msgs[0].get('height', 0))
         peers = enumerate_node(redis_pipe, addr_msgs)
         logging.debug("{} Peers: {}".format(connection.to_addr, peers))
         redis_pipe.hset(key, 'state', "up")
@@ -136,12 +136,11 @@ def dump(nodes):
     for node in nodes:
         (address, port) = node[5:].split("-", 1)
         try:
-            start_height = int(REDIS_CONN.get(
-                "start_height:{}-{}".format(address, port)))
+            height = int(REDIS_CONN.get("height:{}-{}".format(address, port)))
         except TypeError as err:
-            logging.warning("start_height:{}-{} missing".format(address, port))
-            start_height = 0
-        json_data.append([address, int(port), start_height])
+            logging.warning("height:{}-{} missing".format(address, port))
+            height = 0
+        json_data.append([address, int(port), height])
 
     json_output = os.path.join(SETTINGS['crawl_dir'],
                                "{}.json".format(int(time.time())))
@@ -172,9 +171,9 @@ def restart():
             redis_pipe.sadd('pending', (address, int(port)))
         redis_pipe.delete(key)
 
-    start_height = dump(nodes)
-    redis_pipe.set('start_height', start_height)
-    logging.info("Start height: {}".format(start_height))
+    height = dump(nodes)
+    redis_pipe.set('height', height)
+    logging.info("Height: {}".format(height))
 
     redis_pipe.execute()
 

@@ -57,7 +57,7 @@ Reference: https://en.bitcoin.it/wiki/Protocol_specification
         [ 2] PORT       >H                                  uint16_t
     [ 8] NONCE          <Q ( random.getrandbits(64) )       uint64_t
     [..] USER_AGENT     variable string
-    [ 4] START_HEIGHT   <i                                  int32_t
+    [ 4] HEIGHT         <i                                  int32_t
     [ 1] RELAY          <? (since version >= 70001)         bool
 
     [---ADDR_PAYLOAD---]
@@ -99,7 +99,7 @@ MAGIC_NUMBER = "\xF9\xBE\xB4\xD9"
 PROTOCOL_VERSION = 70001
 SERVICES = 1
 USER_AGENT = "/getaddr.bitnodes.io:0.1/"
-START_HEIGHT = 290000
+HEIGHT = 313000
 RELAY = 1  # set to 1 to receive all txs
 DEFAULT_PORT = 8333
 
@@ -143,7 +143,7 @@ class ReadError(ProtocolError):
 class Serializer(object):
     def __init__(self, **config):
         self.user_agent = config.get('user_agent', USER_AGENT)
-        self.start_height = config.get('start_height', START_HEIGHT)
+        self.height = config.get('height', HEIGHT)
         # This is set prior to throwing PayloadTooShortError exception to
         # allow caller to fetch more data over the network.
         self.required_len = 0
@@ -233,7 +233,7 @@ class Serializer(object):
             self.serialize_network_address(from_addr),
             struct.pack("<Q", random.getrandbits(64)),
             self.serialize_string(self.user_agent),
-            struct.pack("<i", self.start_height),
+            struct.pack("<i", self.height),
             struct.pack("<?", RELAY),
         ]
         payload = ''.join(payload)
@@ -261,7 +261,7 @@ class Serializer(object):
         msg['user_agent'] = self.deserialize_string(data)
 
         try:
-            msg['start_height'] = struct.unpack("<i", data.read(4))[0]
+            msg['height'] = struct.unpack("<i", data.read(4))[0]
         except struct.error as err:
             raise ReadError(err)
 

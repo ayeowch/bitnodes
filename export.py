@@ -54,11 +54,11 @@ def get_row(node):
     address = node[0]
     port = node[1]
 
-    start_height = REDIS_CONN.get('start_height:{}-{}'.format(address, port))
-    if start_height is None:
-        start_height = (0,)
+    height = REDIS_CONN.get('height:{}-{}'.format(address, port))
+    if height is None:
+        height = (0,)
     else:
-        start_height = (int(start_height),)
+        height = (int(height),)
 
     hostname = REDIS_CONN.hget('resolve:{}'.format(address), 'hostname')
     hostname = (hostname,)
@@ -70,7 +70,7 @@ def get_row(node):
     else:
         geoip = eval(geoip)
 
-    return node + start_height + hostname + geoip
+    return node + height + hostname + geoip
 
 
 def export_nodes(nodes, timestamp):
