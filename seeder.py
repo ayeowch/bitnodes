@@ -57,7 +57,7 @@ def export_nodes(nodes):
     (longest uptime) to newest each with unique AS number.
     """
     nodes = sorted(nodes, key=operator.itemgetter(4))[:SETTINGS['nodes']]
-    min_height = REDIS_CONN.get('start_height')
+    min_height = REDIS_CONN.get('height')
     if min_height is None:
         min_height = SETTINGS['min_height']
     else:

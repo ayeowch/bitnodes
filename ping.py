@@ -113,13 +113,13 @@ def task():
     node = REDIS_CONN.spop('reachable')
     if node is None:
         return
-    (address, port, start_height) = eval(node)
+    (address, port, height) = eval(node)
 
     handshake_msgs = []
     connection = Connection((address, port),
                             socket_timeout=SETTINGS['socket_timeout'],
                             user_agent=SETTINGS['user_agent'],
-                            start_height=start_height)
+                            height=height)
 
     try:
         connection.open()
@@ -217,9 +217,9 @@ def set_reachable(nodes):
     for node in nodes:
         address = node[0]
         port = node[1]
-        start_height = node[2]
+        height = node[2]
         if not REDIS_CONN.sismember('open', (address, port)):
-            REDIS_CONN.sadd('reachable', (address, port, start_height))
+            REDIS_CONN.sadd('reachable', (address, port, height))
     return REDIS_CONN.scard('reachable')
 
 

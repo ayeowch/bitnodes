@@ -35,6 +35,7 @@ import os
 import redis
 import sys
 import threading
+from collections import Counter
 from ConfigParser import ConfigParser
 
 # Redis connection setup
@@ -62,8 +63,10 @@ def get_chart_data(tick, nodes, prev_nodes):
         'orgs': {},
         'join': 0,
         'leave': 0,
+        'heights': {},
     }
     curr_nodes = set()
+    latest_height = Counter([node[5] for node in nodes]).most_common(1)[0][0]
 
     for node in nodes:
         #  0: address
@@ -71,7 +74,7 @@ def get_chart_data(tick, nodes, prev_nodes):
         #  2: version
         #  3: user_agent
         #  4: timestamp
-        #  5: start_height
+        #  5: height
         #  6: hostname
         #  7: city
         #  8: country
@@ -83,6 +86,7 @@ def get_chart_data(tick, nodes, prev_nodes):
         address = node[0]
         port = node[1]
         user_agent = node[3]
+        height = node[5]
         country = node[8]
         latitude = node[9]
         longitude = node[10]
@@ -106,43 +110,18 @@ def get_chart_data(tick, nodes, prev_nodes):
 
         data['orgs'][org] = data['orgs'].get(org, 0) + 1
 
+        # [height_id]
+        # 0: head or > head
+        # 1: head - 1
+        # 2: head - 2
+        # 3: < head - 2
+        height_id = min(max(0, latest_height - height), 3)
+        data['heights'][height_id] = data['heights'].get(height_id, 0) + 1
+
     data['join'] = len(curr_nodes - prev_nodes)
     data['leave'] = len(prev_nodes - curr_nodes)
 
     return data, curr_nodes
-
-
-def save_chart_data(tick, timestamp, data):
-    """
-    Saves chart data for current tick in Redis.
-    """
-    redis_pipe = REDIS_CONN.pipeline()
-    redis_pipe.set("t:m:last", json.dumps(data))
-    redis_pipe.zadd("t:m:timestamp", tick, "{}:{}".format(tick, timestamp))
-    redis_pipe.zadd("t:m:nodes", tick, "{}:{}".format(tick, data['nodes']))
-    redis_pipe.zadd("t:m:ipv4", tick, "{}:{}".format(tick, data['ipv4']))
-    redis_pipe.zadd("t:m:ipv6", tick, "{}:{}".format(tick, data['ipv6']))
-
-    for user_agent in data['user_agents'].items():
-        key = "t:m:user_agent:%s" % user_agent[0]
-        redis_pipe.zadd(key, tick, "{}:{}".format(tick, user_agent[1]))
-
-    for country in data['countries'].items():
-        key = "t:m:country:%s" % country[0]
-        redis_pipe.zadd(key, tick, "{}:{}".format(tick, country[1]))
-
-    for coordinate in data['coordinates'].items():
-        key = "t:m:coordinate:%s" % coordinate[0]
-        redis_pipe.zadd(key, tick, "{}:{}".format(tick, coordinate[1]))
-
-    for org in data['orgs'].items():
-        key = "t:m:org:%s" % org[0]
-        redis_pipe.zadd(key, tick, "{}:{}".format(tick, org[1]))
-
-    redis_pipe.zadd("t:m:join", tick, "{}:{}".format(tick, data['join']))
-    redis_pipe.zadd("t:m:leave", tick, "{}:{}".format(tick, data['leave']))
-
-    redis_pipe.execute()
 
 
 def replay_ticks():
@@ -217,7 +196,7 @@ def main(argv):
 
             # Only the first snapshot before the next interval is used to
             # generate the chart data for each tick.
-            if REDIS_CONN.zcount("t:m:nodes", tick, tick) == 0:
+            if REDIS_CONN.zcount("t:m:timestamp", tick, tick) == 0:
                 logging.info("Timestamp: {}".format(timestamp))
                 logging.info("Tick: {}".format(tick))
 
@@ -225,8 +204,10 @@ def main(argv):
                                     "{}.json".format(timestamp))
                 nodes = json.loads(open(dump, "r").read(), encoding="latin-1")
                 data, prev_nodes = get_chart_data(tick, nodes, prev_nodes)
-                save_chart_data(tick, timestamp, data)
-                REDIS_CONN.publish('chart', tick)
+
+                REDIS_CONN.set("t:m:last", json.dumps(data))
+                REDIS_CONN.zadd("t:m:timestamp", tick,
+                                "{}:{}".format(tick, timestamp))
 
     return 0
 
