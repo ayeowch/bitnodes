@@ -63,7 +63,6 @@ def get_chart_data(tick, nodes, prev_nodes):
         'orgs': {},
         'join': 0,
         'leave': 0,
-        'heights': {},
     }
     curr_nodes = set()
     latest_height = Counter([node[5] for node in nodes]).most_common(1)[0][0]
@@ -86,7 +85,6 @@ def get_chart_data(tick, nodes, prev_nodes):
         address = node[0]
         port = node[1]
         user_agent = node[3]
-        height = node[5]
         country = node[8]
         latitude = node[9]
         longitude = node[10]
@@ -109,14 +107,6 @@ def get_chart_data(tick, nodes, prev_nodes):
             coordinate, 0) + 1
 
         data['orgs'][org] = data['orgs'].get(org, 0) + 1
-
-        # [height_id]
-        # 0: head or > head
-        # 1: head - 1
-        # 2: head - 2
-        # 3: < head - 2
-        height_id = min(max(0, latest_height - height), 3)
-        data['heights'][height_id] = data['heights'].get(height_id, 0) + 1
 
     data['join'] = len(curr_nodes - prev_nodes)
     data['leave'] = len(prev_nodes - curr_nodes)
