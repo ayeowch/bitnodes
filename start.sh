@@ -13,8 +13,6 @@ python -u ping.py ping.conf slave > ping.slave.5.out 2>&1 &
 python -u resolve.py resolve.conf > resolve.out 2>&1 &
 python -u export.py export.conf > export.out 2>&1 &
 
-python -u chart.py chart.conf > chart.out 2>&1 &
-
 python -u seeder.py seeder.conf > seeder.out 2>&1 &
 
 python -u pcap.py pcap.conf > pcap.out 2>&1 &
