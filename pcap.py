@@ -60,7 +60,7 @@ def save_invs(timestamp, node, invs):
         logging.debug("[{}] {}:{}".format(timestamp, inv['type'], inv['hash']))
         key = "inv:{}:{}".format(inv['type'], inv['hash'])
         redis_pipe.zadd(key, timestamp, node)
-        redis_pipe.expire(key, 18000)  # Expires in 5 hours
+        redis_pipe.expire(key, SETTINGS['ttl'])
     redis_pipe.execute()
 
 
@@ -130,6 +130,7 @@ def init_settings(argv):
     conf.read(argv[1])
     SETTINGS['logfile'] = conf.get('pcap', 'logfile')
     SETTINGS['debug'] = conf.getboolean('pcap', 'debug')
+    SETTINGS['ttl'] = conf.getint('pcap', 'ttl')
     SETTINGS['pcap_dir'] = conf.get('pcap', 'pcap_dir')
     if not os.path.exists(SETTINGS['pcap_dir']):
         os.makedirs(SETTINGS['pcap_dir'])
