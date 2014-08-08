@@ -248,27 +248,18 @@ class Serializer(object):
             raise IncompatibleClientError("{} < {}".format(
                 msg['version'], PROTOCOL_VERSION))
 
-        msg['services'] = struct.unpack("<Q", data.read(8))[0]
-
-        try:
-            msg['timestamp'] = struct.unpack("<q", data.read(8))[0]
-        except struct.error as err:
-            raise ReadError(err)
+        msg['services'] = self.unpack("<Q", data.read(8))
+        msg['timestamp'] = self.unpack("<q", data.read(8))
 
         msg['to_addr'] = self.deserialize_network_address(data)
         msg['from_addr'] = self.deserialize_network_address(data)
-        msg['nonce'] = struct.unpack("<Q", data.read(8))[0]
+
+        msg['nonce'] = self.unpack("<Q", data.read(8))
+
         msg['user_agent'] = self.deserialize_string(data)
 
-        try:
-            msg['height'] = struct.unpack("<i", data.read(4))[0]
-        except struct.error as err:
-            raise ReadError(err)
-
-        try:
-            msg['relay'] = struct.unpack("<?", data.read(1))[0]
-        except struct.error:
-            msg['relay'] = False
+        msg['height'] = self.unpack("<i", data.read(4))
+        msg['relay'] = self.unpack("<?", data.read(1))
 
         return msg
 
@@ -281,10 +272,7 @@ class Serializer(object):
 
     def deserialize_ping_payload(self, data):
         data = StringIO(data)
-        try:
-            nonce = struct.unpack("<Q", data.read(8))[0]
-        except struct.error as err:
-            raise ReadError(err)
+        nonce = self.unpack("<Q", data.read(8))
         msg = {
             'nonce': nonce,
         }
@@ -336,23 +324,14 @@ class Serializer(object):
     def deserialize_network_address(self, data, has_timestamp=False):
         timestamp = None
         if has_timestamp:
-            try:
-                timestamp = struct.unpack("<I", data.read(4))[0]
-            except struct.error as err:
-                raise ReadError(err)
+            timestamp = self.unpack("<I", data.read(4))
 
-        try:
-            services = struct.unpack("<Q", data.read(8))[0]
-        except struct.error as err:
-            raise ReadError(err)
+        services = self.unpack("<Q", data.read(8))
 
         _ipv6 = data.read(12)
         _ipv4 = data.read(4)
 
-        try:
-            port = struct.unpack(">H", data.read(2))[0]
-        except struct.error as err:
-            raise ReadError(err)
+        port = self.unpack(">H", data.read(2))
 
         ipv6 = socket.inet_ntop(socket.AF_INET6, _ipv6 + _ipv4)
         ipv4 = socket.inet_ntop(socket.AF_INET, _ipv4)
@@ -401,6 +380,13 @@ class Serializer(object):
         elif length == 0xFF:
             length = struct.unpack("<Q", data.read(8))[0]
         return length
+
+    def unpack(self, fmt, string):
+        # Wraps problematic struct.unpack() in a try statement
+        try:
+            return struct.unpack(fmt, string)[0]
+        except struct.error as err:
+            raise ReadError(err)
 
 
 class Connection(object):
@@ -522,6 +508,7 @@ def main():
     connection.close()
 
     print(handshake_msgs)
+    print(addr_msgs)
 
     return 0
 
