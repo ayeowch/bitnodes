@@ -223,12 +223,12 @@ def task():
             continue
 
         node = eval(node)  # Convert string from Redis to tuple
-        key = "node:{}-{}".format(node[0], node[1])
 
         # Skip IPv6 node
-        if ":" in key and not SETTINGS['ipv6']:
+        if ":" in node[0] and not SETTINGS['ipv6']:
             continue
 
+        key = "node:{}-{}".format(node[0], node[1])
         if redis_conn.exists(key):
             continue
 
