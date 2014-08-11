@@ -1,7 +1,6 @@
 #!/bin/bash
 python -u crawl.py crawl.conf master > crawl.master.out 2>&1 &
 python -u crawl.py crawl.conf slave > crawl.slave.1.out 2>&1 &
-python -u crawl.py crawl.conf slave > crawl.slave.2.out 2>&1 &
 
 python -u ping.py ping.conf master > ping.master.out 2>&1 &
 python -u ping.py ping.conf slave > ping.slave.1.out 2>&1 &
