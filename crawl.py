@@ -56,12 +56,11 @@ REDIS_CONN = redis.StrictRedis(unix_socket_path=REDIS_SOCKET,
 SETTINGS = {}
 
 
-def enumerate_node(redis_pipe, addr_msgs):
+def enumerate_node(redis_pipe, addr_msgs, now):
     """
     Adds all peering nodes with max. age of 24 hours into the crawl set.
     """
-    peers = 0
-    now = time.time()
+    peers = set()
 
     for addr_msg in addr_msgs:
         if 'addr_list' in addr_msg:
@@ -73,7 +72,7 @@ def enumerate_node(redis_pipe, addr_msgs):
                     address = peer['ipv4'] if peer['ipv4'] else peer['ipv6']
                     port = peer['port'] if peer['port'] > 0 else DEFAULT_PORT
                     redis_pipe.sadd('pending', (address, port))
-                    peers += 1
+                    peers.add((address, port))
 
     return peers
 
@@ -85,7 +84,7 @@ def connect(redis_conn, key):
     2) Receive version and verack message
     3) Send getaddr message
     4) Receive addr message containing list of peering nodes
-    Stores node in Redis.
+    Stores state, height and peers for node in Redis.
     """
     handshake_msgs = []
     addr_msgs = []
@@ -119,8 +118,12 @@ def connect(redis_conn, key):
         height_key = "height:{}-{}".format(address, port)
         redis_pipe.setex(height_key, SETTINGS['max_age'],
                          handshake_msgs[0].get('height', 0))
-        peers = enumerate_node(redis_pipe, addr_msgs)
-        logging.debug("{} Peers: {}".format(connection.to_addr, peers))
+        now = int(time.time())
+        peers = enumerate_node(redis_pipe, addr_msgs, now)
+        logging.debug("{} Peers: {}".format(connection.to_addr, len(peers)))
+        if len(peers) > 0:
+            for peer in peers:
+                redis_pipe.zadd('peers', now, peer)
         redis_pipe.hset(key, 'state', "up")
     redis_pipe.execute()
 
@@ -155,7 +158,8 @@ def restart():
     Dumps data for the reachable nodes into a JSON file.
     Loads all reachable nodes from Redis into the crawl set.
     Removes keys for all nodes from current crawl.
-    Updates start height in Redis.
+    Removes stale peers, i.e. cached for more than 24 hours.
+    Updates most common height in Redis.
     """
     nodes = []  # Reachable nodes
 
@@ -171,11 +175,17 @@ def restart():
             redis_pipe.sadd('pending', (address, int(port)))
         redis_pipe.delete(key)
 
+    redis_pipe.zremrangebyscore('peers', "-inf",
+                                int(time.time()) - SETTINGS['max_age'])
+
     height = dump(nodes)
     redis_pipe.set('height', height)
     logging.info("Height: {}".format(height))
 
     redis_pipe.execute()
+
+    peers = REDIS_CONN.zcard('peers')
+    logging.info("Peers: {}".format(peers))
 
 
 def cron():
