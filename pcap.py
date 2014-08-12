@@ -114,7 +114,11 @@ def cron():
             continue
         tmp = oldest
         dump = tmp.replace(".pcap", ".pcap_")
-        os.rename(tmp, dump)  # Mark file as being read
+        try:
+            os.rename(tmp, dump)  # Mark file as being read
+        except OSError as err:
+            logging.warning(err)
+            continue
 
         start = time.time()
         count = get_invs(dump)
