@@ -35,7 +35,6 @@ import os
 import redis
 import socket
 import sys
-import threading
 import time
 from ConfigParser import ConfigParser
 
@@ -68,6 +67,7 @@ def get_invs(filepath):
     """
     Extracts inv messages from the specified pcap file.
     """
+    count = 0
     serializer = Serializer()
     pcap_file = open(filepath)
     pcap_reader = dpkt.pcap.Reader(pcap_file)
@@ -80,7 +80,7 @@ def get_invs(filepath):
             if len(payload) > 0:
                 try:
                     (msg, _) = serializer.deserialize_msg(payload)
-                except ProtocolError as err:
+                except ProtocolError:
                     pass
                 else:
                     if msg['command'] == "inv":
@@ -92,7 +92,9 @@ def get_invs(filepath):
                                                        ip_packet.src)
                         node = (address, tcp_packet.sport)
                         save_invs(timestamp, node, msg['inventory'])
+                        count += msg['count']
     pcap_file.close()
+    return count
 
 
 def cron():
@@ -110,13 +112,16 @@ def cron():
         latest = max(glob.iglob("{}/*.pcap".format(SETTINGS['pcap_dir'])))
         if oldest == latest:
             continue
-        dump = oldest
-        logging.info("Dump: {}".format(dump))
+        tmp = oldest
+        dump = tmp.replace(".pcap", ".pcap_")
+        os.rename(tmp, dump)  # Mark file as being read
 
         start = time.time()
-        get_invs(dump)
+        count = get_invs(dump)
         end = time.time()
         elapsed = end - start
+
+        logging.info("Dump:{} ({} invs)".format(dump, count))
         logging.info("Elapsed: {}".format(elapsed))
 
         os.remove(dump)
@@ -154,11 +159,11 @@ def main(argv):
     logging.basicConfig(level=loglevel,
                         format=logformat,
                         filename=SETTINGS['logfile'],
-                        filemode='w')
+                        filemode='a')
     print("Writing output to {}, press CTRL+C to terminate..".format(
           SETTINGS['logfile']))
 
-    threading.Thread(target=cron).start()
+    cron()
 
     return 0
 
