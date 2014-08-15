@@ -44,7 +44,7 @@ import sys
 import time
 from ConfigParser import ConfigParser
 
-from protocol import ProtocolError, Connection
+from protocol import ProtocolError, ConnectionError, Connection
 
 redis.connection.socket = gevent.socket
 
@@ -93,7 +93,7 @@ def keepalive(connection, version_msg):
             connection.get_messages()
         except socket.timeout as err:
             pass
-        except (ProtocolError, socket.error) as err:
+        except (ProtocolError, ConnectionError, socket.error) as err:
             logging.debug("Closing {} ({})".format(node, err))
             break
 

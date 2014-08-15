@@ -112,6 +112,10 @@ class ProtocolError(Exception):
     pass
 
 
+class ConnectionError(Exception):
+    pass
+
+
 class HeaderTooShortError(ProtocolError):
     pass
 
@@ -133,6 +137,10 @@ class IncompatibleClientError(ProtocolError):
 
 
 class ReadError(ProtocolError):
+    pass
+
+
+class RemoteHostClosedConnection(ConnectionError):
     pass
 
 
@@ -426,12 +434,16 @@ class Connection(object):
             while length > 0:
                 chunk = self.socket.recv(SOCKET_BUFSIZE)
                 if not chunk:
-                    break  # remote host closed connection
+                    raise RemoteHostClosedConnection(
+                        "{} closed connection".format(self.to_addr))
                 chunks.append(chunk)
                 length -= len(chunk)
             data = ''.join(chunks)
         else:
             data = self.socket.recv(SOCKET_BUFSIZE)
+            if not data:
+                raise RemoteHostClosedConnection(
+                    "{} closed connection".format(self.to_addr))
         return data
 
     def get_messages(self, length=0, commands=None):
@@ -506,7 +518,7 @@ def main():
         print("getaddr")
         addr_msgs = connection.getaddr()
 
-    except (ProtocolError, socket.error) as err:
+    except (ProtocolError, ConnectionError, socket.error) as err:
         print("{}: {}".format(err, to_addr))
 
     print("close")
