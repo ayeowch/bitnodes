@@ -124,7 +124,7 @@ def task():
     try:
         connection.open()
         handshake_msgs = connection.handshake()
-    except (ProtocolError, socket.error) as err:
+    except (ProtocolError, ConnectionError, socket.error) as err:
         logging.debug("Closing {} ({})".format(connection.to_addr, err))
         connection.close()
 
