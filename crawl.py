@@ -43,7 +43,7 @@ import time
 from collections import Counter
 from ConfigParser import ConfigParser
 
-from protocol import ProtocolError, Connection, DEFAULT_PORT
+from protocol import ProtocolError, ConnectionError, Connection, DEFAULT_PORT
 
 redis.connection.socket = gevent.socket
 
@@ -107,7 +107,7 @@ def connect(redis_conn, key):
         connection.open()
         handshake_msgs = connection.handshake()
         addr_msgs = connection.getaddr()
-    except (ProtocolError, socket.error) as err:
+    except (ProtocolError, ConnectionError, socket.error) as err:
         logging.debug("{}: {}".format(connection.to_addr, err))
     finally:
         connection.close()
