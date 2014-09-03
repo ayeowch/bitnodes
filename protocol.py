@@ -392,13 +392,13 @@ class Serializer(object):
         return data.read(length)
 
     def deserialize_int(self, data):
-        length = struct.unpack("<B", data.read(1))[0]
+        length = unpack("<B", data.read(1))
         if length == 0xFD:
-            length = struct.unpack("<H", data.read(2))[0]
+            length = unpack("<H", data.read(2))
         elif length == 0xFE:
-            length = struct.unpack("<I", data.read(4))[0]
+            length = unpack("<I", data.read(4))
         elif length == 0xFF:
-            length = struct.unpack("<Q", data.read(8))[0]
+            length = unpack("<Q", data.read(8))
         return length
 
 
