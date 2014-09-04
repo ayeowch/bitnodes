@@ -1,3 +1,4 @@
 -e svn+http://dpkt.googlecode.com/svn/trunk@90#egg=dpkt-1.8-py2.7-dev_r90
 gevent==1.0.1
-redis==2.10.1
+pygeoip==0.3.1
+redis==2.10.3
