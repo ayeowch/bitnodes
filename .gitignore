@@ -2,6 +2,7 @@
 *.out
 *.pyc
 .DS_Store
+clean.sh
 data/*
 geoip/*.dat
 rsync.sh
