@@ -51,13 +51,26 @@ SETTINGS = {}
 
 def save_invs(timestamp, node, invs):
     """
-    Adds inv messages into the inv set in Redis.
+    Adds inv messages into the inv set in Redis. Block inv messages for block
+    older than the configured TTL are ignored.
     """
     timestamp = int(timestamp * 1000)  # in ms
     redis_pipe = REDIS_CONN.pipeline()
     for inv in invs:
-        logging.debug("[{}] {}:{}".format(timestamp, inv['type'], inv['hash']))
         key = "inv:{}:{}".format(inv['type'], inv['hash'])
+
+        if inv['type'] == 2:
+            # Redis key for reference (first seen) block inv
+            rkey = "r{}".format(key)
+            rkey_timestamp = REDIS_CONN.get(rkey)
+            if rkey_timestamp is None:
+                REDIS_CONN.set(rkey, timestamp)
+            elif (timestamp - int(rkey_timestamp)) / 1000 > SETTINGS['ttl']:
+                # Ignore block inv if it was first seen more than 3 hours ago
+                logging.debug("Drop: {}:{}".format(inv['type'], inv['hash']))
+                continue
+
+        logging.debug("[{}] {}:{}".format(timestamp, inv['type'], inv['hash']))
         redis_pipe.zadd(key, timestamp, node)
         redis_pipe.expire(key, SETTINGS['ttl'])
     redis_pipe.execute()
