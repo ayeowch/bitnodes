@@ -71,6 +71,9 @@ def enumerate_node(redis_pipe, addr_msgs, now):
                 if age >= 0 and age <= SETTINGS['max_age']:
                     address = peer['ipv4'] if peer['ipv4'] else peer['ipv6']
                     port = peer['port'] if peer['port'] > 0 else DEFAULT_PORT
+                    if address in SETTINGS['exclude_nodes']:
+                        logging.debug("Exclude: {}".format(address))
+                        continue
                     redis_pipe.sadd('pending', (address, port))
                     peers += 1
 
@@ -249,6 +252,10 @@ def set_pending():
             continue
         for node in nodes:
             address = node[-1][0]
+            if address in SETTINGS['exclude_nodes']:
+                logging.debug("Exclude: {}".format(address))
+                continue
+            logging.debug("{}: {}".format(seeder, address))
             REDIS_CONN.sadd('pending', (address, DEFAULT_PORT))
 
 
@@ -267,6 +274,8 @@ def init_settings(argv):
     SETTINGS['cron_delay'] = conf.getint('crawl', 'cron_delay')
     SETTINGS['max_age'] = conf.getint('crawl', 'max_age')
     SETTINGS['ipv6'] = conf.getboolean('crawl', 'ipv6')
+    SETTINGS['exclude_nodes'] = conf.get('crawl',
+                                         'exclude_nodes').strip().split("\n")
     SETTINGS['crawl_dir'] = conf.get('crawl', 'crawl_dir')
     if not os.path.exists(SETTINGS['crawl_dir']):
         os.makedirs(SETTINGS['crawl_dir'])
