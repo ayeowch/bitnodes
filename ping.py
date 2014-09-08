@@ -37,6 +37,7 @@ import glob
 import json
 import logging
 import os
+import random
 import redis
 import redis.connection
 import socket
@@ -72,21 +73,33 @@ def keepalive(connection, version_msg):
     REDIS_CONN.sadd('open', node)
     REDIS_CONN.sadd('opendata', data)
 
+    redis_pipe = REDIS_CONN.pipeline()
+    key = "ping:{}-{}".format(node[0], node[1])
+
     last_ping = now
 
     while True:
         try:
-            ttl = int(REDIS_CONN.get('elapsed'))
+            wait = int(REDIS_CONN.get('elapsed'))
         except TypeError as err:
-            ttl = 60
+            wait = 60
 
-        if time.time() > last_ping + ttl:
+        if time.time() > last_ping + wait:
+            nonce = random.getrandbits(64)
             try:
-                connection.ping()
+                connection.ping(nonce=nonce)
             except socket.error as err:
                 logging.debug("Closing {} ({})".format(node, err))
                 break
             last_ping = time.time()
+
+            redis_pipe.sadd(key, nonce)
+            redis_pipe.expire(key, SETTINGS['ttl'])
+
+            pkey = "{}:{}".format(key, nonce)
+            redis_pipe.lpush(pkey, int(last_ping * 1000))  # in ms
+            redis_pipe.expire(pkey, SETTINGS['ttl'])
+            redis_pipe.execute()
 
         # Sink received messages to flush them off socket buffer
         try:
@@ -235,6 +248,7 @@ def init_settings(argv):
     SETTINGS['user_agent'] = conf.get('ping', 'user_agent')
     SETTINGS['socket_timeout'] = conf.getint('ping', 'socket_timeout')
     SETTINGS['cron_delay'] = conf.getint('ping', 'cron_delay')
+    SETTINGS['ttl'] = conf.getint('ping', 'ttl')
     SETTINGS['crawl_dir'] = conf.get('ping', 'crawl_dir')
     if not os.path.exists(SETTINGS['crawl_dir']):
         os.makedirs(SETTINGS['crawl_dir'])

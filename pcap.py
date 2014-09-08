@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# pcap.py - Saves inv messages from pcap files in Redis.
+# pcap.py - Saves incoming messages from pcap files in Redis.
 #
 # Copyright (c) 2014 Addy Yeow Chin Heng <ayeowch@gmail.com>
 #
@@ -25,7 +25,7 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 """
-Saves inv messages from pcap files in Redis.
+Saves incoming messages from pcap files in Redis.
 """
 
 import dpkt
@@ -76,43 +76,47 @@ def save_invs(timestamp, node, invs):
     redis_pipe.execute()
 
 
-def get_invs(filepath):
+def get_messages(filepath):
     """
-    Extracts inv messages from the specified pcap file.
+    Extracts incoming messages from the specified pcap file.
     """
+    redis_pipe = REDIS_CONN.pipeline()
     count = 0
     serializer = Serializer()
     pcap_file = open(filepath)
     pcap_reader = dpkt.pcap.Reader(pcap_file)
     for timestamp, buf in pcap_reader:
         frame = dpkt.ethernet.Ethernet(buf)
-        ip_packet = frame.data
-        if isinstance(ip_packet.data, dpkt.tcp.TCP):
-            tcp_packet = ip_packet.data
-            payload = tcp_packet.data
-            if len(payload) > 0:
-                try:
-                    (msg, _) = serializer.deserialize_msg(payload)
-                except ProtocolError:
-                    pass
-                else:
-                    if msg['command'] == "inv":
-                        if ip_packet.v == 6:
-                            address = socket.inet_ntop(socket.AF_INET6,
-                                                       ip_packet.src)
-                        else:
-                            address = socket.inet_ntop(socket.AF_INET,
-                                                       ip_packet.src)
-                        node = (address, tcp_packet.sport)
-                        save_invs(timestamp, node, msg['inventory'])
-                        count += msg['count']
+        ip_pkt = frame.data
+        if isinstance(ip_pkt.data, dpkt.tcp.TCP):
+            tcp_pkt = ip_pkt.data
+            payload = tcp_pkt.data
+            if len(payload) == 0:
+                continue
+            try:
+                (msg, _) = serializer.deserialize_msg(payload)
+            except ProtocolError:
+                continue
+            if ip_pkt.v == 6:
+                address = socket.inet_ntop(socket.AF_INET6, ip_pkt.src)
+            else:
+                address = socket.inet_ntop(socket.AF_INET, ip_pkt.src)
+            node = (address, tcp_pkt.sport)
+            if msg['command'] == "inv":
+                save_invs(timestamp, node, msg['inventory'])
+                count += msg['count']
+            elif msg['command'] == "pong":
+                key = "ping:{}-{}:{}".format(node[0], node[1], msg['nonce'])
+                redis_pipe.rpushx(key, "{}".format(int(timestamp * 1000)))
+                count += 1
     pcap_file.close()
+    redis_pipe.execute()
     return count
 
 
 def cron():
     """
-    Periodically fetches oldest pcap file to extract inv messages from.
+    Periodically fetches oldest pcap file to extract messages from.
     """
     while True:
         time.sleep(5)
@@ -134,11 +138,11 @@ def cron():
             continue
 
         start = time.time()
-        count = get_invs(dump)
+        count = get_messages(dump)
         end = time.time()
         elapsed = end - start
 
-        logging.info("Dump:{} ({} invs)".format(dump, count))
+        logging.info("Dump: {} ({} messages)".format(dump, count))
         logging.info("Elapsed: {}".format(elapsed))
 
         os.remove(dump)
