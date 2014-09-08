@@ -215,7 +215,7 @@ class Serializer(object):
 
         if msg['command'] == "version":
             msg.update(self.deserialize_version_payload(payload))
-        elif msg['command'] == "ping":
+        elif msg['command'] == "ping" or msg['command'] == "pong":
             msg.update(self.deserialize_ping_payload(payload))
         elif msg['command'] == "addr":
             msg.update(self.deserialize_addr_payload(payload))
