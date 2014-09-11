@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# pcap.py - Saves incoming messages from pcap files in Redis.
+# pcap.py - Saves messages from pcap files in Redis.
 #
 # Copyright (c) 2014 Addy Yeow Chin Heng <ayeowch@gmail.com>
 #
@@ -25,7 +25,7 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 """
-Saves incoming messages from pcap files in Redis.
+Saves messages from pcap files in Redis.
 """
 
 import dpkt
@@ -36,9 +36,12 @@ import redis
 import socket
 import sys
 import time
+from collections import defaultdict
 from ConfigParser import ConfigParser
+from Queue import PriorityQueue
 
-from protocol import ProtocolError, Serializer
+from protocol import (ProtocolError, HeaderTooShortError, PayloadTooShortError,
+                      Serializer)
 
 # Redis connection setup
 REDIS_SOCKET = os.environ.get('REDIS_SOCKET', "/tmp/redis.sock")
@@ -49,69 +52,117 @@ REDIS_CONN = redis.StrictRedis(unix_socket_path=REDIS_SOCKET,
 SETTINGS = {}
 
 
-def save_invs(timestamp, node, invs):
+class Stream(object):
     """
-    Adds inv messages into the inv set in Redis. Block inv messages for block
-    older than the configured TTL are ignored.
+    Implements a stream object with generator function to iterate over the
+    queued segments while keeping track of captured timestamp.
     """
-    timestamp = int(timestamp * 1000)  # in ms
-    redis_pipe = REDIS_CONN.pipeline()
-    for inv in invs:
-        key = "inv:{}:{}".format(inv['type'], inv['hash'])
+    def __init__(self, segments):
+        self.segments = segments
+        self.timestamp = 0  # in ms
 
-        if inv['type'] == 2:
-            # Redis key for reference (first seen) block inv
-            rkey = "r{}".format(key)
-            rkey_timestamp = REDIS_CONN.get(rkey)
-            if rkey_timestamp is None:
-                REDIS_CONN.set(rkey, timestamp)
-            elif (timestamp - int(rkey_timestamp)) / 1000 > SETTINGS['ttl']:
-                # Ignore block inv if it was first seen more than 3 hours ago
-                logging.debug("Drop: {}:{}".format(inv['type'], inv['hash']))
+    def data(self):
+        """
+        Generator to iterate over the segments in this stream. Duplicated
+        segments are ignored.
+        """
+        seqs = set()
+        while not self.segments.empty():
+            (self.timestamp, tcp_pkt) = self.segments.get()[1]
+            if tcp_pkt.seq in seqs:
                 continue
-
-        logging.debug("[{}] {}:{}".format(timestamp, inv['type'], inv['hash']))
-        redis_pipe.zadd(key, timestamp, node)
-        redis_pipe.expire(key, SETTINGS['ttl'])
-    redis_pipe.execute()
+            yield tcp_pkt.data
+            seqs.add(tcp_pkt.seq)
 
 
-def get_messages(filepath):
+def cache_message(redis_pipe, node, timestamp, msg):
     """
-    Extracts incoming messages from the specified pcap file.
+    Caches a valid message from the specified node.
+    """
+    count = 0
+    if msg['command'] == "inv":
+        for inv in msg['inventory']:
+            key = "inv:{}:{}".format(inv['type'], inv['hash'])
+            if inv['type'] == 2:
+                # Redis key for reference (first seen) block inv
+                rkey = "r{}".format(key)
+                rkey_ms = REDIS_CONN.get(rkey)
+                if rkey_ms is None:
+                    REDIS_CONN.set(rkey, timestamp)
+                elif (timestamp - int(rkey_ms)) / 1000 > SETTINGS['ttl']:
+                    # Ignore block inv first seen more than 3 hours ago
+                    logging.debug("Skip: {}".format(key))
+                    continue
+            redis_pipe.zadd(key, timestamp, node)
+            redis_pipe.expire(key, SETTINGS['ttl'])
+        count = msg['count']
+    elif msg['command'] == "pong":
+        key = "ping:{}-{}:{}".format(node[0], node[1], msg['nonce'])
+        redis_pipe.rpushx(key, timestamp)
+        count = 1
+    return count
+
+
+def cache_messages(streams):
+    """
+    Reconstructs messages from TCP streams and caches them in Redis.
     """
     redis_pipe = REDIS_CONN.pipeline()
     count = 0
     serializer = Serializer()
-    pcap_file = open(filepath)
-    pcap_reader = dpkt.pcap.Reader(pcap_file)
-    for timestamp, buf in pcap_reader:
-        frame = dpkt.ethernet.Ethernet(buf)
-        ip_pkt = frame.data
-        if isinstance(ip_pkt.data, dpkt.tcp.TCP):
-            tcp_pkt = ip_pkt.data
-            payload = tcp_pkt.data
-            if len(payload) == 0:
-                continue
+    for stream_id, segments in streams.iteritems():
+        stream = Stream(segments)
+        data = stream.data()
+        _data = data.next()
+        while True:
             try:
-                (msg, _) = serializer.deserialize_msg(payload)
-            except ProtocolError:
-                continue
-            if ip_pkt.v == 6:
-                address = socket.inet_ntop(socket.AF_INET6, ip_pkt.src)
+                (msg, _data) = serializer.deserialize_msg(_data)
+            except (HeaderTooShortError, PayloadTooShortError) as err:
+                logging.debug("{}: {}".format(stream_id, err))
+                try:
+                    _data += data.next()
+                except StopIteration:
+                    break
+            except ProtocolError as err:
+                logging.debug("{}: {}".format(stream_id, err))
+                try:
+                    _data = data.next()
+                except StopIteration:
+                    break
             else:
-                address = socket.inet_ntop(socket.AF_INET, ip_pkt.src)
-            node = (address, tcp_pkt.sport)
-            if msg['command'] == "inv":
-                save_invs(timestamp, node, msg['inventory'])
-                count += msg['count']
-            elif msg['command'] == "pong":
-                key = "ping:{}-{}:{}".format(node[0], node[1], msg['nonce'])
-                redis_pipe.rpushx(key, "{}".format(int(timestamp * 1000)))
-                count += 1
-    pcap_file.close()
+                node = (stream_id[0], stream_id[1])
+                count += cache_message(redis_pipe, node, stream.timestamp, msg)
     redis_pipe.execute()
     return count
+
+
+def get_streams(filepath):
+    """
+    Returns TCP streams with data from the specified pcap file. TCP segments in
+    each stream are queued according to their sequence number.
+    """
+    streams = defaultdict(PriorityQueue)
+    with open(filepath) as pcap_file:
+        pcap_reader = dpkt.pcap.Reader(pcap_file)
+        for timestamp, buf in pcap_reader:
+            frame = dpkt.ethernet.Ethernet(buf)
+            ip_pkt = frame.data
+            if isinstance(ip_pkt.data, dpkt.tcp.TCP):
+                ip_ver = socket.AF_INET
+                if ip_pkt.v == 6:
+                    ip_ver = socket.AF_INET6
+                tcp_pkt = ip_pkt.data
+                stream_id = (
+                    socket.inet_ntop(ip_ver, ip_pkt.src),
+                    tcp_pkt.sport,
+                    socket.inet_ntop(ip_ver, ip_pkt.dst),
+                    tcp_pkt.dport
+                )
+                if len(tcp_pkt.data) > 0:
+                    timestamp = int(timestamp * 1000)  # in ms
+                    streams[stream_id].put((tcp_pkt.seq, (timestamp, tcp_pkt)))
+    logging.info("Streams: {}".format(len(streams)))
+    return streams
 
 
 def cron():
@@ -137,8 +188,10 @@ def cron():
             logging.warning(err)
             continue
 
+        logging.info("Loading: {}".format(dump))
+
         start = time.time()
-        count = get_messages(dump)
+        count = cache_messages(get_streams(dump))
         end = time.time()
         elapsed = end - start
 
