@@ -57,7 +57,7 @@ class Stream(object):
     Implements a stream object with generator function to iterate over the
     queued segments while keeping track of captured timestamp.
     """
-    def __init__(self, segments):
+    def __init__(self, segments=None):
         self.segments = segments
         self.timestamp = 0  # in ms
 
@@ -110,8 +110,8 @@ def cache_messages(streams):
     redis_pipe = REDIS_CONN.pipeline()
     count = 0
     serializer = Serializer()
-    for stream_id, segments in streams.iteritems():
-        stream = Stream(segments)
+    stream = Stream()
+    for stream_id, stream.segments in streams.iteritems():
         data = stream.data()
         _data = data.next()
         while True:
