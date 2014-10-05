@@ -99,7 +99,7 @@ MAGIC_NUMBER = "\xF9\xBE\xB4\xD9"
 PROTOCOL_VERSION = 70001
 SERVICES = 1
 USER_AGENT = "/getaddr.bitnodes.io:0.1/"
-HEIGHT = 313000
+HEIGHT = 324000
 RELAY = 1  # set to 1 to receive all txs
 DEFAULT_PORT = 8333
 
