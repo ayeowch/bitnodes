@@ -74,7 +74,6 @@ def keepalive(connection, version_msg):
     REDIS_CONN.sadd('opendata', data)
 
     redis_pipe = REDIS_CONN.pipeline()
-    key = "ping:{}-{}".format(node[0], node[1])
 
     last_ping = now
 
@@ -93,12 +92,9 @@ def keepalive(connection, version_msg):
                 break
             last_ping = time.time()
 
-            redis_pipe.sadd(key, nonce)
+            key = "ping:{}-{}:{}".format(node[0], node[1], nonce)
+            redis_pipe.lpush(key, int(last_ping * 1000))  # in ms
             redis_pipe.expire(key, SETTINGS['ttl'])
-
-            pkey = "{}:{}".format(key, nonce)
-            redis_pipe.lpush(pkey, int(last_ping * 1000))  # in ms
-            redis_pipe.expire(pkey, SETTINGS['ttl'])
             redis_pipe.execute()
 
         # Sink received messages to flush them off socket buffer
