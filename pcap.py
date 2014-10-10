@@ -75,65 +75,86 @@ class Stream(object):
             seqs.add(tcp_pkt.seq)
 
 
-def cache_message(redis_pipe, node, timestamp, msg):
+class Cache(object):
     """
-    Caches a valid message from the specified node.
+    Implements caching mechanic to cache valid messages in Redis.
     """
-    count = 0
-    if msg['command'] == "inv":
-        for inv in msg['inventory']:
-            key = "inv:{}:{}".format(inv['type'], inv['hash'])
-            if inv['type'] == 2:
-                # Redis key for reference (first seen) block inv
-                rkey = "r{}".format(key)
-                rkey_ms = REDIS_CONN.get(rkey)
-                if rkey_ms is None:
-                    REDIS_CONN.set(rkey, timestamp)
-                elif (timestamp - int(rkey_ms)) / 1000 > SETTINGS['ttl']:
-                    # Ignore block inv first seen more than 3 hours ago
-                    logging.debug("Skip: {}".format(key))
-                    continue
-            redis_pipe.zadd(key, timestamp, node)
-            redis_pipe.expire(key, SETTINGS['ttl'])
-        count = msg['count']
-    elif msg['command'] == "pong":
-        key = "ping:{}-{}:{}".format(node[0], node[1], msg['nonce'])
-        redis_pipe.rpushx(key, timestamp)
-        count = 1
-    return count
+    def __init__(self):
+        self.redis_pipe = REDIS_CONN.pipeline()
+        self.serializer = Serializer()
+        self.stream = Stream()
+        self.count = 0
+        self.keys = set()  # ping:ADDRESS-PORT:NONCE
 
+    def cache_messages(self, streams):
+        """
+        Reconstructs messages from TCP streams and caches them in Redis.
+        """
+        self.count = 0
+        self.keys.clear()
+        for stream_id, self.stream.segments in streams.iteritems():
+            data = self.stream.data()
+            _data = data.next()
+            while True:
+                try:
+                    (msg, _data) = self.serializer.deserialize_msg(_data)
+                except (HeaderTooShortError, PayloadTooShortError) as err:
+                    logging.debug("{}: {}".format(stream_id, err))
+                    try:
+                        _data += data.next()
+                    except StopIteration:
+                        break
+                except ProtocolError as err:
+                    logging.debug("{}: {}".format(stream_id, err))
+                    try:
+                        _data = data.next()
+                    except StopIteration:
+                        break
+                else:
+                    node = (stream_id[0], stream_id[1])
+                    self._cache_message(node, self.stream.timestamp, msg)
+        self.redis_pipe.execute()
+        self._cache_rtt()
 
-def cache_messages(streams):
-    """
-    Reconstructs messages from TCP streams and caches them in Redis.
-    """
-    redis_pipe = REDIS_CONN.pipeline()
-    count = 0
-    serializer = Serializer()
-    stream = Stream()
-    for stream_id, stream.segments in streams.iteritems():
-        data = stream.data()
-        _data = data.next()
-        while True:
-            try:
-                (msg, _data) = serializer.deserialize_msg(_data)
-            except (HeaderTooShortError, PayloadTooShortError) as err:
-                logging.debug("{}: {}".format(stream_id, err))
-                try:
-                    _data += data.next()
-                except StopIteration:
-                    break
-            except ProtocolError as err:
-                logging.debug("{}: {}".format(stream_id, err))
-                try:
-                    _data = data.next()
-                except StopIteration:
-                    break
-            else:
-                node = (stream_id[0], stream_id[1])
-                count += cache_message(redis_pipe, node, stream.timestamp, msg)
-    redis_pipe.execute()
-    return count
+    def _cache_message(self, node, timestamp, msg):
+        """
+        Caches a valid message from the specified node.
+        """
+        if msg['command'] == "inv":
+            for inv in msg['inventory']:
+                key = "inv:{}:{}".format(inv['type'], inv['hash'])
+                if inv['type'] == 2:
+                    # Redis key for reference (first seen) block inv
+                    rkey = "r{}".format(key)
+                    rkey_ms = REDIS_CONN.get(rkey)
+                    if rkey_ms is None:
+                        REDIS_CONN.set(rkey, timestamp)
+                    elif (timestamp - int(rkey_ms)) / 1000 > SETTINGS['ttl']:
+                        # Ignore block inv first seen more than 3 hours ago
+                        logging.debug("Skip: {}".format(key))
+                        continue
+                self.redis_pipe.zadd(key, timestamp, node)
+                self.redis_pipe.expire(key, SETTINGS['ttl'])
+            self.count += msg['count']
+        elif msg['command'] == "pong":
+            key = "ping:{}-{}:{}".format(node[0], node[1], msg['nonce'])
+            self.redis_pipe.rpushx(key, timestamp)
+            self.keys.add(key)
+            self.count += 1
+
+    def _cache_rtt(self):
+        """
+        Calculates round-trip time (RTT) values and caches them in Redis.
+        """
+        for key in self.keys:
+            timestamps = REDIS_CONN.lrange(key, 0, 1)
+            if len(timestamps) > 1:
+                rtt_key = "rtt:{}".format(key.split(":")[1])
+                rtt = int(timestamps[1]) - int(timestamps[0])  # pong - ping
+                logging.debug("{}: {}".format(rtt_key, rtt))
+                self.redis_pipe.lpush(rtt_key, rtt)
+                self.redis_pipe.ltrim(rtt_key, 0, SETTINGS['rtt_count'] - 1)
+        self.redis_pipe.execute()
 
 
 def get_streams(filepath):
@@ -169,6 +190,7 @@ def cron():
     """
     Periodically fetches oldest pcap file to extract messages from.
     """
+    cache = Cache()
     while True:
         time.sleep(5)
 
@@ -191,11 +213,11 @@ def cron():
         logging.info("Loading: {}".format(dump))
 
         start = time.time()
-        count = cache_messages(get_streams(dump))
+        cache.cache_messages(get_streams(dump))
         end = time.time()
         elapsed = end - start
 
-        logging.info("Dump: {} ({} messages)".format(dump, count))
+        logging.info("Dump: {} ({} messages)".format(dump, cache.count))
         logging.info("Elapsed: {}".format(elapsed))
 
         os.remove(dump)
@@ -210,6 +232,7 @@ def init_settings(argv):
     SETTINGS['logfile'] = conf.get('pcap', 'logfile')
     SETTINGS['debug'] = conf.getboolean('pcap', 'debug')
     SETTINGS['ttl'] = conf.getint('pcap', 'ttl')
+    SETTINGS['rtt_count'] = conf.getint('pcap', 'rtt_count')
     SETTINGS['pcap_dir'] = conf.get('pcap', 'pcap_dir')
     if not os.path.exists(SETTINGS['pcap_dir']):
         os.makedirs(SETTINGS['pcap_dir'])
