@@ -149,11 +149,12 @@ class Cache(object):
         for key in self.keys:
             timestamps = REDIS_CONN.lrange(key, 0, 1)
             if len(timestamps) > 1:
-                rtt_key = "rtt:{}".format(key.split(":")[1])
+                rtt_key = "rtt:{}".format(':'.join(key.split(":")[1:-1]))
                 rtt = int(timestamps[1]) - int(timestamps[0])  # pong - ping
                 logging.debug("{}: {}".format(rtt_key, rtt))
                 self.redis_pipe.lpush(rtt_key, rtt)
                 self.redis_pipe.ltrim(rtt_key, 0, SETTINGS['rtt_count'] - 1)
+                self.redis_pipe.expire(rtt_key, SETTINGS['ttl'])
         self.redis_pipe.execute()
 
 
