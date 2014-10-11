@@ -77,22 +77,23 @@ class Stream(object):
 
 class Cache(object):
     """
-    Implements caching mechanic to cache valid messages in Redis.
+    Implements caching mechanic to cache messages from pcap file in Redis.
     """
-    def __init__(self):
+    def __init__(self, filepath):
+        self.filepath = filepath
         self.redis_pipe = REDIS_CONN.pipeline()
         self.serializer = Serializer()
+        self.streams = defaultdict(PriorityQueue)
         self.stream = Stream()
         self.count = 0
         self.keys = set()  # ping:ADDRESS-PORT:NONCE
 
-    def cache_messages(self, streams):
+    def cache_messages(self):
         """
         Reconstructs messages from TCP streams and caches them in Redis.
         """
-        self.count = 0
-        self.keys.clear()
-        for stream_id, self.stream.segments in streams.iteritems():
+        self._extract_streams()
+        for stream_id, self.stream.segments in self.streams.iteritems():
             data = self.stream.data()
             _data = data.next()
             while True:
@@ -116,9 +117,36 @@ class Cache(object):
         self.redis_pipe.execute()
         self._cache_rtt()
 
+    def _extract_streams(self):
+        """
+        Extracts TCP streams with data from the pcap file. TCP segments in
+        each stream are queued according to their sequence number.
+        """
+        with open(self.filepath) as pcap_file:
+            pcap_reader = dpkt.pcap.Reader(pcap_file)
+            for timestamp, buf in pcap_reader:
+                frame = dpkt.ethernet.Ethernet(buf)
+                ip_pkt = frame.data
+                if isinstance(ip_pkt.data, dpkt.tcp.TCP):
+                    ip_ver = socket.AF_INET
+                    if ip_pkt.v == 6:
+                        ip_ver = socket.AF_INET6
+                    tcp_pkt = ip_pkt.data
+                    stream_id = (
+                        socket.inet_ntop(ip_ver, ip_pkt.src),
+                        tcp_pkt.sport,
+                        socket.inet_ntop(ip_ver, ip_pkt.dst),
+                        tcp_pkt.dport
+                    )
+                    if len(tcp_pkt.data) > 0:
+                        timestamp = int(timestamp * 1000)  # in ms
+                        self.streams[stream_id].put(
+                            (tcp_pkt.seq, (timestamp, tcp_pkt)))
+        logging.info("Streams: {}".format(len(self.streams)))
+
     def _cache_message(self, node, timestamp, msg):
         """
-        Caches a valid message from the specified node.
+        Caches inv/pong message from the specified node.
         """
         if msg['command'] == "inv":
             for inv in msg['inventory']:
@@ -158,40 +186,10 @@ class Cache(object):
         self.redis_pipe.execute()
 
 
-def get_streams(filepath):
-    """
-    Returns TCP streams with data from the specified pcap file. TCP segments in
-    each stream are queued according to their sequence number.
-    """
-    streams = defaultdict(PriorityQueue)
-    with open(filepath) as pcap_file:
-        pcap_reader = dpkt.pcap.Reader(pcap_file)
-        for timestamp, buf in pcap_reader:
-            frame = dpkt.ethernet.Ethernet(buf)
-            ip_pkt = frame.data
-            if isinstance(ip_pkt.data, dpkt.tcp.TCP):
-                ip_ver = socket.AF_INET
-                if ip_pkt.v == 6:
-                    ip_ver = socket.AF_INET6
-                tcp_pkt = ip_pkt.data
-                stream_id = (
-                    socket.inet_ntop(ip_ver, ip_pkt.src),
-                    tcp_pkt.sport,
-                    socket.inet_ntop(ip_ver, ip_pkt.dst),
-                    tcp_pkt.dport
-                )
-                if len(tcp_pkt.data) > 0:
-                    timestamp = int(timestamp * 1000)  # in ms
-                    streams[stream_id].put((tcp_pkt.seq, (timestamp, tcp_pkt)))
-    logging.info("Streams: {}".format(len(streams)))
-    return streams
-
-
 def cron():
     """
     Periodically fetches oldest pcap file to extract messages from.
     """
-    cache = Cache()
     while True:
         time.sleep(5)
 
@@ -214,7 +212,8 @@ def cron():
         logging.info("Loading: {}".format(dump))
 
         start = time.time()
-        cache.cache_messages(get_streams(dump))
+        cache = Cache(filepath=dump)
+        cache.cache_messages()
         end = time.time()
         elapsed = end - start
 
