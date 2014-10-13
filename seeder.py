@@ -36,7 +36,6 @@ import os
 import random
 import redis
 import sys
-import threading
 import time
 from ConfigParser import ConfigParser
 
@@ -99,6 +98,9 @@ def save_zone_file(a_records, aaaa_records):
     a_records = "\n".join(a_records[:SETTINGS['a_records']]) + "\n"
     aaaa_records = "\n".join(aaaa_records[:SETTINGS['aaaa_records']]) + "\n"
     template = open(SETTINGS['template'], "r").read()
+    serial = str(int(time.time()))
+    logging.debug("Serial: {}".format(serial))
+    template = template.replace("1413165554", serial)
     open(SETTINGS['zone_file'], "w").write(template + a_records + aaaa_records)
 
 
@@ -161,7 +163,7 @@ def main(argv):
     print("Writing output to {}, press CTRL+C to terminate..".format(
           SETTINGS['logfile']))
 
-    threading.Thread(target=cron).start()
+    cron()
 
     return 0
 
