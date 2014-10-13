@@ -100,7 +100,7 @@ def save_zone_file(a_records, aaaa_records):
     template = open(SETTINGS['template'], "r").read()
     serial = str(int(time.time()))
     logging.debug("Serial: {}".format(serial))
-    template = template.replace("1413165554", serial)
+    template = template.replace("1413235952", serial)
     open(SETTINGS['zone_file'], "w").write(template + a_records + aaaa_records)
 
 
