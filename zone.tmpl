@@ -1,7 +1,7 @@
 $ORIGIN seed.bitnodes.io.
 $TTL 60
 
-@	28800	IN	SOA	ns.bitnodes.io. hostmaster.bitnodes.io. (
+@	28800	IN	SOA	ns1.bitnodes.io. hostmaster.bitnodes.io. (
 				1413235952 ; SERIAL
 				3600 ; REFRESH
 				1800 ; RETRY
@@ -9,7 +9,19 @@ $TTL 60
 				60 ; MINIMUM
 				)
 
-@	28800	IN	NS	ns.bitnodes.io.
+@	28800	IN	NS	ns1.bitnodes.io.
+@	28800	IN	NS	ns2.bitnodes.io.
+@	28800	IN	NS	ns3.bitnodes.io.
+@	28800	IN	NS	ns4.bitnodes.io.
+@	28800	IN	NS	ns5.bitnodes.io.
 
-ns	28800	IN	A	148.251.238.178
-ns	28800	IN	AAAA	2a01:4f8:202:81b1::2
+ns1	28800	IN	A	148.251.238.178
+ns1	28800	IN	AAAA	2a01:4f8:202:81b1::2
+ns2	28800	IN	A	148.251.238.178
+ns2	28800	IN	AAAA	2a01:4f8:202:81b1::2
+ns3	28800	IN	A	148.251.238.178
+ns3	28800	IN	AAAA	2a01:4f8:202:81b1::2
+ns4	28800	IN	A	148.251.238.178
+ns4	28800	IN	AAAA	2a01:4f8:202:81b1::2
+ns5	28800	IN	A	148.251.238.178
+ns5	28800	IN	AAAA	2a01:4f8:202:81b1::2
