@@ -158,7 +158,7 @@ def restart():
     Dumps data for the reachable nodes into a JSON file.
     Loads all reachable nodes from Redis into the crawl set.
     Removes keys for all nodes from current crawl.
-    Updates most common height in Redis.
+    Updates number of reachable nodes and most common height in Redis.
     """
     nodes = []  # Reachable nodes
 
@@ -175,6 +175,7 @@ def restart():
         redis_pipe.delete(key)
 
     height = dump(nodes)
+    redis_pipe.set('nodes', len(nodes))
     redis_pipe.set('height', height)
     logging.info("Height: {}".format(height))
 
