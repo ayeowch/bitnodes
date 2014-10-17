@@ -128,7 +128,7 @@ def connect(redis_conn, key):
     redis_pipe.execute()
 
 
-def dump(nodes):
+def dump(timestamp, nodes):
     """
     Dumps data for reachable nodes into timestamp-prefixed JSON file and
     returns most common height from the nodes.
@@ -140,20 +140,20 @@ def dump(nodes):
         (address, port) = node[5:].split("-", 1)
         try:
             height = int(REDIS_CONN.get("height:{}-{}".format(address, port)))
-        except TypeError as err:
+        except TypeError:
             logging.warning("height:{}-{} missing".format(address, port))
             height = 0
         json_data.append([address, int(port), height])
 
     json_output = os.path.join(SETTINGS['crawl_dir'],
-                               "{}.json".format(int(time.time())))
+                               "{}.json".format(timestamp))
     open(json_output, 'w').write(json.dumps(json_data))
     logging.info("Wrote {}".format(json_output))
 
     return Counter([node[-1] for node in json_data]).most_common(1)[0][0]
 
 
-def restart():
+def restart(timestamp):
     """
     Dumps data for the reachable nodes into a JSON file.
     Loads all reachable nodes from Redis into the crawl set.
@@ -174,8 +174,10 @@ def restart():
             redis_pipe.sadd('pending', (address, int(port)))
         redis_pipe.delete(key)
 
-    height = dump(nodes)
-    redis_pipe.set('nodes', len(nodes))
+    height = dump(timestamp, nodes)
+    redis_pipe.zadd('nodes', timestamp, len(nodes))
+    redis_pipe.zremrangebyscore('nodes', "-inf",
+                                timestamp - SETTINGS['max_age'])
     redis_pipe.set('height', height)
     logging.info("Height: {}".format(height))
 
@@ -197,11 +199,12 @@ def cron():
 
         if pending_nodes == 0:
             REDIS_CONN.set('crawl:master:state', "starting")
-            elapsed = int(time.time()) - start
+            now = int(time.time())
+            elapsed = now - start
             REDIS_CONN.set('elapsed', elapsed)
             logging.info("Elapsed: {}".format(elapsed))
             logging.info("Restarting")
-            restart()
+            restart(now)
             start = int(time.time())
             REDIS_CONN.set('crawl:master:state', "running")
 
