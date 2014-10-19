@@ -89,9 +89,11 @@ import gevent
 import hashlib
 import random
 import socket
+import socks
 import struct
 import sys
 import time
+from base64 import b32decode, b32encode
 from cStringIO import StringIO
 from operator import itemgetter
 
@@ -106,6 +108,8 @@ DEFAULT_PORT = 8333
 SOCKET_BUFSIZE = 8192
 SOCKET_TIMEOUT = 15
 HEADER_LEN = 24
+
+ONION_PREFIX = "\xFD\x87\xD8\x7E\xEB\x43"  # ipv6 prefix for .onion address
 
 
 class ProtocolError(Exception):
@@ -140,6 +144,10 @@ class ReadError(ProtocolError):
     pass
 
 
+class ProxyRequired(ConnectionError):
+    pass
+
+
 class RemoteHostClosedConnection(ConnectionError):
     pass
 
@@ -154,6 +162,22 @@ def unpack(fmt, string):
         return struct.unpack(fmt, string)[0]
     except struct.error as err:
         raise ReadError(err)
+
+
+def create_connection(address, timeout, proxy):
+    if address[0].endswith(".onion"):
+        if proxy is None:
+            raise ProxyRequired(
+                "tor proxy is required to connect to .onion address")
+        socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, proxy[0], proxy[1])
+        sock = socks.socksocket()
+        sock.settimeout(timeout)
+        try:
+            sock.connect(address)
+        except socks.Socks5Error as err:
+            raise ConnectionError(err)
+        return sock
+    return socket.create_connection(address, timeout)
 
 
 class Serializer(object):
@@ -328,7 +352,11 @@ class Serializer(object):
     def serialize_network_address(self, addr):
         (ip_address, port) = addr
         network_address = [struct.pack("<Q", SERVICES)]
-        if "." in ip_address:
+        if ip_address.endswith(".onion"):
+            # convert .onion address to its ipv6 equivalent (6 + 10 bytes)
+            network_address.append(
+                ONION_PREFIX + b32decode(ip_address[:-6], True))
+        elif "." in ip_address:
             # unused (12 bytes) + ipv4 (4 bytes) = ipv4-mapped ipv6 address
             unused = "\x00" * 10 + "\xFF" * 2
             network_address.append(
@@ -350,22 +378,29 @@ class Serializer(object):
 
         _ipv6 = data.read(12)
         _ipv4 = data.read(4)
-
         port = unpack(">H", data.read(2))
+        _ipv6 += _ipv4
 
-        ipv6 = socket.inet_ntop(socket.AF_INET6, _ipv6 + _ipv4)
-        ipv4 = socket.inet_ntop(socket.AF_INET, _ipv4)
+        ipv4 = ""
+        ipv6 = ""
+        onion = ""
 
-        if ipv4 in ipv6:
-            ipv6 = ""  # use ipv4
+        if _ipv6[:6] == ONION_PREFIX:
+            onion = b32encode(_ipv6[6:]).lower() + ".onion"  # use .onion
         else:
-            ipv4 = ""  # use ipv6
+            ipv6 = socket.inet_ntop(socket.AF_INET6, _ipv6)
+            ipv4 = socket.inet_ntop(socket.AF_INET, _ipv4)
+            if ipv4 in ipv6:
+                ipv6 = ""  # use ipv4
+            else:
+                ipv4 = ""  # use ipv6
 
         return {
             'timestamp': timestamp,
             'services': services,
-            'ipv6': ipv6,
             'ipv4': ipv4,
+            'ipv6': ipv6,
+            'onion': onion,
             'port': port,
         }
 
@@ -410,11 +445,12 @@ class Connection(object):
         self.from_addr = from_addr
         self.serializer = Serializer(**config)
         self.socket_timeout = config.get('socket_timeout', SOCKET_TIMEOUT)
+        self.proxy = config.get('proxy', None)
         self.socket = None
 
     def open(self):
-        self.socket = socket.create_connection(self.to_addr,
-                                               self.socket_timeout)
+        self.socket = create_connection(self.to_addr, self.socket_timeout,
+                                        self.proxy)
 
     def close(self):
         if self.socket:
