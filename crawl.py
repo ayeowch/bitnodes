@@ -135,7 +135,6 @@ def dump(timestamp, nodes):
     """
     json_data = []
 
-    logging.info("Reachable nodes: {}".format(len(nodes)))
     for node in nodes:
         (address, port) = node[5:].split("-", 1)
         try:
@@ -173,15 +172,15 @@ def restart(timestamp):
             (address, port) = key[5:].split("-", 1)
             redis_pipe.sadd('pending', (address, int(port)))
         redis_pipe.delete(key)
+    redis_pipe.execute()
+
+    reachable_nodes = len(nodes)
+    logging.info("Reachable nodes: {}".format(reachable_nodes))
+    REDIS_CONN.lpush('nodes', (timestamp, reachable_nodes))
 
     height = dump(timestamp, nodes)
-    redis_pipe.zadd('nodes', timestamp, len(nodes))
-    redis_pipe.zremrangebyscore('nodes', "-inf",
-                                timestamp - SETTINGS['max_age'])
-    redis_pipe.set('height', height)
+    REDIS_CONN.set('height', height)
     logging.info("Height: {}".format(height))
-
-    redis_pipe.execute()
 
 
 def cron():
