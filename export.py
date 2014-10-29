@@ -66,7 +66,7 @@ def get_row(node):
     geoip = REDIS_CONN.hget('resolve:{}'.format(address), 'geoip')
     if geoip is None:
         # city, country, latitude, longitude, timezone, asn, org
-        geoip = (None, None, None, None, None, None, None)
+        geoip = (None, None, 0.0, 0.0, None, None, None)
     else:
         geoip = eval(geoip)
 

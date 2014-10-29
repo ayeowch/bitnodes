@@ -165,8 +165,8 @@ def raw_geoip(address):
     """
     city = None
     country = None
-    latitude = None
-    longitude = None
+    latitude = 0.0
+    longitude = 0.0
     timezone = None
     asn = None
     org = None
