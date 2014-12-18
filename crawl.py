@@ -42,6 +42,7 @@ import sys
 import time
 from collections import Counter
 from ConfigParser import ConfigParser
+from ipaddress import ip_network
 
 from protocol import ProtocolError, ConnectionError, Connection, DEFAULT_PORT
 
@@ -277,8 +278,13 @@ def init_settings(argv):
     SETTINGS['cron_delay'] = conf.getint('crawl', 'cron_delay')
     SETTINGS['max_age'] = conf.getint('crawl', 'max_age')
     SETTINGS['ipv6'] = conf.getboolean('crawl', 'ipv6')
-    SETTINGS['exclude_nodes'] = conf.get('crawl',
-                                         'exclude_nodes').strip().split("\n")
+    exclude_nodes = conf.get('crawl', 'exclude_nodes').strip().split("\n")
+    exclude_networks = conf.get('crawl',
+                                'exclude_networks').strip().split("\n")
+    for network in exclude_networks:
+        exclude_nodes.extend(
+            [str(address) for address in list(ip_network(unicode(network)))])
+    SETTINGS['exclude_nodes'] = set(exclude_nodes)
     SETTINGS['crawl_dir'] = conf.get('crawl', 'crawl_dir')
     if not os.path.exists(SETTINGS['crawl_dir']):
         os.makedirs(SETTINGS['crawl_dir'])
