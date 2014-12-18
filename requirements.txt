@@ -2,5 +2,5 @@
 -e svn+http://socksipy-branch.googlecode.com/svn/trunk@20#egg=socksipy-branch
 gevent==1.0.1
 ipaddress==1.0.7
-pygeoip==0.3.1
+pygeoip==0.3.2
 redis==2.10.3
