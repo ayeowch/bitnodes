@@ -80,7 +80,6 @@ class Seeder(object):
                                         encoding="latin-1")
             except ValueError:
                 logging.warning("Write pending")
-            if len(self.nodes) == 0:
                 return
             self.a_records = []
             self.aaaa_records = []
