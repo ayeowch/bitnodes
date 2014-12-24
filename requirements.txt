@@ -4,4 +4,4 @@ gevent==1.0.1
 ipaddress==1.0.7
 pygeoip==0.3.2
 redis==2.10.3
-requests==2.5.0
+requests==2.5.1
