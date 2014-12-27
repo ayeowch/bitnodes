@@ -4,6 +4,8 @@ Bitnodes is currently being developed to estimate the size of the Bitcoin networ
 ## Setup
 See [Provisioning Bitcoin Network Crawler](https://github.com/ayeowch/bitnodes/wiki/Provisioning-Bitcoin-Network-Crawler)
 
+BITNODES TAKES UP ONE CONNECTION SLOT FROM EACH REACHABLE NODE IN THE NETWORK. IF YOU INTEND TO USE BITNODES TO CRAWL THE NETWORK, PLEASE CONSIDER RUNNING ONLY 1 INSTANCE OF THE CRAWLER TO AVOID TAKING UP THE VALUABLE CONNECTION SLOTS FROM EACH NODE.
+
 ## License
 Copyright (c) 2014 Addy Yeow Chin Heng &lt;ayeowch@gmail.com&gt;
 
