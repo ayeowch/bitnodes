@@ -1,0 +1,59 @@
+[crawl]
+
+# Logfile
+logfile = crawl.log
+
+# List of DNS seeders to get a subset of reachable nodes
+seeders =
+    seed.bitcoin.sipa.be
+    dnsseed.bluematt.me
+    dnsseed.bitcoin.dashjr.org
+    seed.bitcoinstats.com
+    seed.bitnodes.io
+    bitseed.xf2.org
+
+# Number of concurrent workers (greenlets)
+workers = 300
+
+# Print debug output
+debug = False
+
+# Public IP address for network interface
+source_address = 0.0.0.0
+
+# User agent (BIP 0014) to use for outgoing version message
+# -----------------------------------------------------------------------------
+#                                 NOTE TO USERS
+# Please consider changing the user agent before running an instance of this
+# crawler. This is so that users will not confuse your crawler with another
+# instance that is already running and generating data for the project.
+# -----------------------------------------------------------------------------
+user_agent = /getaddr.bitnodes.io:0.1/
+
+# Socket timeout
+socket_timeout = 10
+
+# Run cron tasks every given interval
+cron_delay = 10
+
+# Max. age for peering node to be included in crawl set
+max_age = 86400
+
+# Attempt to establish connection with IPv6 nodes
+ipv6 = True
+
+# List of excluded nodes
+exclude_nodes =
+    127.0.0.1
+    0.0.0.0
+    178.63.66.130
+    5.196.64.92
+    148.251.189.101
+    2a01:4f8:211:ae3::2
+
+# List of excluded networks
+exclude_networks =
+    46.105.210.0/24
+
+# Relative path to directory containing timestamp-prefixed JSON crawl files
+crawl_dir = data/crawl
