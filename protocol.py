@@ -3,7 +3,7 @@
 #
 # protocol.py - Bitcoin protocol access for bitnodes.
 #
-# Copyright (c) 2014 Addy Yeow Chin Heng <ayeowch@gmail.com>
+# Copyright (c) Addy Yeow Chin Heng <ayeowch@gmail.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining
 # a copy of this software and associated documentation files (the
@@ -101,7 +101,7 @@ MAGIC_NUMBER = "\xF9\xBE\xB4\xD9"
 PROTOCOL_VERSION = 70001
 SERVICES = 1
 USER_AGENT = "/getaddr.bitnodes.io:0.1/"
-HEIGHT = 324000
+HEIGHT = 336264
 RELAY = 1  # set to 1 to receive all txs
 DEFAULT_PORT = 8333
 
@@ -164,7 +164,8 @@ def unpack(fmt, string):
         raise ReadError(err)
 
 
-def create_connection(address, timeout, proxy):
+def create_connection(address, timeout=SOCKET_TIMEOUT, source_address=None,
+                      proxy=None):
     if address[0].endswith(".onion"):
         if proxy is None:
             raise ProxyRequired(
@@ -177,13 +178,18 @@ def create_connection(address, timeout, proxy):
         except socks.Socks5Error as err:
             raise ConnectionError(err)
         return sock
-    return socket.create_connection(address, timeout)
+    if ":" in address[0] and source_address and ":" not in source_address[0]:
+        source_address = None
+    return socket.create_connection(address, timeout=timeout,
+                                    source_address=source_address)
 
 
 class Serializer(object):
     def __init__(self, **config):
         self.user_agent = config.get('user_agent', USER_AGENT)
         self.height = config.get('height', HEIGHT)
+        if self.height is None:
+            self.height = HEIGHT
         # This is set prior to throwing PayloadTooShortError exception to
         # allow caller to fetch more data over the network.
         self.required_len = 0
@@ -203,6 +209,9 @@ class Serializer(object):
         elif command == "ping" or command == "pong":
             nonce = kwargs['nonce']
             payload = self.serialize_ping_payload(nonce)
+        elif command == "addr":
+            addr_list = kwargs['addr_list']
+            payload = self.serialize_addr_payload(addr_list)
 
         msg.extend([
             struct.pack("<I", len(payload)),
@@ -322,6 +331,15 @@ class Serializer(object):
         }
         return msg
 
+    def serialize_addr_payload(self, addr_list):
+        payload = [
+            self.serialize_int(len(addr_list)),
+        ]
+        payload.extend(
+            [self.serialize_network_address(addr) for addr in addr_list])
+        payload = ''.join(payload)
+        return payload
+
     def deserialize_addr_payload(self, data):
         msg = {}
         data = StringIO(data)
@@ -350,8 +368,14 @@ class Serializer(object):
         return msg
 
     def serialize_network_address(self, addr):
-        (ip_address, port) = addr
-        network_address = [struct.pack("<Q", SERVICES)]
+        network_address = []
+        if len(addr) == 4:
+            (timestamp, services, ip_address, port) = addr
+            network_address.append(struct.pack("<I", timestamp))
+        else:
+            services = SERVICES
+            (ip_address, port) = addr
+        network_address.append(struct.pack("<Q", services))
         if ip_address.endswith(".onion"):
             # convert .onion address to its ipv6 equivalent (6 + 10 bytes)
             network_address.append(
@@ -426,6 +450,15 @@ class Serializer(object):
         length = self.deserialize_int(data)
         return data.read(length)
 
+    def serialize_int(self, length):
+        if length < 0xFD:
+            return chr(length)
+        elif length <= 0xFFFF:
+            return chr(0xFD) + struct.pack("<H", length)
+        elif length <= 0xFFFFFFFF:
+            return chr(0xFE) + struct.pack("<I", length)
+        return chr(0xFF) + struct.pack("<Q", length)
+
     def deserialize_int(self, data):
         length = unpack("<B", data.read(1))
         if length == 0xFD:
@@ -449,8 +482,10 @@ class Connection(object):
         self.socket = None
 
     def open(self):
-        self.socket = create_connection(self.to_addr, self.socket_timeout,
-                                        self.proxy)
+        self.socket = create_connection(self.to_addr,
+                                        timeout=self.socket_timeout,
+                                        source_address=self.from_addr,
+                                        proxy=self.proxy)
 
     def close(self):
         if self.socket:
@@ -522,6 +557,13 @@ class Connection(object):
         msgs = self.get_messages(commands=["addr"])
 
         return msgs
+
+    def addr(self, addr_list):
+        # addr_list = [(TIMESTAMP, SERVICES, "IP_ADDRESS", PORT),]
+        # [addr] >>>
+        msg = self.serializer.serialize_msg(
+            command="addr", addr_list=addr_list)
+        self.send(msg)
 
     def ping(self, nonce=None):
         if nonce is None:

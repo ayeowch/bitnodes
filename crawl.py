@@ -3,7 +3,7 @@
 #
 # crawl.py - Greenlets-based Bitcoin network crawler.
 #
-# Copyright (c) 2014 Addy Yeow Chin Heng <ayeowch@gmail.com>
+# Copyright (c) Addy Yeow Chin Heng <ayeowch@gmail.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining
 # a copy of this software and associated documentation files (the
@@ -97,12 +97,11 @@ def connect(redis_conn, key):
 
     (address, port) = key[5:].split("-", 1)
     height = redis_conn.get('height')
-    if height is None:
-        height = 0
-    else:
+    if height:
         height = int(height)
 
     connection = Connection((address, int(port)),
+                            (SETTINGS['source_address'], 0),
                             socket_timeout=SETTINGS['socket_timeout'],
                             user_agent=SETTINGS['user_agent'],
                             height=height)
@@ -273,6 +272,7 @@ def init_settings(argv):
     SETTINGS['seeders'] = conf.get('crawl', 'seeders').strip().split("\n")
     SETTINGS['workers'] = conf.getint('crawl', 'workers')
     SETTINGS['debug'] = conf.getboolean('crawl', 'debug')
+    SETTINGS['source_address'] = conf.get('crawl', 'source_address')
     SETTINGS['user_agent'] = conf.get('crawl', 'user_agent')
     SETTINGS['socket_timeout'] = conf.getint('crawl', 'socket_timeout')
     SETTINGS['cron_delay'] = conf.getint('crawl', 'cron_delay')

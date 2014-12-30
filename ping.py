@@ -3,7 +3,7 @@
 #
 # ping.py - Greenlets-based Bitcoin network pinger.
 #
-# Copyright (c) 2014 Addy Yeow Chin Heng <ayeowch@gmail.com>
+# Copyright (c) Addy Yeow Chin Heng <ayeowch@gmail.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining
 # a copy of this software and associated documentation files (the
@@ -126,6 +126,7 @@ def task():
 
     handshake_msgs = []
     connection = Connection((address, port),
+                            (SETTINGS['source_address'], 0),
                             socket_timeout=SETTINGS['socket_timeout'],
                             user_agent=SETTINGS['user_agent'],
                             height=height)
@@ -241,6 +242,7 @@ def init_settings(argv):
     SETTINGS['logfile'] = conf.get('ping', 'logfile')
     SETTINGS['workers'] = conf.getint('ping', 'workers')
     SETTINGS['debug'] = conf.getboolean('ping', 'debug')
+    SETTINGS['source_address'] = conf.get('ping', 'source_address')
     SETTINGS['user_agent'] = conf.get('ping', 'user_agent')
     SETTINGS['socket_timeout'] = conf.getint('ping', 'socket_timeout')
     SETTINGS['cron_delay'] = conf.getint('ping', 'cron_delay')
