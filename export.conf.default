@@ -1,0 +1,10 @@
+[export]
+
+# Logfile
+logfile = export.log
+
+# Print debug output
+debug = False
+
+# Relative path to directory containing timestamp-prefixed JSON export files
+export_dir = data/export

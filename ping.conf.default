@@ -1,0 +1,34 @@
+[ping]
+
+# Logfile
+logfile = ping.log
+
+# Max. number of concurrent workers (greenlets) in a pool
+workers = 2000
+
+# Print debug output
+debug = False
+
+# Public IP address for network interface
+source_address = 0.0.0.0
+
+# User agent (BIP 0014) to use for outgoing version message
+# -----------------------------------------------------------------------------
+#                                 NOTE TO USERS
+# Please consider changing the user agent before running an instance of this
+# crawler. This is so that users will not confuse your crawler with another
+# instance that is already running and generating data for the project.
+# -----------------------------------------------------------------------------
+user_agent = /getaddr.bitnodes.io:0.1/
+
+# Socket timeout
+socket_timeout = 30
+
+# Run cron tasks every given interval
+cron_delay = 10
+
+# Redis TTL for cached RTT
+ttl = 10800
+
+# Relative path to directory containing timestamp-prefixed JSON crawl files
+crawl_dir = data/crawl
