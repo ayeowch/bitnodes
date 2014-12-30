@@ -3,7 +3,7 @@
 #
 # seeder.py - Exports reachable nodes into a DNS zone file for DNS seeder.
 #
-# Copyright (c) 2014 Addy Yeow Chin Heng <ayeowch@gmail.com>
+# Copyright (c) Addy Yeow Chin Heng <ayeowch@gmail.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining
 # a copy of this software and associated documentation files (the
