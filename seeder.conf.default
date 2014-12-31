@@ -10,7 +10,7 @@ debug = True
 export_dir = data/export
 
 # Minimum height for exported nodes
-min_height = 335000
+min_height = 336264
 
 # Minimum age for exported nodes
 min_age = 28800

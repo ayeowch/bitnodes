@@ -128,8 +128,8 @@ class Seeder(object):
             address = node[0]
             port = node[1]
             age = self.now - node[4]
-            height = node[5]
-            asn = node[12]
+            height = node[6]
+            asn = node[13]
             if (port != DEFAULT_PORT or asn in asns or age < min_age or
                     height < min_height or self.is_blocked(address)):
                 continue

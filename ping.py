@@ -67,8 +67,9 @@ def keepalive(connection, version_msg):
     node = connection.to_addr
     version = version_msg.get('version', "")
     user_agent = version_msg.get('user_agent', "")
+    services = version_msg.get('services', "")
     now = int(time.time())
-    data = node + (version, user_agent, now)
+    data = node + (version, user_agent, now, services)
 
     REDIS_CONN.sadd('open', node)
     REDIS_CONN.sadd('opendata', data)
