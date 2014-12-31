@@ -49,7 +49,7 @@ def get_row(node):
     """
     Returns enumerated row data from Redis for the specified node.
     """
-    # address, port, version, user_agent, timestamp
+    # address, port, version, user_agent, timestamp, services
     node = eval(node)
     address = node[0]
     port = node[1]
