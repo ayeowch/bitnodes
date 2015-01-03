@@ -7,6 +7,4 @@ logfile = resolve.log
 debug = False
 
 # Redis TTL for cached hostname and GeoIP data
-# NOTE: Actual value will be selected randomly between min. and max.
-min_ttl = 79200
-max_ttl = 93600
+ttl = 86400
