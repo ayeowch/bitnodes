@@ -12,6 +12,9 @@ debug = False
 # Public IP address for network interface
 source_address = 0.0.0.0
 
+# Protocol version to use for outgoing version message
+protocol_version = 70002
+
 # User agent (BIP 0014) to use for outgoing version message
 # -----------------------------------------------------------------------------
 #                                 NOTE TO USERS
@@ -20,6 +23,12 @@ source_address = 0.0.0.0
 # instance that is already running and generating data for the project.
 # -----------------------------------------------------------------------------
 user_agent = /getaddr.bitnodes.io:0.1/
+
+# Services to use for outgoing network address message
+services = 1
+
+# Set to 1 to receive all txs
+relay = 1
 
 # Socket timeout
 socket_timeout = 30

@@ -44,7 +44,8 @@ from collections import Counter
 from ConfigParser import ConfigParser
 from ipaddress import ip_network
 
-from protocol import ProtocolError, ConnectionError, Connection, DEFAULT_PORT
+from protocol import (ProtocolError, ConnectionError, Connection, SERVICES,
+                      DEFAULT_PORT)
 
 redis.connection.socket = gevent.socket
 
@@ -72,10 +73,11 @@ def enumerate_node(redis_pipe, addr_msgs, now):
                 if age >= 0 and age <= SETTINGS['max_age']:
                     address = peer['ipv4'] if peer['ipv4'] else peer['ipv6']
                     port = peer['port'] if peer['port'] > 0 else DEFAULT_PORT
+                    services = peer['services']
                     if address in SETTINGS['exclude_nodes']:
                         logging.debug("Exclude: {}".format(address))
                         continue
-                    redis_pipe.sadd('pending', (address, port))
+                    redis_pipe.sadd('pending', (address, port, services))
                     peers += 1
 
     return peers
@@ -95,7 +97,7 @@ def connect(redis_conn, key):
 
     redis_conn.hset(key, 'state', "")  # Set Redis hash for a new node
 
-    (address, port) = key[5:].split("-", 1)
+    (address, port, services) = key[5:].split("-", 2)
     height = redis_conn.get('height')
     if height:
         height = int(height)
@@ -103,8 +105,12 @@ def connect(redis_conn, key):
     connection = Connection((address, int(port)),
                             (SETTINGS['source_address'], 0),
                             socket_timeout=SETTINGS['socket_timeout'],
+                            protocol_version=SETTINGS['protocol_version'],
+                            to_services=int(services),
+                            from_services=SETTINGS['services'],
                             user_agent=SETTINGS['user_agent'],
-                            height=height)
+                            height=height,
+                            relay=SETTINGS['relay'])
     try:
         logging.debug("Connecting to {}".format(connection.to_addr))
         connection.open()
@@ -136,13 +142,13 @@ def dump(timestamp, nodes):
     json_data = []
 
     for node in nodes:
-        (address, port) = node[5:].split("-", 1)
+        (address, port, services) = node[5:].split("-", 2)
         try:
             height = int(REDIS_CONN.get("height:{}-{}".format(address, port)))
         except TypeError:
             logging.warning("height:{}-{} missing".format(address, port))
             height = 0
-        json_data.append([address, int(port), height])
+        json_data.append([address, int(port), int(services), height])
 
     json_output = os.path.join(SETTINGS['crawl_dir'],
                                "{}.json".format(timestamp))
@@ -169,8 +175,8 @@ def restart(timestamp):
         state = REDIS_CONN.hget(key, 'state')
         if state == "up":
             nodes.append(key)
-            (address, port) = key[5:].split("-", 1)
-            redis_pipe.sadd('pending', (address, int(port)))
+            (address, port, services) = key[5:].split("-", 2)
+            redis_pipe.sadd('pending', (address, int(port), int(services)))
         redis_pipe.delete(key)
     redis_pipe.execute()
 
@@ -234,7 +240,7 @@ def task():
         if ":" in node[0] and not SETTINGS['ipv6']:
             continue
 
-        key = "node:{}-{}".format(node[0], node[1])
+        key = "node:{}-{}-{}".format(node[0], node[1], node[2])
         if redis_conn.exists(key):
             continue
 
@@ -259,7 +265,7 @@ def set_pending():
                 logging.debug("Exclude: {}".format(address))
                 continue
             logging.debug("{}: {}".format(seeder, address))
-            REDIS_CONN.sadd('pending', (address, DEFAULT_PORT))
+            REDIS_CONN.sadd('pending', (address, DEFAULT_PORT, SERVICES))
 
 
 def init_settings(argv):
@@ -273,7 +279,10 @@ def init_settings(argv):
     SETTINGS['workers'] = conf.getint('crawl', 'workers')
     SETTINGS['debug'] = conf.getboolean('crawl', 'debug')
     SETTINGS['source_address'] = conf.get('crawl', 'source_address')
+    SETTINGS['protocol_version'] = conf.getint('crawl', 'protocol_version')
     SETTINGS['user_agent'] = conf.get('crawl', 'user_agent')
+    SETTINGS['services'] = conf.getint('crawl', 'services')
+    SETTINGS['relay'] = conf.getint('crawl', 'relay')
     SETTINGS['socket_timeout'] = conf.getint('crawl', 'socket_timeout')
     SETTINGS['cron_delay'] = conf.getint('crawl', 'cron_delay')
     SETTINGS['max_age'] = conf.getint('crawl', 'max_age')
