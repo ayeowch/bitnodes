@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# protocol.py - Bitcoin protocol access for bitnodes.
+# protocol.py - Bitcoin protocol access for Bitnodes.
 #
 # Copyright (c) Addy Yeow Chin Heng <ayeowch@gmail.com>
 #
@@ -25,7 +25,7 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 """
-Bitcoin protocol access for bitnodes.
+Bitcoin protocol access for Bitnodes.
 Reference: https://en.bitcoin.it/wiki/Protocol_specification
 
 ---------------------------------------------------------------------
@@ -98,11 +98,12 @@ from cStringIO import StringIO
 from operator import itemgetter
 
 MAGIC_NUMBER = "\xF9\xBE\xB4\xD9"
-PROTOCOL_VERSION = 70001
-SERVICES = 1
+MIN_PROTOCOL_VERSION = 70001
+PROTOCOL_VERSION = 70002
+SERVICES = 1  # set to 1 for NODE_NETWORK
 USER_AGENT = "/getaddr.bitnodes.io:0.1/"
 HEIGHT = 336264
-RELAY = 1  # set to 1 to receive all txs
+RELAY = 0  # set to 1 to receive all txs
 DEFAULT_PORT = 8333
 
 SOCKET_BUFSIZE = 8192
@@ -186,10 +187,15 @@ def create_connection(address, timeout=SOCKET_TIMEOUT, source_address=None,
 
 class Serializer(object):
     def __init__(self, **config):
+        self.protocol_version = config.get('protocol_version',
+                                           PROTOCOL_VERSION)
+        self.to_services = config.get('to_services', SERVICES)
+        self.from_services = config.get('from_services', SERVICES)
         self.user_agent = config.get('user_agent', USER_AGENT)
         self.height = config.get('height', HEIGHT)
         if self.height is None:
             self.height = HEIGHT
+        self.relay = config.get('relay', RELAY)
         # This is set prior to throwing PayloadTooShortError exception to
         # allow caller to fetch more data over the network.
         self.required_len = 0
@@ -203,8 +209,8 @@ class Serializer(object):
 
         payload = ""
         if command == "version":
-            to_addr = kwargs['to_addr']
-            from_addr = kwargs['from_addr']
+            to_addr = (self.to_services,) + kwargs['to_addr']
+            from_addr = (self.from_services,) + kwargs['from_addr']
             payload = self.serialize_version_payload(to_addr, from_addr)
         elif command == "ping" or command == "pong":
             nonce = kwargs['nonce']
@@ -275,15 +281,15 @@ class Serializer(object):
 
     def serialize_version_payload(self, to_addr, from_addr):
         payload = [
-            struct.pack("<i", PROTOCOL_VERSION),
-            struct.pack("<Q", SERVICES),
+            struct.pack("<i", self.protocol_version),
+            struct.pack("<Q", self.from_services),
             struct.pack("<q", int(time.time())),
             self.serialize_network_address(to_addr),
             self.serialize_network_address(from_addr),
             struct.pack("<Q", random.getrandbits(64)),
             self.serialize_string(self.user_agent),
             struct.pack("<i", self.height),
-            struct.pack("<?", RELAY),
+            struct.pack("<?", self.relay),
         ]
         payload = ''.join(payload)
         return payload
@@ -293,9 +299,9 @@ class Serializer(object):
         data = StringIO(data)
 
         msg['version'] = struct.unpack("<i", data.read(4))[0]
-        if msg['version'] < PROTOCOL_VERSION:
+        if msg['version'] < MIN_PROTOCOL_VERSION:
             raise IncompatibleClientError("{} < {}".format(
-                msg['version'], PROTOCOL_VERSION))
+                msg['version'], MIN_PROTOCOL_VERSION))
 
         msg['services'] = unpack("<Q", data.read(8))
         msg['timestamp'] = unpack("<q", data.read(8))
@@ -373,8 +379,7 @@ class Serializer(object):
             (timestamp, services, ip_address, port) = addr
             network_address.append(struct.pack("<I", timestamp))
         else:
-            services = SERVICES
-            (ip_address, port) = addr
+            (services, ip_address, port) = addr
         network_address.append(struct.pack("<Q", services))
         if ip_address.endswith(".onion"):
             # convert .onion address to its ipv6 equivalent (6 + 10 bytes)

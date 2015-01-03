@@ -123,15 +123,18 @@ def task():
     node = REDIS_CONN.spop('reachable')
     if node is None:
         return
-    (address, port, height) = eval(node)
+    (address, port, services, height) = eval(node)
 
     handshake_msgs = []
     connection = Connection((address, port),
                             (SETTINGS['source_address'], 0),
                             socket_timeout=SETTINGS['socket_timeout'],
+                            protocol_version=SETTINGS['protocol_version'],
+                            to_services=services,
+                            from_services=SETTINGS['services'],
                             user_agent=SETTINGS['user_agent'],
-                            height=height)
-
+                            height=height,
+                            relay=SETTINGS['relay'])
     try:
         connection.open()
         handshake_msgs = connection.handshake()
@@ -228,9 +231,10 @@ def set_reachable(nodes):
     for node in nodes:
         address = node[0]
         port = node[1]
-        height = node[2]
+        services = node[2]
+        height = node[3]
         if not REDIS_CONN.sismember('open', (address, port)):
-            REDIS_CONN.sadd('reachable', (address, port, height))
+            REDIS_CONN.sadd('reachable', (address, port, services, height))
     return REDIS_CONN.scard('reachable')
 
 
@@ -244,7 +248,10 @@ def init_settings(argv):
     SETTINGS['workers'] = conf.getint('ping', 'workers')
     SETTINGS['debug'] = conf.getboolean('ping', 'debug')
     SETTINGS['source_address'] = conf.get('ping', 'source_address')
+    SETTINGS['protocol_version'] = conf.getint('ping', 'protocol_version')
     SETTINGS['user_agent'] = conf.get('ping', 'user_agent')
+    SETTINGS['services'] = conf.getint('ping', 'services')
+    SETTINGS['relay'] = conf.getint('ping', 'relay')
     SETTINGS['socket_timeout'] = conf.getint('ping', 'socket_timeout')
     SETTINGS['cron_delay'] = conf.getint('ping', 'cron_delay')
     SETTINGS['ttl'] = conf.getint('ping', 'ttl')
