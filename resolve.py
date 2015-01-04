@@ -28,19 +28,23 @@
 Resolves hostname and GeoIP data for each reachable node.
 """
 
-from decimal import Decimal
-from gevent import socket
+from gevent import monkey
+monkey.patch_all()
+
 import gevent
+import gevent.pool
 import logging
 import os
 import pygeoip
 import redis
 import redis.connection
+import socket
 import sys
 from collections import defaultdict
 from ConfigParser import ConfigParser
+from decimal import Decimal
 
-redis.connection.socket = socket
+redis.connection.socket = gevent.socket
 
 # Redis connection setup
 REDIS_SOCKET = os.environ.get('REDIS_SOCKET', "/tmp/redis.sock")
@@ -63,7 +67,7 @@ class Resolve(object):
     """
     def __init__(self, addresses):
         self.addresses = addresses
-        self.resolved = defaultdict(int)
+        self.resolved = defaultdict(dict)
         self.redis_pipe = REDIS_CONN.pipeline()
 
     def resolve_addresses(self):
@@ -71,9 +75,6 @@ class Resolve(object):
         Resolves hostname for up to 1000 new addresses and GeoIP data for all
         addresses.
         """
-        addresses_1 = []  # Resolve hostname
-        addresses_2 = []  # Resolve GeoIP data
-
         idx = 0
         for address in self.addresses:
             key = 'resolve:{}'.format(address)
@@ -82,57 +83,71 @@ class Resolve(object):
             if REDIS_CONN.exists(key):
                 self.redis_pipe.expire(key, SETTINGS['ttl'])
 
+            if not REDIS_CONN.hexists(key, 'geoip'):
+                self.resolved['geoip'][address] = None
+
             if not REDIS_CONN.hexists(key, 'hostname'):
                 if idx < 1000:
-                    addresses_1.append(address)
+                    self.resolved['hostname'][address] = None
                 idx += 1
-
-            if not REDIS_CONN.hexists(key, 'geoip'):
-                addresses_2.append(address)
-
-        logging.info("Hostname: {} addresses".format(len(addresses_1)))
-        self.resolve_hostname(addresses_1)
-        logging.info("Hostname: {} resolved".format(self.resolved['hostname']))
-
-        logging.info("GeoIP: {} addresses".format(len(addresses_2)))
-        self.resolve_geoip(addresses_2)
-        logging.info("GeoIP: {} resolved".format(self.resolved['geoip']))
-
         self.redis_pipe.execute()
 
-    def resolve_hostname(self, addresses):
-        """
-        Resolves hostname for the specified addresses concurrently and caches
-        the results in Redis.
-        """
-        workers = [
-            gevent.spawn(self.set_hostname, address) for address in addresses
-        ]
-        gevent.joinall(workers, timeout=15)
+        logging.info("GeoIP: {}".format(len(self.resolved['geoip'])))
+        self.resolve_geoip()
 
-    def resolve_geoip(self, addresses):
+        logging.info("Hostname: {}".format(len(self.resolved['hostname'])))
+        self.resolve_hostname()
+
+        self.cache_resolved()
+
+    def cache_resolved(self):
         """
-        Resolves GeoIP data for the specified addresses and caches the results
-        in Redis.
+        Caches resolved addresses in Redis.
         """
-        for address in addresses:
-            geoip = raw_geoip(address)
+        resolved = 0
+        for address, geoip in self.resolved['geoip'].iteritems():
             if geoip[1] or geoip[5]:
-                self.resolved['geoip'] += 1  # country/asn is set
+                resolved += 1  # country/asn is set
             key = 'resolve:{}'.format(address)
             self.redis_pipe.hset(key, 'geoip', geoip)
             self.redis_pipe.expire(key, SETTINGS['ttl'])
+        logging.info("GeoIP: {} resolved".format(resolved))
+
+        resolved = 0
+        for address, hostname in self.resolved['hostname'].iteritems():
+            if hostname != address:
+                resolved += 1
+            key = 'resolve:{}'.format(address)
+            self.redis_pipe.hset(key, 'hostname', hostname)
+            self.redis_pipe.expire(key, SETTINGS['ttl'])
+        logging.info("Hostname: {} resolved".format(resolved))
+
+        self.redis_pipe.execute()
+
+    def resolve_geoip(self):
+        """
+        Resolves GeoIP data for the unresolved addresses.
+        """
+        for address in self.resolved['geoip']:
+            geoip = raw_geoip(address)
+            self.resolved['geoip'][address] = geoip
+
+    def resolve_hostname(self):
+        """
+        Concurrently resolves hostname for the unresolved addresses.
+        """
+        pool = gevent.pool.Pool(len(self.resolved['hostname']))
+        with gevent.Timeout(15, False):
+            for address in self.resolved['hostname']:
+                pool.spawn(self.set_hostname, address)
+        pool.join()
 
     def set_hostname(self, address):
         """
-        Caches hostname for the specified address in Redis.
+        Resolves hostname for the specified address.
         """
         hostname = raw_hostname(address)
-        key = 'resolve:{}'.format(address)
-        self.redis_pipe.hset(key, 'hostname', hostname)
-        self.redis_pipe.expire(key, SETTINGS['ttl'])
-        if hostname != address:
-            self.resolved['hostname'] += 1
+        self.resolved['hostname'][address] = hostname
 
 
 def raw_hostname(address):
