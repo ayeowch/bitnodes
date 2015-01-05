@@ -92,7 +92,7 @@ class Cache(object):
         """
         Reconstructs messages from TCP streams and caches them in Redis.
         """
-        self._extract_streams()
+        self.extract_streams()
         for stream_id, self.stream.segments in self.streams.iteritems():
             data = self.stream.data()
             _data = data.next()
@@ -113,11 +113,11 @@ class Cache(object):
                         break
                 else:
                     node = (stream_id[0], stream_id[1])
-                    self._cache_message(node, self.stream.timestamp, msg)
+                    self.cache_message(node, self.stream.timestamp, msg)
         self.redis_pipe.execute()
-        self._cache_rtt()
+        self.cache_rtt()
 
-    def _extract_streams(self):
+    def extract_streams(self):
         """
         Extracts TCP streams with data from the pcap file. TCP segments in
         each stream are queued according to their sequence number.
@@ -144,7 +144,7 @@ class Cache(object):
                             (tcp_pkt.seq, (timestamp, tcp_pkt)))
         logging.info("Streams: {}".format(len(self.streams)))
 
-    def _cache_message(self, node, timestamp, msg):
+    def cache_message(self, node, timestamp, msg):
         """
         Caches inv/pong message from the specified node.
         """
@@ -170,7 +170,7 @@ class Cache(object):
             self.keys.add(key)
             self.count += 1
 
-    def _cache_rtt(self):
+    def cache_rtt(self):
         """
         Calculates round-trip time (RTT) values and caches them in Redis.
         """
