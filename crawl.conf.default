@@ -13,7 +13,7 @@ seeders =
     bitseed.xf2.org
 
 # Number of concurrent workers (greenlets)
-workers = 300
+workers = 400
 
 # Print debug output
 debug = False
