@@ -58,23 +58,40 @@ REDIS_CONN = redis.StrictRedis(unix_socket_path=REDIS_SOCKET,
 SETTINGS = {}
 
 
+def ping(connection):
+    """
+    Sends a ping message to the specified node. Ping time is stored in Redis
+    for round-trip time (RTT) calculation.
+    """
+    nonce = random.getrandbits(64)
+    try:
+        connection.ping(nonce=nonce)
+    except socket.error as err:
+        logging.debug("Closing {} ({})".format(connection.to_addr, err))
+        return None
+
+    last_ping = time.time()
+    key = "ping:{}-{}:{}".format(connection.to_addr[0], connection.to_addr[1],
+                                 nonce)
+    REDIS_CONN.lpush(key, int(last_ping * 1000))  # in ms
+    REDIS_CONN.expire(key, SETTINGS['ttl'])
+    return last_ping
+
+
 def keepalive(connection, version_msg):
     """
     Periodically sends a ping message to the specified node to maintain open
     connection. Open connections are tracked in open set with the associated
     data stored in opendata set in Redis.
     """
-    node = connection.to_addr
     version = version_msg.get('version', "")
     user_agent = version_msg.get('user_agent', "")
     services = version_msg.get('services', "")
     now = int(time.time())
-    data = node + (version, user_agent, now, services)
+    data = connection.to_addr + (version, user_agent, now, services)
 
-    REDIS_CONN.sadd('open', node)
+    REDIS_CONN.sadd('open', connection.to_addr)
     REDIS_CONN.sadd('opendata', data)
-
-    redis_pipe = REDIS_CONN.pipeline()
 
     last_ping = now
 
@@ -85,18 +102,9 @@ def keepalive(connection, version_msg):
             wait = 60
 
         if time.time() > last_ping + wait:
-            nonce = random.getrandbits(64)
-            try:
-                connection.ping(nonce=nonce)
-            except socket.error as err:
-                logging.debug("Closing {} ({})".format(node, err))
+            last_ping = ping(connection)
+            if last_ping is None:
                 break
-            last_ping = time.time()
-
-            key = "ping:{}-{}:{}".format(node[0], node[1], nonce)
-            redis_pipe.lpush(key, int(last_ping * 1000))  # in ms
-            redis_pipe.expire(key, SETTINGS['ttl'])
-            redis_pipe.execute()
 
         # Sink received messages to flush them off socket buffer
         try:
@@ -104,14 +112,14 @@ def keepalive(connection, version_msg):
         except socket.timeout as err:
             pass
         except (ProtocolError, ConnectionError, socket.error) as err:
-            logging.debug("Closing {} ({})".format(node, err))
+            logging.debug("Closing {} ({})".format(connection.to_addr, err))
             break
 
         gevent.sleep(0.3)
 
     connection.close()
 
-    REDIS_CONN.srem('open', node)
+    REDIS_CONN.srem('open', connection.to_addr)
     REDIS_CONN.srem('opendata', data)
 
 
