@@ -218,6 +218,9 @@ class Serializer(object):
         elif command == "addr":
             addr_list = kwargs['addr_list']
             payload = self.serialize_addr_payload(addr_list)
+        elif command == "inv":
+            inventory = kwargs['inventory']
+            payload = self.serialize_inv_payload(inventory)
 
         msg.extend([
             struct.pack("<I", len(payload)),
@@ -359,6 +362,15 @@ class Serializer(object):
 
         return msg
 
+    def serialize_inv_payload(self, inventory):
+        payload = [
+            self.serialize_int(len(inventory)),
+        ]
+        payload.extend(
+            [self.serialize_inventory(item) for item in inventory])
+        payload = ''.join(payload)
+        return payload
+
     def deserialize_inv_payload(self, data):
         msg = {
             'timestamp': int(time.time() * 1000),  # milliseconds
@@ -432,6 +444,15 @@ class Serializer(object):
             'onion': onion,
             'port': port,
         }
+
+    def serialize_inventory(self, item):
+        (inv_type, inv_hash) = item
+        payload = [
+            struct.pack("<I", inv_type),
+            binascii.unhexlify(inv_hash)[::-1],  # little-endian to big-endian
+        ]
+        payload = ''.join(payload)
+        return payload
 
     def deserialize_inventory(self, data):
         inv_type = struct.unpack("<I", data.read(4))[0]
@@ -581,6 +602,13 @@ class Connection(object):
     def pong(self, nonce):
         # [pong] >>>
         msg = self.serializer.serialize_msg(command="pong", nonce=nonce)
+        self.send(msg)
+
+    def inv(self, inventory):
+        # inventory = [(INV_TYPE, "INV_HASH"),]
+        # [inv] >>>
+        msg = self.serializer.serialize_msg(
+            command="inv", inventory=inventory)
         self.send(msg)
 
 
