@@ -157,6 +157,7 @@ class Cache(object):
                     rkey_ms = REDIS_CONN.get(rkey)
                     if rkey_ms is None:
                         REDIS_CONN.set(rkey, timestamp)
+                        self.redis_pipe.set("lastblockhash", inv['hash'])
                     elif (timestamp - int(rkey_ms)) / 1000 > SETTINGS['ttl']:
                         # Ignore block inv first seen more than 3 hours ago
                         logging.debug("Skip: {}".format(key))
