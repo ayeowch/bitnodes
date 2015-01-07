@@ -58,57 +58,64 @@ REDIS_CONN = redis.StrictRedis(unix_socket_path=REDIS_SOCKET,
 SETTINGS = {}
 
 
-def ping(connection):
+def ping(conn):
     """
     Sends a ping message to the specified node. Ping time is stored in Redis
     for round-trip time (RTT) calculation.
     """
     nonce = random.getrandbits(64)
     try:
-        connection.ping(nonce=nonce)
+        conn.ping(nonce=nonce)
     except socket.error as err:
-        logging.debug("Closing {} ({})".format(connection.to_addr, err))
+        logging.debug("Closing {} ({})".format(conn.to_addr, err))
         return None
 
     last_ping = time.time()
-    key = "ping:{}-{}:{}".format(connection.to_addr[0], connection.to_addr[1],
-                                 nonce)
+    key = "ping:{}-{}:{}".format(conn.to_addr[0], conn.to_addr[1], nonce)
     REDIS_CONN.lpush(key, int(last_ping * 1000))  # in ms
     REDIS_CONN.expire(key, SETTINGS['ttl'])
     return last_ping
 
 
-def keepalive(connection, version_msg):
+def keepalive(conn, version_msg):
     """
-    Periodically sends a ping message to the specified node to maintain open
-    connection. Open connections are tracked in open set with the associated
-    data stored in opendata set in Redis.
+    Periodically sends a ping message and an inv for the consensus block to the
+    specified node to maintain open connection. Open connections are tracked in
+    open set with the associated data stored in opendata set in Redis.
     """
     version = version_msg.get('version', "")
     user_agent = version_msg.get('user_agent', "")
     services = version_msg.get('services', "")
     now = int(time.time())
-    data = connection.to_addr + (version, user_agent, now, services)
+    data = conn.to_addr + (version, user_agent, now, services)
 
     REDIS_CONN.sadd('opendata', data)
 
     last_ping = now
+    bestblockhash = None
     while True:
         if time.time() > last_ping + SETTINGS['keepalive']:
-            last_ping = ping(connection)
+            last_ping = ping(conn)
             if last_ping is None:
+                break
+        if bestblockhash != SETTINGS['bestblockhash']:
+            bestblockhash = SETTINGS['bestblockhash']
+            try:
+                conn.inv(inventory=[(2, bestblockhash)])
+            except socket.error as err:
+                logging.debug("Closing {} ({})".format(conn.to_addr, err))
                 break
         # Sink received messages to flush them off socket buffer
         try:
-            connection.get_messages()
+            conn.get_messages()
         except socket.timeout as err:
             pass
         except (ProtocolError, ConnectionError, socket.error) as err:
-            logging.debug("Closing {} ({})".format(connection.to_addr, err))
+            logging.debug("Closing {} ({})".format(conn.to_addr, err))
             break
         gevent.sleep(0.3)
 
-    connection.close()
+    conn.close()
 
     REDIS_CONN.srem('opendata', data)
 
@@ -129,26 +136,26 @@ def task():
         return
 
     handshake_msgs = []
-    connection = Connection(node, (SETTINGS['source_address'], 0),
-                            socket_timeout=SETTINGS['socket_timeout'],
-                            protocol_version=SETTINGS['protocol_version'],
-                            to_services=services,
-                            from_services=SETTINGS['services'],
-                            user_agent=SETTINGS['user_agent'],
-                            height=height,
-                            relay=SETTINGS['relay'])
+    conn = Connection(node, (SETTINGS['source_address'], 0),
+                      socket_timeout=SETTINGS['socket_timeout'],
+                      protocol_version=SETTINGS['protocol_version'],
+                      to_services=services,
+                      from_services=SETTINGS['services'],
+                      user_agent=SETTINGS['user_agent'],
+                      height=height,
+                      relay=SETTINGS['relay'])
     try:
-        connection.open()
-        handshake_msgs = connection.handshake()
+        conn.open()
+        handshake_msgs = conn.handshake()
     except (ProtocolError, ConnectionError, socket.error) as err:
-        logging.debug("Closing {} ({})".format(connection.to_addr, err))
-        connection.close()
+        logging.debug("Closing {} ({})".format(conn.to_addr, err))
+        conn.close()
 
     if len(handshake_msgs) == 0:
         REDIS_CONN.srem('open', node)
         return
 
-    keepalive(connection, handshake_msgs[0])
+    keepalive(conn, handshake_msgs[0])
     REDIS_CONN.srem('open', node)
 
 
@@ -161,7 +168,7 @@ def cron(pool):
     1) Checks for a new snapshot
     2) Loads new reachable nodes into the reachable set in Redis
     3) Signals listener to get reachable nodes from opendata set
-    4) Updates keepalive time
+    4) Updates keepalive and bestblockhash in global settings
 
     [Master/Slave]
     1) Spawns workers to establish and maintain connection with reachable nodes
@@ -196,6 +203,7 @@ def cron(pool):
                 SETTINGS['keepalive'] = int(REDIS_CONN.get('elapsed'))
             except TypeError:
                 pass
+            SETTINGS['bestblockhash'] = set_bestblockhash()
 
         for _ in xrange(min(REDIS_CONN.scard('reachable'), pool.free_count())):
             pool.spawn(task)
@@ -248,6 +256,34 @@ def set_reachable(nodes):
     return REDIS_CONN.scard('reachable')
 
 
+def set_bestblockhash():
+    """
+    Sets bestblockhash in Redis using the value of lastblockhash which has
+    been validated by at least 50 percent of the reachable nodes.
+    """
+    lastblockhash = REDIS_CONN.get('lastblockhash')
+    if lastblockhash is None:
+        return None
+
+    bestblockhash = REDIS_CONN.get('bestblockhash')
+    if bestblockhash == lastblockhash:
+        return bestblockhash
+
+    try:
+        reachable_nodes = eval(REDIS_CONN.lindex("nodes", 0))[-1]
+    except TypeError:
+        logging.warning("nodes missing")
+        return bestblockhash
+
+    nodes = REDIS_CONN.zcard('inv:2:{}'.format(lastblockhash))
+    if nodes >= reachable_nodes / 2.0:
+        REDIS_CONN.set('bestblockhash', lastblockhash)
+        logging.info("bestblockhash: {}".format(lastblockhash))
+        return lastblockhash
+
+    return bestblockhash
+
+
 def init_settings(argv):
     """
     Populates SETTINGS with key-value pairs from configuration file.
@@ -274,6 +310,9 @@ def init_settings(argv):
 
     # Updated periodically with value of elapsed in Redis
     SETTINGS['keepalive'] = 60
+
+    # Updated periodically with value of lastblockhash in Redis
+    SETTINGS['bestblockhash'] = None
 
 
 def main(argv):
