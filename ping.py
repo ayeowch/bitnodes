@@ -90,22 +90,14 @@ def keepalive(connection, version_msg):
     now = int(time.time())
     data = connection.to_addr + (version, user_agent, now, services)
 
-    REDIS_CONN.sadd('open', connection.to_addr)
     REDIS_CONN.sadd('opendata', data)
 
     last_ping = now
-
     while True:
-        try:
-            wait = int(REDIS_CONN.get('elapsed'))
-        except TypeError as err:
-            wait = 60
-
-        if time.time() > last_ping + wait:
+        if time.time() > last_ping + SETTINGS['keepalive']:
             last_ping = ping(connection)
             if last_ping is None:
                 break
-
         # Sink received messages to flush them off socket buffer
         try:
             connection.get_messages()
@@ -114,12 +106,10 @@ def keepalive(connection, version_msg):
         except (ProtocolError, ConnectionError, socket.error) as err:
             logging.debug("Closing {} ({})".format(connection.to_addr, err))
             break
-
         gevent.sleep(0.3)
 
     connection.close()
 
-    REDIS_CONN.srem('open', connection.to_addr)
     REDIS_CONN.srem('opendata', data)
 
 
@@ -132,10 +122,14 @@ def task():
     if node is None:
         return
     (address, port, services, height) = eval(node)
+    node = (address, port)
+
+    if REDIS_CONN.sadd('open', node) == 0:
+        logging.debug("Connection exists: {}".format(node))
+        return
 
     handshake_msgs = []
-    connection = Connection((address, port),
-                            (SETTINGS['source_address'], 0),
+    connection = Connection(node, (SETTINGS['source_address'], 0),
                             socket_timeout=SETTINGS['socket_timeout'],
                             protocol_version=SETTINGS['protocol_version'],
                             to_services=services,
@@ -151,9 +145,11 @@ def task():
         connection.close()
 
     if len(handshake_msgs) == 0:
+        REDIS_CONN.srem('open', node)
         return
 
     keepalive(connection, handshake_msgs[0])
+    REDIS_CONN.srem('open', node)
 
 
 def cron(pool):
@@ -165,6 +161,7 @@ def cron(pool):
     1) Checks for a new snapshot
     2) Loads new reachable nodes into the reachable set in Redis
     3) Signals listener to get reachable nodes from opendata set
+    4) Updates keepalive time
 
     [Master/Slave]
     1) Spawns workers to establish and maintain connection with reachable nodes
@@ -194,6 +191,11 @@ def cron(pool):
 
             connections = REDIS_CONN.scard('open')
             logging.info("Connections: {}".format(connections))
+
+            try:
+                SETTINGS['keepalive'] = int(REDIS_CONN.get('elapsed'))
+            except TypeError:
+                pass
 
         for _ in xrange(min(REDIS_CONN.scard('reachable'), pool.free_count())):
             pool.spawn(task)
@@ -266,7 +268,12 @@ def init_settings(argv):
     SETTINGS['crawl_dir'] = conf.get('ping', 'crawl_dir')
     if not os.path.exists(SETTINGS['crawl_dir']):
         os.makedirs(SETTINGS['crawl_dir'])
+
+    # Set to True for master process
     SETTINGS['master'] = argv[2] == "master"
+
+    # Updated periodically with value of elapsed in Redis
+    SETTINGS['keepalive'] = 60
 
 
 def main(argv):
