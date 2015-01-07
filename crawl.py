@@ -102,24 +102,24 @@ def connect(redis_conn, key):
     if height:
         height = int(height)
 
-    connection = Connection((address, int(port)),
-                            (SETTINGS['source_address'], 0),
-                            socket_timeout=SETTINGS['socket_timeout'],
-                            protocol_version=SETTINGS['protocol_version'],
-                            to_services=int(services),
-                            from_services=SETTINGS['services'],
-                            user_agent=SETTINGS['user_agent'],
-                            height=height,
-                            relay=SETTINGS['relay'])
+    conn = Connection((address, int(port)),
+                      (SETTINGS['source_address'], 0),
+                      socket_timeout=SETTINGS['socket_timeout'],
+                      protocol_version=SETTINGS['protocol_version'],
+                      to_services=int(services),
+                      from_services=SETTINGS['services'],
+                      user_agent=SETTINGS['user_agent'],
+                      height=height,
+                      relay=SETTINGS['relay'])
     try:
-        logging.debug("Connecting to {}".format(connection.to_addr))
-        connection.open()
-        handshake_msgs = connection.handshake()
-        addr_msgs = connection.getaddr()
+        logging.debug("Connecting to {}".format(conn.to_addr))
+        conn.open()
+        handshake_msgs = conn.handshake()
+        addr_msgs = conn.getaddr()
     except (ProtocolError, ConnectionError, socket.error) as err:
-        logging.debug("{}: {}".format(connection.to_addr, err))
+        logging.debug("{}: {}".format(conn.to_addr, err))
     finally:
-        connection.close()
+        conn.close()
 
     gevent.sleep(0.3)
     redis_pipe = redis_conn.pipeline()
@@ -129,7 +129,7 @@ def connect(redis_conn, key):
                          handshake_msgs[0].get('height', 0))
         now = int(time.time())
         peers = enumerate_node(redis_pipe, addr_msgs, now)
-        logging.debug("{} Peers: {}".format(connection.to_addr, peers))
+        logging.debug("{} Peers: {}".format(conn.to_addr, peers))
         redis_pipe.hset(key, 'state', "up")
     redis_pipe.execute()
 
@@ -297,6 +297,8 @@ def init_settings(argv):
     SETTINGS['crawl_dir'] = conf.get('crawl', 'crawl_dir')
     if not os.path.exists(SETTINGS['crawl_dir']):
         os.makedirs(SETTINGS['crawl_dir'])
+
+    # Set to True for master process
     SETTINGS['master'] = argv[2] == "master"
 
 
