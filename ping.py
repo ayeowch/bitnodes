@@ -91,20 +91,26 @@ def keepalive(conn, version_msg):
 
     REDIS_CONN.sadd('opendata', data)
 
+    wait = 60
     last_ping = now
-    bestblockhash = None
+    last_bestblockhash = None
     while True:
-        if time.time() > last_ping + SETTINGS['keepalive']:
+        if time.time() > last_ping + wait:
             last_ping = ping(conn)
             if last_ping is None:
                 break
-        if bestblockhash != SETTINGS['bestblockhash']:
-            bestblockhash = SETTINGS['bestblockhash']
             try:
-                conn.inv(inventory=[(2, bestblockhash)])
-            except socket.error as err:
-                logging.debug("Closing {} ({})".format(conn.to_addr, err))
-                break
+                wait = int(REDIS_CONN.get('elapsed'))
+            except TypeError:
+                pass
+            bestblockhash = REDIS_CONN.get('bestblockhash')
+            if last_bestblockhash != bestblockhash:
+                try:
+                    conn.inv(inventory=[(2, bestblockhash)])
+                except socket.error as err:
+                    logging.debug("Closing {} ({})".format(conn.to_addr, err))
+                    break
+                last_bestblockhash = bestblockhash
         # Sink received messages to flush them off socket buffer
         try:
             conn.get_messages()
@@ -168,7 +174,7 @@ def cron(pool):
     1) Checks for a new snapshot
     2) Loads new reachable nodes into the reachable set in Redis
     3) Signals listener to get reachable nodes from opendata set
-    4) Updates keepalive and bestblockhash in global settings
+    4) Sets bestblockhash in Redis
 
     [Master/Slave]
     1) Spawns workers to establish and maintain connection with reachable nodes
@@ -199,11 +205,7 @@ def cron(pool):
             connections = REDIS_CONN.scard('open')
             logging.info("Connections: {}".format(connections))
 
-            try:
-                SETTINGS['keepalive'] = int(REDIS_CONN.get('elapsed'))
-            except TypeError:
-                pass
-            SETTINGS['bestblockhash'] = set_bestblockhash()
+            set_bestblockhash()
 
         for _ in xrange(min(REDIS_CONN.scard('reachable'), pool.free_count())):
             pool.spawn(task)
@@ -263,25 +265,22 @@ def set_bestblockhash():
     """
     lastblockhash = REDIS_CONN.get('lastblockhash')
     if lastblockhash is None:
-        return None
+        return
 
     bestblockhash = REDIS_CONN.get('bestblockhash')
     if bestblockhash == lastblockhash:
-        return bestblockhash
+        return
 
     try:
         reachable_nodes = eval(REDIS_CONN.lindex("nodes", 0))[-1]
     except TypeError:
         logging.warning("nodes missing")
-        return bestblockhash
+        return
 
     nodes = REDIS_CONN.zcard('inv:2:{}'.format(lastblockhash))
     if nodes >= reachable_nodes / 2.0:
         REDIS_CONN.set('bestblockhash', lastblockhash)
         logging.info("bestblockhash: {}".format(lastblockhash))
-        return lastblockhash
-
-    return bestblockhash
 
 
 def init_settings(argv):
@@ -307,12 +306,6 @@ def init_settings(argv):
 
     # Set to True for master process
     SETTINGS['master'] = argv[2] == "master"
-
-    # Updated periodically with value of elapsed in Redis
-    SETTINGS['keepalive'] = 60
-
-    # Updated periodically with value of lastblockhash in Redis
-    SETTINGS['bestblockhash'] = None
 
 
 def main(argv):
