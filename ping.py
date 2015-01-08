@@ -58,72 +58,103 @@ REDIS_CONN = redis.StrictRedis(unix_socket_path=REDIS_SOCKET,
 SETTINGS = {}
 
 
-def ping(conn):
+class Keepalive(object):
     """
-    Sends a ping message to the specified node. Ping time is stored in Redis
-    for round-trip time (RTT) calculation.
+    Implements keepalive mechanic to keep the specified connection with a node.
     """
-    nonce = random.getrandbits(64)
-    try:
-        conn.ping(nonce=nonce)
-    except socket.error as err:
-        logging.debug("Closing {} ({})".format(conn.to_addr, err))
-        return None
+    def __init__(self, conn, version_msg):
+        self.conn = conn
+        self.node = conn.to_addr
+        self.version_msg = version_msg
+        self.last_ping = int(time.time())
+        self.keepalive_time = 60
+        self.last_bestblockhash = None
 
-    last_ping = time.time()
-    key = "ping:{}-{}:{}".format(conn.to_addr[0], conn.to_addr[1], nonce)
-    REDIS_CONN.lpush(key, int(last_ping * 1000))  # in ms
-    REDIS_CONN.expire(key, SETTINGS['ttl'])
-    return last_ping
+    def keepalive(self):
+        """
+        Periodically sends the following messages:
+        1) ping message
+        2) inv message for the consensus block
+        3) addr message containing a subset of the reachable nodes
+        Open connections are tracked in open set with the associated data
+        stored in opendata set in Redis.
+        """
+        version = self.version_msg.get('version', "")
+        user_agent = self.version_msg.get('user_agent', "")
+        services = self.version_msg.get('services', "")
+        data = self.node + (version, user_agent, self.last_ping, services)
 
+        REDIS_CONN.sadd('opendata', data)
 
-def keepalive(conn, version_msg):
-    """
-    Periodically sends a ping message and an inv for the consensus block to the
-    specified node to maintain open connection. Open connections are tracked in
-    open set with the associated data stored in opendata set in Redis.
-    """
-    version = version_msg.get('version', "")
-    user_agent = version_msg.get('user_agent', "")
-    services = version_msg.get('services', "")
-    now = int(time.time())
-    data = conn.to_addr + (version, user_agent, now, services)
+        while True:
+            if time.time() > self.last_ping + self.keepalive_time:
+                self.ping()
+                self.send_bestblockhash()
+                self.send_addr()
 
-    REDIS_CONN.sadd('opendata', data)
-
-    wait = 60
-    last_ping = now
-    last_bestblockhash = None
-    while True:
-        if time.time() > last_ping + wait:
-            last_ping = ping(conn)
-            if last_ping is None:
-                break
+            # Sink received messages to flush them off socket buffer
             try:
-                wait = int(REDIS_CONN.get('elapsed'))
-            except TypeError:
+                self.conn.get_messages()
+            except socket.timeout:
                 pass
-            bestblockhash = REDIS_CONN.get('bestblockhash')
-            if last_bestblockhash != bestblockhash:
-                try:
-                    conn.inv(inventory=[(2, bestblockhash)])
-                except socket.error as err:
-                    logging.debug("Closing {} ({})".format(conn.to_addr, err))
-                    break
-                last_bestblockhash = bestblockhash
-        # Sink received messages to flush them off socket buffer
+            except (ProtocolError, ConnectionError, socket.error):
+                raise
+            gevent.sleep(0.3)
+
+        REDIS_CONN.srem('opendata', data)
+
+    def ping(self):
+        """
+        Sends a ping message. Ping time is stored in Redis for round-trip time
+        (RTT) calculation.
+        """
+        nonce = random.getrandbits(64)
         try:
-            conn.get_messages()
-        except socket.timeout as err:
+            self.conn.ping(nonce=nonce)
+        except socket.error:
+            raise
+
+        self.last_ping = time.time()
+        key = "ping:{}-{}:{}".format(self.node[0], self.node[1], nonce)
+        REDIS_CONN.lpush(key, int(self.last_ping * 1000))  # in ms
+        REDIS_CONN.expire(key, SETTINGS['ttl'])
+
+        try:
+            self.keepalive_time = int(REDIS_CONN.get('elapsed'))
+        except TypeError:
             pass
-        except (ProtocolError, ConnectionError, socket.error) as err:
-            logging.debug("Closing {} ({})".format(conn.to_addr, err))
-            break
-        gevent.sleep(0.3)
 
-    conn.close()
+    def send_bestblockhash(self):
+        """
+        Sends an inv message for the consensus block.
+        """
+        bestblockhash = REDIS_CONN.get('bestblockhash')
+        if self.last_bestblockhash == bestblockhash:
+            return
+        try:
+            self.conn.inv(inventory=[(2, bestblockhash)])
+        except socket.error:
+            raise
+        self.last_bestblockhash = bestblockhash
 
-    REDIS_CONN.srem('opendata', data)
+    def send_addr(self):
+        """
+        Sends an addr message containing a subset of the reachable nodes.
+        """
+        nodes = REDIS_CONN.srandmember('opendata', 10)
+        nodes = [eval(node) for node in nodes]
+        addr_list = []
+        for node in nodes:
+            (address, port, _, _, timestamp, services) = node
+            if address == self.node[0]:
+                continue
+            addr_list.append((timestamp, services, address, port))
+        if len(addr_list) == 0:
+            return
+        try:
+            self.conn.addr(addr_list=addr_list)
+        except socket.error:
+            raise
 
 
 def task():
@@ -154,14 +185,19 @@ def task():
         conn.open()
         handshake_msgs = conn.handshake()
     except (ProtocolError, ConnectionError, socket.error) as err:
-        logging.debug("Closing {} ({})".format(conn.to_addr, err))
+        logging.debug("Closing {} ({})".format(node, err))
         conn.close()
 
     if len(handshake_msgs) == 0:
         REDIS_CONN.srem('open', node)
         return
 
-    keepalive(conn, handshake_msgs[0])
+    try:
+        Keepalive(conn=conn, version_msg=handshake_msgs[0]).keepalive()
+    except (ProtocolError, ConnectionError, socket.error) as err:
+        logging.debug("Closing {} ({})".format(node, err))
+        conn.close()
+
     REDIS_CONN.srem('open', node)
 
 
