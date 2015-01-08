@@ -88,17 +88,22 @@ class Keepalive(object):
 
         while True:
             if time.time() > self.last_ping + self.keepalive_time:
-                self.ping()
-                self.send_bestblockhash()
-                self.send_addr()
+                try:
+                    self.ping()
+                    self.send_bestblockhash()
+                    self.send_addr()
+                except socket.error as err:
+                    logging.debug("Closing {} ({})".format(self.node, err))
+                    break
 
             # Sink received messages to flush them off socket buffer
             try:
                 self.conn.get_messages()
             except socket.timeout:
                 pass
-            except (ProtocolError, ConnectionError, socket.error):
-                raise
+            except (ProtocolError, ConnectionError, socket.error) as err:
+                logging.debug("Closing {} ({})".format(self.node, err))
+                break
             gevent.sleep(0.3)
 
         REDIS_CONN.srem('opendata', data)
@@ -192,12 +197,8 @@ def task():
         REDIS_CONN.srem('open', node)
         return
 
-    try:
-        Keepalive(conn=conn, version_msg=handshake_msgs[0]).keepalive()
-    except (ProtocolError, ConnectionError, socket.error) as err:
-        logging.debug("Closing {} ({})".format(node, err))
-        conn.close()
-
+    Keepalive(conn=conn, version_msg=handshake_msgs[0]).keepalive()
+    conn.close()
     REDIS_CONN.srem('open', node)
 
 
