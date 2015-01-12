@@ -28,60 +28,87 @@
 Bitcoin protocol access for Bitnodes.
 Reference: https://en.bitcoin.it/wiki/Protocol_specification
 
----------------------------------------------------------------------
-               PACKET STRUCTURE FOR BITCOIN PROTOCOL
-                     protocol version >= 70001
----------------------------------------------------------------------
+-------------------------------------------------------------------------------
+                     PACKET STRUCTURE FOR BITCOIN PROTOCOL
+                           protocol version >= 70001
+-------------------------------------------------------------------------------
 [---MESSAGE---]
-[ 4] MAGIC_NUMBER   (\xF9\xBE\xB4\xD9)                      uint32_t
-[12] COMMAND                                                char[12]
-[ 4] LENGTH         <I ( len(payload) )                     uint32_t
-[ 4] CHECKSUM       ( sha256(sha256(payload))[:4] )         uint32_t
-[..] PAYLOAD        see below
+[ 4] MAGIC_NUMBER               (\xF9\xBE\xB4\xD9)                  uint32_t
+[12] COMMAND                                                        char[12]
+[ 4] LENGTH                     <I (len(payload))                   uint32_t
+[ 4] CHECKSUM                   (sha256(sha256(payload))[:4])       uint32_t
+[..] PAYLOAD                    see below
 
     [---VERSION_PAYLOAD---]
-    [ 4] VERSION        <i                                  int32_t
-    [ 8] SERVICES       <Q                                  uint64_t
-    [ 8] TIMESTAMP      <q                                  int64_t
+    [ 4] VERSION                <i                                  int32_t
+    [ 8] SERVICES               <Q                                  uint64_t
+    [ 8] TIMESTAMP              <q                                  int64_t
     [26] ADDR_RECV
-        [ 8] SERVICES   <Q                                  uint64_t
+        [ 8] SERVICES           <Q                                  uint64_t
         [16] IP_ADDR
-            [12] IPV6   (\x00 * 10 + \xFF * 2)              char[12]
-            [ 4] IPV4                                       char[4]
-        [ 2] PORT       >H                                  uint16_t
+            [12] IPV6           (\x00 * 10 + \xFF * 2)              char[12]
+            [ 4] IPV4                                               char[4]
+        [ 2] PORT               >H                                  uint16_t
     [26] ADDR_FROM
-        [ 8] SERVICES   <Q                                  uint64_t
+        [ 8] SERVICES           <Q                                  uint64_t
         [16] IP_ADDR
-            [12] IPV6   (\x00 * 10 + \xFF * 2)              char[12]
-            [ 4] IPV4                                       char[4]
-        [ 2] PORT       >H                                  uint16_t
-    [ 8] NONCE          <Q ( random.getrandbits(64) )       uint64_t
-    [..] USER_AGENT     variable string
-    [ 4] HEIGHT         <i                                  int32_t
-    [ 1] RELAY          <? (since version >= 70001)         bool
+            [12] IPV6           (\x00 * 10 + \xFF * 2)              char[12]
+            [ 4] IPV4                                               char[4]
+        [ 2] PORT               >H                                  uint16_t
+    [ 8] NONCE                  <Q (random.getrandbits(64))         uint64_t
+    [..] USER_AGENT             variable string
+    [ 4] HEIGHT                 <i                                  int32_t
+    [ 1] RELAY                  <? (since version >= 70001)         bool
 
     [---ADDR_PAYLOAD---]
-    [..] COUNT          variable integer
-    [..] ADDR_LIST      multiple of COUNT (max 1000)
-        [ 4] TIMESTAMP  <I                                  uint32_t
-        [ 8] SERVICES   <Q                                  uint64_t
+    [..] COUNT                  variable integer
+    [..] ADDR_LIST              multiple of COUNT (max 1000)
+        [ 4] TIMESTAMP          <I                                  uint32_t
+        [ 8] SERVICES           <Q                                  uint64_t
         [16] IP_ADDR
-            [12] IPV6   (\x00 * 10 + \xFF * 2)              char[12]
-            [ 4] IPV4                                       char[4]
-        [ 2] PORT       >H                                  uint16_t
+            [12] IPV6           (\x00 * 10 + \xFF * 2)              char[12]
+            [ 4] IPV4                                               char[4]
+        [ 2] PORT               >H                                  uint16_t
 
     [---PING_PAYLOAD---]
-    [ 8] NONCE          <Q ( random.getrandbits(64) )       uint64_t
+    [ 8] NONCE                  <Q (random.getrandbits(64))         uint64_t
 
     [---PONG_PAYLOAD---]
-    [ 8] NONCE          <Q ( nonce from ping )              uint64_t
+    [ 8] NONCE                  <Q (nonce from ping)                uint64_t
 
     [---INV_PAYLOAD---]
-    [..] COUNT          variable integer
-    [..] INVENTORY      multiple of COUNT (max 50000)
-        [ 4] TYPE       <I (0=error, 1=tx, 2=block)         uint32_t
-        [32] HASH                                           char[32]
----------------------------------------------------------------------
+    [..] COUNT                  variable integer
+    [..] INVENTORY              multiple of COUNT (max 50000)
+        [ 4] TYPE               <I (0=error, 1=tx, 2=block)         uint32_t
+        [32] HASH                                                   char[32]
+
+    [---TX_PAYLOAD---]
+    [ 4] VERSION                <I                                  uint32_t
+    [..] TX_IN_COUNT            variable integer
+    [..] TX_IN                  multiple of TX_IN_COUNT
+        [32] PREV_OUT_HASH                                          char[32]
+        [ 4] PREV_OUT_INDEX     <I (zero-based)                     uint32_t
+        [..] SCRIPT_LENGTH      variable integer
+        [..] SCRIPT             variable string
+        [ 4] SEQUENCE           <I                                  uint32_t
+    [..] TX_OUT_COUNT           variable integer
+    [..] TX_OUT                 multiple of TX_OUT_COUNT
+        [ 8] VALUE              <q                                  int64_t
+        [..] SCRIPT_LENGTH      variable integer
+        [..] SCRIPT             variable string
+    [ 4] LOCK_TIME              <I                                  uint32_t
+
+    [---BLOCK_PAYLOAD---]
+    [ 4] VERSION                <I                                  uint32_t
+    [32] PREV_BLOCK_HASH                                            char[32]
+    [32] MERKLE_ROOT                                                char[32]
+    [ 4] TIMESTAMP              <I                                  uint32_t
+    [ 4] BITS                   <I                                  uint32_t
+    [ 4] NONCE                  <I                                  uint32_t
+    [..] TX_COUNT               variable integer
+    [..] TX                     multiple of TX_COUNT
+        [..] TX                 see TX_PAYLOAD
+-------------------------------------------------------------------------------
 """
 
 import binascii
@@ -218,7 +245,7 @@ class Serializer(object):
         elif command == "addr":
             addr_list = kwargs['addr_list']
             payload = self.serialize_addr_payload(addr_list)
-        elif command == "inv":
+        elif command == "inv" or command == "getdata":
             inventory = kwargs['inventory']
             payload = self.serialize_inv_payload(inventory)
 
@@ -263,6 +290,10 @@ class Serializer(object):
             msg.update(self.deserialize_addr_payload(payload))
         elif msg['command'] == "inv":
             msg.update(self.deserialize_inv_payload(payload))
+        elif msg['command'] == "tx":
+            msg.update(self.deserialize_tx_payload(payload))
+        elif msg['command'] == "block":
+            msg.update(self.deserialize_block_payload(payload))
 
         return (msg, data.read())
 
@@ -385,6 +416,79 @@ class Serializer(object):
 
         return msg
 
+    def serialize_tx_payload(self, tx):
+        payload = [
+            struct.pack("<I", tx['version']),
+            self.serialize_int(tx['tx_in_count']),
+            ''.join([
+                self.serialize_tx_in(tx_in) for tx_in in tx['tx_in']
+            ]),
+            self.serialize_int(tx['tx_out_count']),
+            ''.join([
+                self.serialize_tx_out(tx_out) for tx_out in tx['tx_out']
+            ]),
+            struct.pack("<I", tx['lock_time']),
+        ]
+        payload = ''.join(payload)
+        return payload
+
+    def deserialize_tx_payload(self, data):
+        msg = {}
+        if type(data) is str:
+            data = StringIO(data)
+
+        msg['version'] = struct.unpack("<I", data.read(4))[0]
+
+        msg['tx_in_count'] = self.deserialize_int(data)
+        msg['tx_in'] = []
+        for _ in xrange(msg['tx_in_count']):
+            tx_in = self.deserialize_tx_in(data)
+            msg['tx_in'].append(tx_in)
+
+        msg['tx_out_count'] = self.deserialize_int(data)
+        msg['tx_out'] = []
+        for _ in xrange(msg['tx_out_count']):
+            tx_out = self.deserialize_tx_out(data)
+            msg['tx_out'].append(tx_out)
+
+        msg['lock_time'] = struct.unpack("<I", data.read(4))[0]
+
+        # Calculate hash from the entire payload
+        payload = self.serialize_tx_payload(msg)
+        msg['tx_hash'] = binascii.hexlify(sha256(sha256(payload))[::-1])
+
+        return msg
+
+    def deserialize_block_payload(self, data):
+        msg = {}
+
+        # Calculate hash from: version (4 bytes) + prev_block_hash (32 bytes) +
+        # merkle_root (32 bytes) + timestamp (4 bytes) + bits (4 bytes) +
+        # nonce (4 bytes) = 80 bytes
+        msg['block_hash'] = binascii.hexlify(sha256(sha256(data[:80]))[::-1])
+
+        data = StringIO(data)
+
+        msg['version'] = struct.unpack("<I", data.read(4))[0]
+
+        # BE (big-endian) -> LE (little-endian)
+        msg['prev_block_hash'] = binascii.hexlify(data.read(32)[::-1])
+
+        # BE -> LE
+        msg['merkle_root'] = binascii.hexlify(data.read(32)[::-1])
+
+        msg['timestamp'] = struct.unpack("<I", data.read(4))[0]
+        msg['bits'] = struct.unpack("<I", data.read(4))[0]
+        msg['nonce'] = struct.unpack("<I", data.read(4))[0]
+
+        msg['tx_count'] = self.deserialize_int(data)
+        msg['tx'] = []
+        for _ in xrange(msg['tx_count']):
+            tx_payload = self.deserialize_tx_payload(data)
+            msg['tx'].append(tx_payload)
+
+        return msg
+
     def serialize_network_address(self, addr):
         network_address = []
         if len(addr) == 4:
@@ -449,17 +553,61 @@ class Serializer(object):
         (inv_type, inv_hash) = item
         payload = [
             struct.pack("<I", inv_type),
-            binascii.unhexlify(inv_hash)[::-1],  # little-endian to big-endian
+            binascii.unhexlify(inv_hash)[::-1],  # LE -> BE
         ]
         payload = ''.join(payload)
         return payload
 
     def deserialize_inventory(self, data):
         inv_type = struct.unpack("<I", data.read(4))[0]
-        inv_hash = data.read(32)[::-1]  # big-endian to little-endian
+        inv_hash = data.read(32)[::-1]  # BE -> LE
         return {
             'type': inv_type,
             'hash': binascii.hexlify(inv_hash),
+        }
+
+    def serialize_tx_in(self, tx_in):
+        payload = [
+            binascii.unhexlify(tx_in['prev_out_hash'])[::-1],  # LE -> BE
+            struct.pack("<I", tx_in['prev_out_index']),
+            self.serialize_int(tx_in['script_length']),
+            tx_in['script'],
+            struct.pack("<I", tx_in['sequence']),
+        ]
+        payload = ''.join(payload)
+        return payload
+
+    def deserialize_tx_in(self, data):
+        prev_out_hash = data.read(32)[::-1]  # BE -> LE
+        prev_out_index = struct.unpack("<I", data.read(4))[0]
+        script_length = self.deserialize_int(data)
+        script = data.read(script_length)
+        sequence = struct.unpack("<I", data.read(4))[0]
+        return {
+            'prev_out_hash': binascii.hexlify(prev_out_hash),
+            'prev_out_index': prev_out_index,
+            'script_length': script_length,
+            'script': script,
+            'sequence': sequence,
+        }
+
+    def serialize_tx_out(self, tx_out):
+        payload = [
+            struct.pack("<q", tx_out['value']),
+            self.serialize_int(tx_out['script_length']),
+            tx_out['script'],
+        ]
+        payload = ''.join(payload)
+        return payload
+
+    def deserialize_tx_out(self, data):
+        value = struct.unpack("<q", data.read(8))[0]
+        script_length = self.deserialize_int(data)
+        script = data.read(script_length)
+        return {
+            'value': value,
+            'script_length': script_length,
+            'script': script,
         }
 
     def serialize_string(self, data):
@@ -611,6 +759,18 @@ class Connection(object):
             command="inv", inventory=inventory)
         self.send(msg)
 
+    def getdata(self, inventory):
+        # inventory = [(INV_TYPE, "INV_HASH"),]
+        # [getdata] >>>
+        msg = self.serializer.serialize_msg(
+            command="getdata", inventory=inventory)
+        self.send(msg)
+
+        # <<< [tx] [block]..
+        msgs = self.get_messages(commands=["tx", "block"])
+
+        return msgs
+
 
 def main():
     to_addr = ("148.251.238.178", 8333)
@@ -618,22 +778,22 @@ def main():
     handshake_msgs = []
     addr_msgs = []
 
-    connection = Connection(to_addr)
+    conn = Connection(to_addr)
     try:
         print("open")
-        connection.open()
+        conn.open()
 
         print("handshake")
-        handshake_msgs = connection.handshake()
+        handshake_msgs = conn.handshake()
 
         print("getaddr")
-        addr_msgs = connection.getaddr()
+        addr_msgs = conn.getaddr()
 
     except (ProtocolError, ConnectionError, socket.error) as err:
         print("{}: {}".format(err, to_addr))
 
     print("close")
-    connection.close()
+    conn.close()
 
     print(handshake_msgs)
     print(addr_msgs)
