@@ -40,6 +40,7 @@ import redis
 import redis.connection
 import socket
 import sys
+import time
 from collections import defaultdict
 from ConfigParser import ConfigParser
 from decimal import Decimal
@@ -75,6 +76,8 @@ class Resolve(object):
         Resolves hostname for up to 1000 new addresses and GeoIP data for all
         addresses.
         """
+        start = time.time()
+
         idx = 0
         for address in self.addresses:
             key = 'resolve:{}'.format(address)
@@ -100,6 +103,10 @@ class Resolve(object):
 
         self.cache_resolved()
 
+        end = time.time()
+        elapsed = end - start
+        logging.info("Elapsed: {}".format(elapsed))
+
     def cache_resolved(self):
         """
         Caches resolved addresses in Redis.
@@ -111,6 +118,7 @@ class Resolve(object):
             key = 'resolve:{}'.format(address)
             self.redis_pipe.hset(key, 'geoip', geoip)
             self.redis_pipe.expire(key, SETTINGS['ttl'])
+            logging.debug("{} geoip: {}".format(key, geoip))
         logging.info("GeoIP: {} resolved".format(resolved))
 
         resolved = 0
@@ -120,6 +128,7 @@ class Resolve(object):
             key = 'resolve:{}'.format(address)
             self.redis_pipe.hset(key, 'hostname', hostname)
             self.redis_pipe.expire(key, SETTINGS['ttl'])
+            logging.debug("{} hostname: {}".format(key, hostname))
         logging.info("Hostname: {} resolved".format(resolved))
 
         self.redis_pipe.execute()
