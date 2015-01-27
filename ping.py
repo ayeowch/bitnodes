@@ -240,7 +240,7 @@ def cron(pool):
                 logging.info("New reachable nodes: {}".format(reachable_nodes))
 
                 # Allow connections to stabilize before publishing snapshot
-                gevent.sleep(SETTINGS['cron_delay'])
+                gevent.sleep(SETTINGS['socket_timeout'])
                 REDIS_CONN.publish('snapshot', int(time.time()))
 
             connections = REDIS_CONN.scard('open')
