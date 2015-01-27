@@ -149,8 +149,12 @@ class Keepalive(object):
         nodes = REDIS_CONN.srandmember('opendata', 10)
         nodes = [eval(node) for node in nodes]
         addr_list = []
+        timestamp = int(self.last_ping)  # Timestamp less than 10 minutes old
         for node in nodes:
-            (address, port, _, _, timestamp, services) = node
+            # address, port, version, user_agent, timestamp, services
+            address = node[0]
+            port = node[1]
+            services = node[-1]
             if address == self.node[0]:
                 continue
             addr_list.append((timestamp, services, address, port))
