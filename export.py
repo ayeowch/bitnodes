@@ -85,11 +85,11 @@ def export_nodes(nodes, timestamp):
         rows.append(row)
     end = time.time()
     elapsed = end - start
-    logging.info("Elapsed: {}".format(elapsed))
+    logging.info("Elapsed: %d", elapsed)
 
     dump = os.path.join(SETTINGS['export_dir'], "{}.json".format(timestamp))
     open(dump, 'w').write(json.dumps(rows, encoding="latin-1"))
-    logging.info("Wrote {}".format(dump))
+    logging.info("Wrote %s", dump)
 
 
 def init_settings(argv):
@@ -125,7 +125,7 @@ def main(argv):
                         filename=SETTINGS['logfile'],
                         filemode='w')
     print("Writing output to {}, press CTRL+C to terminate..".format(
-          SETTINGS['logfile']))
+        SETTINGS['logfile']))
 
     pubsub = REDIS_CONN.pubsub()
     pubsub.subscribe('resolve')
@@ -134,9 +134,9 @@ def main(argv):
         # and GeoIP data for all reachable nodes.
         if msg['channel'] == 'resolve' and msg['type'] == 'message':
             timestamp = int(msg['data'])  # From ping.py's 'snapshot' message
-            logging.info("Timestamp: {}".format(timestamp))
+            logging.info("Timestamp: %d", timestamp)
             nodes = REDIS_CONN.smembers('opendata')
-            logging.info("Nodes: {}".format(len(nodes)))
+            logging.info("Nodes: %d", len(nodes))
             export_nodes(nodes, timestamp)
             REDIS_CONN.publish('export', timestamp)
 

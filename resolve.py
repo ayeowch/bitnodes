@@ -95,17 +95,17 @@ class Resolve(object):
                 idx += 1
         self.redis_pipe.execute()
 
-        logging.info("GeoIP: {}".format(len(self.resolved['geoip'])))
+        logging.info("GeoIP: %d", len(self.resolved['geoip']))
         self.resolve_geoip()
 
-        logging.info("Hostname: {}".format(len(self.resolved['hostname'])))
+        logging.info("Hostname: %d", len(self.resolved['hostname']))
         self.resolve_hostname()
 
         self.cache_resolved()
 
         end = time.time()
         elapsed = end - start
-        logging.info("Elapsed: {}".format(elapsed))
+        logging.info("Elapsed: %d", elapsed)
 
     def cache_resolved(self):
         """
@@ -118,8 +118,8 @@ class Resolve(object):
             key = 'resolve:{}'.format(address)
             self.redis_pipe.hset(key, 'geoip', geoip)
             self.redis_pipe.expire(key, SETTINGS['ttl'])
-            logging.debug("{} geoip: {}".format(key, geoip))
-        logging.info("GeoIP: {} resolved".format(resolved))
+            logging.debug("%s geoip: %s", key, geoip)
+        logging.info("GeoIP: %d resolved", resolved)
 
         resolved = 0
         for address, hostname in self.resolved['hostname'].iteritems():
@@ -128,8 +128,8 @@ class Resolve(object):
             key = 'resolve:{}'.format(address)
             self.redis_pipe.hset(key, 'hostname', hostname)
             self.redis_pipe.expire(key, SETTINGS['ttl'])
-            logging.debug("{} hostname: {}".format(key, hostname))
-        logging.info("Hostname: {} resolved".format(resolved))
+            logging.debug("%s hostname: %s", key, hostname)
+        logging.info("Hostname: %d resolved", resolved)
 
         self.redis_pipe.execute()
 
@@ -167,7 +167,7 @@ def raw_hostname(address):
     try:
         hostname = socket.gethostbyaddr(address)[0]
     except (socket.gaierror, socket.herror) as err:
-        logging.debug("{}: {}".format(address, err))
+        logging.debug("%s: %s", address, err)
     return hostname
 
 
@@ -241,7 +241,7 @@ def main(argv):
                         filename=SETTINGS['logfile'],
                         filemode='w')
     print("Writing output to {}, press CTRL+C to terminate..".format(
-          SETTINGS['logfile']))
+        SETTINGS['logfile']))
 
     pubsub = REDIS_CONN.pubsub()
     pubsub.subscribe('snapshot')
@@ -250,9 +250,9 @@ def main(argv):
         # connection with nodes from a new snapshot.
         if msg['channel'] == 'snapshot' and msg['type'] == 'message':
             timestamp = int(msg['data'])
-            logging.info("Timestamp: {}".format(timestamp))
+            logging.info("Timestamp: %d", timestamp)
             nodes = REDIS_CONN.smembers('opendata')
-            logging.info("Nodes: {}".format(len(nodes)))
+            logging.info("Nodes: %d", len(nodes))
             addresses = set([eval(node)[0] for node in nodes])
             resolve = Resolve(addresses=addresses)
             resolve.resolve_addresses()
