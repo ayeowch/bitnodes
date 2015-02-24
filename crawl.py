@@ -40,6 +40,7 @@ import redis.connection
 import socket
 import sys
 import time
+from binascii import hexlify
 from collections import Counter
 from ConfigParser import ConfigParser
 from ipaddress import ip_network
@@ -74,8 +75,10 @@ def enumerate_node(redis_pipe, addr_msgs, now):
                     address = peer['ipv4'] if peer['ipv4'] else peer['ipv6']
                     port = peer['port'] if peer['port'] > 0 else DEFAULT_PORT
                     services = peer['services']
-                    if address in SETTINGS['exclude_nodes']:
-                        logging.debug("Exclude: {}".format(address))
+                    if not address:
+                        continue
+                    if is_excluded(address):
+                        logging.debug("Exclude: %s", address)
                         continue
                     redis_pipe.sadd('pending', (address, port, services))
                     peers += 1
@@ -112,12 +115,12 @@ def connect(redis_conn, key):
                       height=height,
                       relay=SETTINGS['relay'])
     try:
-        logging.debug("Connecting to {}".format(conn.to_addr))
+        logging.debug("Connecting to %s", conn.to_addr)
         conn.open()
         handshake_msgs = conn.handshake()
         addr_msgs = conn.getaddr()
     except (ProtocolError, ConnectionError, socket.error) as err:
-        logging.debug("{}: {}".format(conn.to_addr, err))
+        logging.debug("%s: %s", conn.to_addr, err)
     finally:
         conn.close()
 
@@ -129,7 +132,7 @@ def connect(redis_conn, key):
                          handshake_msgs[0].get('height', 0))
         now = int(time.time())
         peers = enumerate_node(redis_pipe, addr_msgs, now)
-        logging.debug("{} Peers: {}".format(conn.to_addr, peers))
+        logging.debug("%s Peers: %d", conn.to_addr, peers)
         redis_pipe.hset(key, 'state', "up")
     redis_pipe.execute()
 
@@ -146,14 +149,14 @@ def dump(timestamp, nodes):
         try:
             height = int(REDIS_CONN.get("height:{}-{}".format(address, port)))
         except TypeError:
-            logging.warning("height:{}-{} missing".format(address, port))
+            logging.warning("height:%s-%s missing", address, port)
             height = 0
         json_data.append([address, int(port), int(services), height])
 
     json_output = os.path.join(SETTINGS['crawl_dir'],
                                "{}.json".format(timestamp))
     open(json_output, 'w').write(json.dumps(json_data))
-    logging.info("Wrote {}".format(json_output))
+    logging.info("Wrote %s", json_output)
 
     return Counter([node[-1] for node in json_data]).most_common(1)[0][0]
 
@@ -168,7 +171,7 @@ def restart(timestamp):
     nodes = []  # Reachable nodes
 
     keys = REDIS_CONN.keys('node:*')
-    logging.debug("Keys: {}".format(len(keys)))
+    logging.debug("Keys: %d", len(keys))
 
     redis_pipe = REDIS_CONN.pipeline()
     for key in keys:
@@ -181,12 +184,12 @@ def restart(timestamp):
     redis_pipe.execute()
 
     reachable_nodes = len(nodes)
-    logging.info("Reachable nodes: {}".format(reachable_nodes))
+    logging.info("Reachable nodes: %d", reachable_nodes)
     REDIS_CONN.lpush('nodes', (timestamp, reachable_nodes))
 
     height = dump(timestamp, nodes)
     REDIS_CONN.set('height', height)
-    logging.info("Height: {}".format(height))
+    logging.info("Height: %d", height)
 
 
 def cron():
@@ -200,14 +203,14 @@ def cron():
 
     while True:
         pending_nodes = REDIS_CONN.scard('pending')
-        logging.info("Pending: {}".format(pending_nodes))
+        logging.info("Pending: %d", pending_nodes)
 
         if pending_nodes == 0:
             REDIS_CONN.set('crawl:master:state', "starting")
             now = int(time.time())
             elapsed = now - start
             REDIS_CONN.set('elapsed', elapsed)
-            logging.info("Elapsed: {}".format(elapsed))
+            logging.info("Elapsed: %d", elapsed)
             logging.info("Restarting")
             restart(now)
             start = int(time.time())
@@ -257,15 +260,32 @@ def set_pending():
         try:
             nodes = socket.getaddrinfo(seeder, None)
         except socket.gaierror as err:
-            logging.warning("{}".format(err))
+            logging.warning("%s", err)
             continue
         for node in nodes:
             address = node[-1][0]
-            if address in SETTINGS['exclude_nodes']:
-                logging.debug("Exclude: {}".format(address))
+            if is_excluded(address):
+                logging.debug("Exclude: %s", address)
                 continue
-            logging.debug("{}: {}".format(seeder, address))
+            logging.debug("%s: %s", seeder, address)
             REDIS_CONN.sadd('pending', (address, DEFAULT_PORT, SERVICES))
+
+
+def is_excluded(address):
+    """
+    Returns True if address is found in exclusion list, False if otherwise.
+    """
+    address_family = socket.AF_INET
+    key = 'exclude_ipv4_networks'
+    if ":" in address:
+        address_family = socket.AF_INET6
+        key = 'exclude_ipv6_networks'
+    try:
+        addr = int(hexlify(socket.inet_pton(address_family, address)), 16)
+    except socket.error:
+        logging.warning("Bad address: %s", address)
+        return True
+    return any([(addr & net[1] == net[0]) for net in SETTINGS[key]])
 
 
 def init_settings(argv):
@@ -287,13 +307,32 @@ def init_settings(argv):
     SETTINGS['cron_delay'] = conf.getint('crawl', 'cron_delay')
     SETTINGS['max_age'] = conf.getint('crawl', 'max_age')
     SETTINGS['ipv6'] = conf.getboolean('crawl', 'ipv6')
-    exclude_nodes = conf.get('crawl', 'exclude_nodes').strip().split("\n")
-    exclude_networks = conf.get('crawl',
-                                'exclude_networks').strip().split("\n")
-    for network in exclude_networks:
-        exclude_nodes.extend(
-            [str(address) for address in list(ip_network(unicode(network)))])
-    SETTINGS['exclude_nodes'] = set(exclude_nodes)
+
+    exclude_ipv4_networks = conf.get(
+        'crawl', 'exclude_ipv4_networks').strip().split("\n")
+    exclude_ipv6_networks = conf.get(
+        'crawl', 'exclude_ipv6_networks').strip().split("\n")
+
+    # List of tuples of network address and netmask
+    SETTINGS['exclude_ipv4_networks'] = []
+    SETTINGS['exclude_ipv6_networks'] = []
+
+    for network in exclude_ipv4_networks:
+        try:
+            network = ip_network(unicode(network))
+        except ValueError:
+            continue
+        SETTINGS['exclude_ipv4_networks'].append(
+            (int(network.network_address), int(network.netmask)))
+
+    for network in exclude_ipv6_networks:
+        try:
+            network = ip_network(unicode(network))
+        except ValueError:
+            continue
+        SETTINGS['exclude_ipv6_networks'].append(
+            (int(network.network_address), int(network.netmask)))
+
     SETTINGS['crawl_dir'] = conf.get('crawl', 'crawl_dir')
     if not os.path.exists(SETTINGS['crawl_dir']):
         os.makedirs(SETTINGS['crawl_dir'])
@@ -322,7 +361,7 @@ def main(argv):
                         filename=SETTINGS['logfile'],
                         filemode='a')
     print("Writing output to {}, press CTRL+C to terminate..".format(
-          SETTINGS['logfile']))
+        SETTINGS['logfile']))
 
     if SETTINGS['master']:
         REDIS_CONN.set('crawl:master:state', "starting")
@@ -341,7 +380,7 @@ def main(argv):
         workers.append(gevent.spawn(cron))
     for _ in xrange(SETTINGS['workers'] - len(workers)):
         workers.append(gevent.spawn(task))
-    logging.info("Workers: {}".format(len(workers)))
+    logging.info("Workers: %d", len(workers))
     gevent.joinall(workers)
 
     return 0
