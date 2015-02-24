@@ -93,7 +93,7 @@ class Keepalive(object):
                     self.send_bestblockhash()
                     self.send_addr()
                 except socket.error as err:
-                    logging.debug("Closing {} ({})".format(self.node, err))
+                    logging.debug("Closing %s (%s)", self.node, err)
                     break
 
             # Sink received messages to flush them off socket buffer
@@ -102,7 +102,7 @@ class Keepalive(object):
             except socket.timeout:
                 pass
             except (ProtocolError, ConnectionError, socket.error) as err:
-                logging.debug("Closing {} ({})".format(self.node, err))
+                logging.debug("Closing %s (%s)", self.node, err)
                 break
             gevent.sleep(0.3)
 
@@ -180,7 +180,7 @@ def task():
     node = (address, port)
 
     if REDIS_CONN.sadd('open', node) == 0:
-        logging.debug("Connection exists: {}".format(node))
+        logging.debug("Connection exists: %s", node)
         return
 
     handshake_msgs = []
@@ -196,7 +196,7 @@ def task():
         conn.open()
         handshake_msgs = conn.handshake()
     except (ProtocolError, ConnectionError, socket.error) as err:
-        logging.debug("Closing {} ({})".format(node, err))
+        logging.debug("Closing %s (%s)", node, err)
         conn.close()
 
     if len(handshake_msgs) == 0:
@@ -233,20 +233,20 @@ def cron(pool):
                 if len(nodes) == 0:
                     continue
 
-                logging.info("New snapshot: {}".format(new_snapshot))
+                logging.info("New snapshot: %s", new_snapshot)
                 snapshot = new_snapshot
 
-                logging.info("Nodes: {}".format(len(nodes)))
+                logging.info("Nodes: %d", len(nodes))
 
                 reachable_nodes = set_reachable(nodes)
-                logging.info("New reachable nodes: {}".format(reachable_nodes))
+                logging.info("New reachable nodes: %d", reachable_nodes)
 
                 # Allow connections to stabilize before publishing snapshot
                 gevent.sleep(SETTINGS['socket_timeout'])
                 REDIS_CONN.publish('snapshot', int(time.time()))
 
             connections = REDIS_CONN.scard('open')
-            logging.info("Connections: {}".format(connections))
+            logging.info("Connections: %d", connections)
 
             set_bestblockhash()
 
@@ -254,7 +254,7 @@ def cron(pool):
             pool.spawn(task)
 
         workers = SETTINGS['workers'] - pool.free_count()
-        logging.info("Workers: {}".format(workers))
+        logging.info("Workers: %d", workers)
 
         gevent.sleep(SETTINGS['cron_delay'])
 
@@ -323,7 +323,7 @@ def set_bestblockhash():
     nodes = REDIS_CONN.zcard('inv:2:{}'.format(lastblockhash))
     if nodes >= reachable_nodes / 2.0:
         REDIS_CONN.set('bestblockhash', lastblockhash)
-        logging.info("bestblockhash: {}".format(lastblockhash))
+        logging.info("bestblockhash: %s", lastblockhash)
 
 
 def init_settings(argv):
@@ -371,7 +371,7 @@ def main(argv):
                         filename=SETTINGS['logfile'],
                         filemode='a')
     print("Writing output to {}, press CTRL+C to terminate..".format(
-          SETTINGS['logfile']))
+        SETTINGS['logfile']))
 
     if SETTINGS['master']:
         logging.info("Removing all keys")

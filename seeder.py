@@ -95,12 +95,12 @@ class Seeder(object):
         """
         Saves A and AAAA records in DNS zone file.
         """
-        logging.info("A records: {}".format(len(self.a_records)))
-        logging.info("AAAA records: {}".format(len(self.aaaa_records)))
+        logging.info("A records: %d", len(self.a_records))
+        logging.info("AAAA records: %d", len(self.aaaa_records))
         random.shuffle(self.a_records)
         random.shuffle(self.aaaa_records)
         serial = str(self.now)
-        logging.debug("Serial: {}".format(serial))
+        logging.debug("Serial: %s", serial)
         template = open(SETTINGS['template'], "r").read()
         template = template.replace("1413235952", serial)
         content = "".join([
@@ -146,7 +146,7 @@ class Seeder(object):
             min_height = SETTINGS['min_height']
         else:
             min_height = int(min_height)
-        logging.info("Min. height: {}".format(min_height))
+        logging.info("Min. height: %d", min_height)
         return min_height
 
     def get_min_age(self):
@@ -157,10 +157,10 @@ class Seeder(object):
         """
         min_age = SETTINGS['min_age']
         oldest = self.now - min(self.nodes, key=operator.itemgetter(4))[4]
-        logging.info("Longest uptime: {}".format(oldest))
+        logging.info("Longest uptime: %d", oldest)
         if oldest < min_age:
             min_age = oldest - (0.01 * oldest)  # Max. 1% newer than oldest
-        logging.info("Min. age: {}".format(min_age))
+        logging.info("Min. age: %d", min_age)
         return min_age
 
     def is_blocked(self, address):
@@ -171,7 +171,7 @@ class Seeder(object):
             return False
         for network in self.blocklist:
             if ip_address(address) in network:
-                logging.debug("Blocked: {}".format(address))
+                logging.debug("Blocked: %s", address)
                 return True
         return False
 
@@ -194,9 +194,9 @@ class Seeder(object):
                     network = line.split(";")[0].strip()
                     self.blocklist.add(ip_network(unicode(network)))
             else:
-                logging.warning("HTTP{}: {} ({})".format(
-                    response.status_code, url, response.content))
-        logging.debug("Blocklist entries: {}".format(len(self.blocklist)))
+                logging.warning("HTTP%d: %s (%s)",
+                                response.status_code, url, response.content)
+        logging.debug("Blocklist entries: %d", len(self.blocklist))
         self.blocklist_timestamp = self.now
 
 
@@ -208,7 +208,7 @@ def cron():
     while True:
         time.sleep(5)
         dump = max(glob.iglob("{}/*.json".format(SETTINGS['export_dir'])))
-        logging.info("Dump: {}".format(dump))
+        logging.info("Dump: %s", dump)
         seeder.export_nodes(dump)
 
 
@@ -249,7 +249,7 @@ def main(argv):
                         filename=SETTINGS['logfile'],
                         filemode='w')
     print("Writing output to {}, press CTRL+C to terminate..".format(
-          SETTINGS['logfile']))
+        SETTINGS['logfile']))
 
     cron()
 

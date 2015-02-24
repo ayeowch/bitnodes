@@ -100,13 +100,13 @@ class Cache(object):
                 try:
                     (msg, _data) = self.serializer.deserialize_msg(_data)
                 except (HeaderTooShortError, PayloadTooShortError) as err:
-                    logging.debug("{}: {}".format(stream_id, err))
+                    logging.debug("%s: %s", stream_id, err)
                     try:
                         _data += data.next()
                     except StopIteration:
                         break
                 except ProtocolError as err:
-                    logging.debug("{}: {}".format(stream_id, err))
+                    logging.debug("%s: %s", stream_id, err)
                     try:
                         _data = data.next()
                     except StopIteration:
@@ -142,7 +142,7 @@ class Cache(object):
                         timestamp = int(timestamp * 1000)  # in ms
                         self.streams[stream_id].put(
                             (tcp_pkt.seq, (timestamp, tcp_pkt)))
-        logging.info("Streams: {}".format(len(self.streams)))
+        logging.info("Streams: %d", len(self.streams))
 
     def cache_message(self, node, timestamp, msg):
         """
@@ -160,7 +160,7 @@ class Cache(object):
                         self.redis_pipe.set("lastblockhash", inv['hash'])
                     elif (timestamp - int(rkey_ms)) / 1000 > SETTINGS['ttl']:
                         # Ignore block inv first seen more than 3 hours ago
-                        logging.debug("Skip: {}".format(key))
+                        logging.debug("Skip: %s", key)
                         continue
                 self.redis_pipe.zadd(key, timestamp, node)
                 self.redis_pipe.expire(key, SETTINGS['ttl'])
@@ -180,7 +180,7 @@ class Cache(object):
             if len(timestamps) > 1:
                 rtt_key = "rtt:{}".format(':'.join(key.split(":")[1:-1]))
                 rtt = int(timestamps[1]) - int(timestamps[0])  # pong - ping
-                logging.debug("{}: {}".format(rtt_key, rtt))
+                logging.debug("%s: %d", rtt_key, rtt)
                 self.redis_pipe.lpush(rtt_key, rtt)
                 self.redis_pipe.ltrim(rtt_key, 0, SETTINGS['rtt_count'] - 1)
                 self.redis_pipe.expire(rtt_key, SETTINGS['ttl'])
@@ -210,7 +210,7 @@ def cron():
             logging.warning(err)
             continue
 
-        logging.info("Loading: {}".format(dump))
+        logging.info("Loading: %s", dump)
 
         start = time.time()
         cache = Cache(filepath=dump)
@@ -218,8 +218,8 @@ def cron():
         end = time.time()
         elapsed = end - start
 
-        logging.info("Dump: {} ({} messages)".format(dump, cache.count))
-        logging.info("Elapsed: {}".format(elapsed))
+        logging.info("Dump: %s (%d messages)", dump, cache.count)
+        logging.info("Elapsed: %d", elapsed)
 
         os.remove(dump)
 
@@ -259,7 +259,7 @@ def main(argv):
                         filename=SETTINGS['logfile'],
                         filemode='a')
     print("Writing output to {}, press CTRL+C to terminate..".format(
-          SETTINGS['logfile']))
+        SETTINGS['logfile']))
 
     cron()
 
