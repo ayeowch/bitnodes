@@ -181,6 +181,14 @@ def restart(timestamp):
             (address, port, services) = key[5:].split("-", 2)
             redis_pipe.sadd('pending', (address, int(port), int(services)))
         redis_pipe.delete(key)
+
+    # Reachable nodes from https://getaddr.bitnodes.io/#join-the-network
+    checked_nodes = REDIS_CONN.zrangebyscore(
+        'check', timestamp - SETTINGS['max_age'], timestamp)
+    for node in checked_nodes:
+        (address, port, services) = eval(node)
+        redis_pipe.sadd('pending', (address, port, services))
+
     redis_pipe.execute()
 
     reachable_nodes = len(nodes)
