@@ -118,6 +118,7 @@ class Keepalive(object):
             self.conn.ping(nonce=nonce)
         except socket.error:
             raise
+        logging.debug("%s (%s)", self.node, nonce)
 
         self.last_ping = time.time()
         key = "ping:{}-{}:{}".format(self.node[0], self.node[1], nonce)
@@ -140,6 +141,7 @@ class Keepalive(object):
             self.conn.inv(inventory=[(2, bestblockhash)])
         except socket.error:
             raise
+        logging.debug("%s (%s)", self.node, bestblockhash)
         self.last_bestblockhash = bestblockhash
 
     def send_addr(self):
@@ -166,6 +168,7 @@ class Keepalive(object):
             self.conn.addr(addr_list=addr_list)
         except socket.error:
             raise
+        logging.debug("%s (%s)", self.node, addr_list)
 
 
 def task():
