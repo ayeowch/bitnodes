@@ -108,6 +108,17 @@ Reference: https://en.bitcoin.it/wiki/Protocol_specification
     [..] TX_COUNT               variable integer
     [..] TX                     multiple of TX_COUNT
         [..] TX                 see TX_PAYLOAD
+
+    [---HEADERS_PAYLOAD---]
+    [..] COUNT                  variable integer (max 2000)
+    [..] HEADERS                multiple of COUNT
+        [ 4] VERSION            <I                                  uint32_t
+        [32] PREV_BLOCK_HASH                                        char[32]
+        [32] MERKLE_ROOT                                            char[32]
+        [ 4] TIMESTAMP          <I                                  uint32_t
+        [ 4] BITS               <I                                  uint32_t
+        [ 4] NONCE              <I                                  uint32_t
+        [..] TX_COUNT           variable integer (always 0)
 -------------------------------------------------------------------------------
 """
 
@@ -127,9 +138,9 @@ from operator import itemgetter
 MAGIC_NUMBER = "\xF9\xBE\xB4\xD9"
 MIN_PROTOCOL_VERSION = 70001
 PROTOCOL_VERSION = 70002
-SERVICES = 1  # set to 1 for NODE_NETWORK
+SERVICES = 0  # set to 1 for NODE_NETWORK
 USER_AGENT = "/getaddr.bitnodes.io:0.1/"
-HEIGHT = 336264
+HEIGHT = 347706
 RELAY = 0  # set to 1 to receive all txs
 DEFAULT_PORT = 8333
 
@@ -248,6 +259,9 @@ class Serializer(object):
         elif command == "inv" or command == "getdata":
             inventory = kwargs['inventory']
             payload = self.serialize_inv_payload(inventory)
+        elif command == "headers":
+            headers = kwargs['headers']
+            payload = self.serialize_block_headers_payload(headers)
 
         msg.extend([
             struct.pack("<I", len(payload)),
@@ -489,6 +503,15 @@ class Serializer(object):
 
         return msg
 
+    def serialize_block_headers_payload(self, headers):
+        payload = [
+            self.serialize_int(len(headers)),
+        ]
+        payload.extend(
+            [self.serialize_block_header(header) for header in headers])
+        payload = ''.join(payload)
+        return payload
+
     def serialize_network_address(self, addr):
         network_address = []
         if len(addr) == 4:
@@ -609,6 +632,19 @@ class Serializer(object):
             'script_length': script_length,
             'script': script,
         }
+
+    def serialize_block_header(self, header):
+        payload = [
+            struct.pack("<I", header['version']),
+            binascii.unhexlify(header['prev_block_hash'])[::-1],  # LE -> BE
+            binascii.unhexlify(header['merkle_root'])[::-1],  # LE -> BE
+            struct.pack("<I", header['timestamp']),
+            struct.pack("<I", header['bits']),
+            struct.pack("<I", header['nonce']),
+            self.serialize_int(0),
+        ]
+        payload = ''.join(payload)
+        return payload
 
     def serialize_string(self, data):
         length = len(data)
@@ -770,6 +806,19 @@ class Connection(object):
         msgs = self.get_messages(commands=["tx", "block"])
 
         return msgs
+
+    def headers(self, headers):
+        # headers = [{
+        #   'version': VERSION,
+        #   'prev_block_hash': PREV_BLOCK_HASH,
+        #   'merkle_root': MERKLE_ROOT,
+        #   'timestamp': TIMESTAMP,
+        #   'bits': BITS,
+        #   'nonce': NONCE
+        # },]
+        # [headers] >>>
+        msg = self.serializer.serialize_msg(command="headers", headers=headers)
+        self.send(msg)
 
 
 def main():
