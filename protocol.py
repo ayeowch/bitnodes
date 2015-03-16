@@ -109,6 +109,20 @@ Reference: https://en.bitcoin.it/wiki/Protocol_specification
     [..] TX                     multiple of TX_COUNT
         [..] TX                 see TX_PAYLOAD
 
+    [---GETBLOCKS_PAYLOAD---]
+    [ 4] VERSION                <I                                  uint32_t
+    [..] COUNT                  variable integer
+    [..] BLOCK_HASHES           multiple of COUNT
+        [32] BLOCK_HASH                                             char[32]
+    [32] LAST_BLOCK_HASH                                            char[32]
+
+    [---GETHEADERS_PAYLOAD---]
+    [ 4] VERSION                <I                                  uint32_t
+    [..] COUNT                  variable integer
+    [..] BLOCK_HASHES           multiple of COUNT
+        [32] BLOCK_HASH                                             char[32]
+    [32] LAST_BLOCK_HASH                                            char[32]
+
     [---HEADERS_PAYLOAD---]
     [..] COUNT                  variable integer (max 2000)
     [..] HEADERS                multiple of COUNT
@@ -122,7 +136,6 @@ Reference: https://en.bitcoin.it/wiki/Protocol_specification
 -------------------------------------------------------------------------------
 """
 
-import binascii
 import gevent
 import hashlib
 import random
@@ -132,6 +145,7 @@ import struct
 import sys
 import time
 from base64 import b32decode, b32encode
+from binascii import hexlify, unhexlify
 from cStringIO import StringIO
 from operator import itemgetter
 
@@ -259,6 +273,11 @@ class Serializer(object):
         elif command == "inv" or command == "getdata":
             inventory = kwargs['inventory']
             payload = self.serialize_inv_payload(inventory)
+        elif command == "getblocks" or command == "getheaders":
+            block_hashes = kwargs['block_hashes']
+            last_block_hash = kwargs['last_block_hash']
+            payload = self.serialize_getblocks_payload(block_hashes,
+                                                       last_block_hash)
         elif command == "headers":
             headers = kwargs['headers']
             payload = self.serialize_block_headers_payload(headers)
@@ -293,8 +312,7 @@ class Serializer(object):
         computed_checksum = sha256(sha256(payload))[:4]
         if computed_checksum != msg['checksum']:
             raise InvalidPayloadChecksum("{} != {}".format(
-                binascii.hexlify(computed_checksum),
-                binascii.hexlify(msg['checksum'])))
+                hexlify(computed_checksum), hexlify(msg['checksum'])))
 
         if msg['command'] == "version":
             msg.update(self.deserialize_version_payload(payload))
@@ -308,6 +326,8 @@ class Serializer(object):
             msg.update(self.deserialize_tx_payload(payload))
         elif msg['command'] == "block":
             msg.update(self.deserialize_block_payload(payload))
+        elif msg['command'] == "headers":
+            msg.update(self.deserialize_block_headers_payload(payload))
 
         return (msg, data.read())
 
@@ -318,8 +338,7 @@ class Serializer(object):
         msg['magic_number'] = data.read(4)
         if msg['magic_number'] != MAGIC_NUMBER:
             raise InvalidMagicNumberError("{} != {}".format(
-                binascii.hexlify(msg['magic_number']),
-                binascii.hexlify(MAGIC_NUMBER)))
+                hexlify(msg['magic_number']), hexlify(MAGIC_NUMBER)))
 
         msg['command'] = data.read(12).strip("\x00")
         msg['length'] = struct.unpack("<I", data.read(4))[0]
@@ -469,7 +488,7 @@ class Serializer(object):
 
         # Calculate hash from the entire payload
         payload = self.serialize_tx_payload(msg)
-        msg['tx_hash'] = binascii.hexlify(sha256(sha256(payload))[::-1])
+        msg['tx_hash'] = hexlify(sha256(sha256(payload))[::-1])
 
         return msg
 
@@ -479,17 +498,17 @@ class Serializer(object):
         # Calculate hash from: version (4 bytes) + prev_block_hash (32 bytes) +
         # merkle_root (32 bytes) + timestamp (4 bytes) + bits (4 bytes) +
         # nonce (4 bytes) = 80 bytes
-        msg['block_hash'] = binascii.hexlify(sha256(sha256(data[:80]))[::-1])
+        msg['block_hash'] = hexlify(sha256(sha256(data[:80]))[::-1])
 
         data = StringIO(data)
 
         msg['version'] = struct.unpack("<I", data.read(4))[0]
 
         # BE (big-endian) -> LE (little-endian)
-        msg['prev_block_hash'] = binascii.hexlify(data.read(32)[::-1])
+        msg['prev_block_hash'] = hexlify(data.read(32)[::-1])
 
         # BE -> LE
-        msg['merkle_root'] = binascii.hexlify(data.read(32)[::-1])
+        msg['merkle_root'] = hexlify(data.read(32)[::-1])
 
         msg['timestamp'] = struct.unpack("<I", data.read(4))[0]
         msg['bits'] = struct.unpack("<I", data.read(4))[0]
@@ -503,6 +522,17 @@ class Serializer(object):
 
         return msg
 
+    def serialize_getblocks_payload(self, block_hashes, last_block_hash):
+        payload = [
+            struct.pack("<i", self.protocol_version),
+            self.serialize_int(len(block_hashes)),
+            ''.join(
+                [unhexlify(block_hash)[::-1] for block_hash in block_hashes]),
+            unhexlify(last_block_hash)[::-1],  # LE -> BE
+        ]
+        payload = ''.join(payload)
+        return payload
+
     def serialize_block_headers_payload(self, headers):
         payload = [
             self.serialize_int(len(headers)),
@@ -511,6 +541,18 @@ class Serializer(object):
             [self.serialize_block_header(header) for header in headers])
         payload = ''.join(payload)
         return payload
+
+    def deserialize_block_headers_payload(self, data):
+        msg = {}
+        data = StringIO(data)
+
+        msg['count'] = self.deserialize_int(data)
+        msg['headers'] = []
+        for _ in xrange(msg['count']):
+            header = self.deserialize_block_header(data)
+            msg['headers'].append(header)
+
+        return msg
 
     def serialize_network_address(self, addr):
         network_address = []
@@ -576,7 +618,7 @@ class Serializer(object):
         (inv_type, inv_hash) = item
         payload = [
             struct.pack("<I", inv_type),
-            binascii.unhexlify(inv_hash)[::-1],  # LE -> BE
+            unhexlify(inv_hash)[::-1],  # LE -> BE
         ]
         payload = ''.join(payload)
         return payload
@@ -586,12 +628,12 @@ class Serializer(object):
         inv_hash = data.read(32)[::-1]  # BE -> LE
         return {
             'type': inv_type,
-            'hash': binascii.hexlify(inv_hash),
+            'hash': hexlify(inv_hash),
         }
 
     def serialize_tx_in(self, tx_in):
         payload = [
-            binascii.unhexlify(tx_in['prev_out_hash'])[::-1],  # LE -> BE
+            unhexlify(tx_in['prev_out_hash'])[::-1],  # LE -> BE
             struct.pack("<I", tx_in['prev_out_index']),
             self.serialize_int(tx_in['script_length']),
             tx_in['script'],
@@ -607,7 +649,7 @@ class Serializer(object):
         script = data.read(script_length)
         sequence = struct.unpack("<I", data.read(4))[0]
         return {
-            'prev_out_hash': binascii.hexlify(prev_out_hash),
+            'prev_out_hash': hexlify(prev_out_hash),
             'prev_out_index': prev_out_index,
             'script_length': script_length,
             'script': script,
@@ -636,8 +678,8 @@ class Serializer(object):
     def serialize_block_header(self, header):
         payload = [
             struct.pack("<I", header['version']),
-            binascii.unhexlify(header['prev_block_hash'])[::-1],  # LE -> BE
-            binascii.unhexlify(header['merkle_root'])[::-1],  # LE -> BE
+            unhexlify(header['prev_block_hash'])[::-1],  # LE -> BE
+            unhexlify(header['merkle_root'])[::-1],  # LE -> BE
             struct.pack("<I", header['timestamp']),
             struct.pack("<I", header['bits']),
             struct.pack("<I", header['nonce']),
@@ -645,6 +687,28 @@ class Serializer(object):
         ]
         payload = ''.join(payload)
         return payload
+
+    def deserialize_block_header(self, data):
+        header = data.read(80)
+        block_hash = sha256(sha256(header))[::-1]  # BE -> LE
+        header = StringIO(header)
+        version = struct.unpack("<i", header.read(4))[0]
+        prev_block_hash = header.read(32)[::-1]  # BE -> LE
+        merkle_root = header.read(32)[::-1]  # BE -> LE
+        timestamp = struct.unpack("<I", header.read(4))[0]
+        bits = struct.unpack("<I", header.read(4))[0]
+        nonce = struct.unpack("<I", header.read(4))[0]
+        tx_count = self.deserialize_int(data)
+        return {
+            'block_hash': hexlify(block_hash),
+            'version': version,
+            'prev_block_hash': hexlify(prev_block_hash),
+            'merkle_root': hexlify(merkle_root),
+            'timestamp': timestamp,
+            'bits': bits,
+            'nonce': nonce,
+            'tx_count': tx_count,
+        }
 
     def serialize_string(self, data):
         length = len(data)
@@ -752,10 +816,10 @@ class Connection(object):
         self.send(msg)
 
         # <<< [version 124 bytes] [verack 24 bytes]
+        gevent.sleep(1)
         msgs = self.get_messages(length=148, commands=["version", "verack"])
         if len(msgs) > 0:
             msgs[:] = sorted(msgs, key=itemgetter('command'), reverse=True)
-
         return msgs
 
     def getaddr(self):
@@ -764,8 +828,8 @@ class Connection(object):
         self.send(msg)
 
         # <<< [addr]..
+        gevent.sleep(1)
         msgs = self.get_messages(commands=["addr"])
-
         return msgs
 
     def addr(self, addr_list):
@@ -803,8 +867,40 @@ class Connection(object):
         self.send(msg)
 
         # <<< [tx] [block]..
+        gevent.sleep(1)
         msgs = self.get_messages(commands=["tx", "block"])
+        return msgs
 
+    def getblocks(self, block_hashes, last_block_hash=None):
+        if last_block_hash is None:
+            last_block_hash = "0" * 64
+
+        # block_hashes = ["BLOCK_HASH",]
+        # [getblocks] >>>
+        msg = self.serializer.serialize_msg(command="getblocks",
+                                            block_hashes=block_hashes,
+                                            last_block_hash=last_block_hash)
+        self.send(msg)
+
+        # <<< [inv]..
+        gevent.sleep(1)
+        msgs = self.get_messages(commands=["inv"])
+        return msgs
+
+    def getheaders(self, block_hashes, last_block_hash=None):
+        if last_block_hash is None:
+            last_block_hash = "0" * 64
+
+        # block_hashes = ["BLOCK_HASH",]
+        # [getheaders] >>>
+        msg = self.serializer.serialize_msg(command="getheaders",
+                                            block_hashes=block_hashes,
+                                            last_block_hash=last_block_hash)
+        self.send(msg)
+
+        # <<< [headers]..
+        gevent.sleep(1)
+        msgs = self.get_messages(commands=["headers"])
         return msgs
 
     def headers(self, headers):
