@@ -80,6 +80,7 @@ exclude_ipv4_networks =
 
 # List of excluded IPv6 networks
 exclude_ipv6_networks =
+    2607:f0d0:1c01:53::0/112
 
 # Relative path to directory containing timestamp-prefixed JSON crawl files
 crawl_dir = data/crawl
