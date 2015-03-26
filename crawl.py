@@ -187,6 +187,9 @@ def restart(timestamp):
         'check', timestamp - SETTINGS['max_age'], timestamp)
     for node in checked_nodes:
         (address, port, services) = eval(node)
+        if is_excluded(address):
+            logging.debug("Exclude: %s", address)
+            continue
         redis_pipe.sadd('pending', (address, port, services))
 
     redis_pipe.execute()
