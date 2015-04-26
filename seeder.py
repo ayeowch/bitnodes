@@ -186,7 +186,11 @@ class Seeder(object):
         ]
         self.blocklist.clear()
         for url in urls:
-            response = requests.get(url)
+            try:
+                response = requests.get(url)
+            except requests.exceptions.RequestException as err:
+                logging.warning(err)
+                continue
             if response.status_code == 200:
                 for line in response.content.strip().split("\n"):
                     if line.startswith(";"):
