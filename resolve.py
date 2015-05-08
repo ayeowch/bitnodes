@@ -82,10 +82,6 @@ class Resolve(object):
         for address in self.addresses:
             key = 'resolve:{}'.format(address)
 
-            # Reset TTL for existing key
-            if REDIS_CONN.exists(key):
-                self.redis_pipe.expire(key, SETTINGS['ttl'])
-
             if not REDIS_CONN.hexists(key, 'geoip'):
                 self.resolved['geoip'][address] = None
 
