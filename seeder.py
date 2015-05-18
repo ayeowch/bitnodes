@@ -196,7 +196,10 @@ class Seeder(object):
                     if line.startswith(";"):
                         continue
                     network = line.split(";")[0].strip()
-                    self.blocklist.add(ip_network(unicode(network)))
+                    try:
+                        self.blocklist.add(ip_network(unicode(network)))
+                    except ValueError:
+                        continue
             else:
                 logging.warning("HTTP%d: %s (%s)",
                                 response.status_code, url, response.content)
