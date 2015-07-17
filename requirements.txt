@@ -1,7 +1,7 @@
 -e svn+http://dpkt.googlecode.com/svn/trunk@90#egg=dpkt-1.8-py2.7-dev_r90
 -e svn+http://socksipy-branch.googlecode.com/svn/trunk@20#egg=socksipy-branch
-gevent==1.0.1
-ipaddress==1.0.7
+gevent==1.0.2
+ipaddress==1.0.14
 pygeoip==0.3.2
 redis==2.10.3
-requests==2.5.1
+requests==2.7.0
