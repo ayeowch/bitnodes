@@ -13,7 +13,7 @@ seeders =
     bitseed.xf2.org
 
 # Number of concurrent workers (greenlets)
-workers = 400
+workers = 500
 
 # Print debug output
 debug = False
@@ -56,32 +56,82 @@ exclude_ipv4_networks =
     0.0.0.0/8
     10.0.0.0/8
     100.64.0.0/10
+    109.90.0.0/16
+    109.91.0.0/16
+    11.0.0.0/8
     127.0.0.0/8
-    169.254.0.0/16
-    172.16.0.0/12
-    192.0.0.0/24
-    192.0.2.0/24
-    192.168.0.0/16
-    192.88.99.0/24
-    198.18.0.0/15
-    198.51.100.0/24
-    203.0.113.0/24
-    224.0.0.0/4
-    240.0.0.0/4
-    255.255.255.255/32
     13.0.0.0/10
     13.104.0.0/14
     13.64.0.0/11
     13.96.0.0/13
+    130.180.0.0/18
+    130.180.64.0/18
+    14.103.0.0/16
+    169.254.0.0/16
+    172.16.0.0/12
+    176.198.0.0/16
+    176.199.0.0/16
+    178.200.0.0/15
+    178.202.0.0/15
+    192.0.0.0/24
+    192.0.2.0/24
     192.1.1.0/24
+    192.168.0.0/16
+    192.88.99.0/24
+    198.18.0.0/15
+    198.51.100.0/24
+    200.0.0.0/16
+    203.0.113.0/24
+    224.0.0.0/4
+    240.0.0.0/4
     25.0.0.0/8
+    255.255.255.255/32
     3.0.0.0/8
+    37.201.128.0/17
     46.105.210.0/24
-    11.0.0.0/8
+    5.147.0.0/16
+    62.143.0.0/17
+    68.70.160.0/24
+    84.119.0.0/16
+    88.152.0.0/16
+    95.222.0.0/16
+    95.223.0.0/16
 
 # List of excluded IPv6 networks
 exclude_ipv6_networks =
     2607:f0d0:1c01:53::0/112
+
+# Attempt to establish connection with .onion nodes
+onion = False
+
+# Tor proxy is required to connect to .onion address
+proxy = 127.0.0.1:9050
+
+# List of initial .onion nodes
+onion_nodes =
+    4crhf372poejlc44.onion
+    5ghqw4wj6hpgfvdg.onion
+    5k4vwyy5stro33fb.onion
+    bitcoinostk4e4re.onion
+    bk5ejfe56xakvtkk.onion
+    btcnet3utgzyz2bf.onion
+    czsbwh4pq4mh3izl.onion
+    e3tn727fywnioxrc.onion
+    evolynhit7shzeet.onion
+    i2r5tbaizb75h26f.onion
+    jxrvw5iqizppbgml.onion
+    kjy2eqzk4zwi5zd3.onion
+    pqosrh6wfaucet32.onion
+    pt2awtcs2ulm75ig.onion
+    szsm43ou7otwwyfv.onion
+    td7tgof3imei3fm6.onion
+    tfu4kqfhsw5slqp2.onion
+    vso3r6cmjoomhhgg.onion
+    xdnigz4qn5dbbw2t.onion
+    zy3kdqowmrb7xm7h.onion
+
+# Include reachable nodes from https://getaddr.bitnodes.io/#join-the-network
+include_checked = False
 
 # Relative path to directory containing timestamp-prefixed JSON crawl files
 crawl_dir = data/crawl

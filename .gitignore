@@ -3,8 +3,9 @@
 *.out
 *.pyc
 .DS_Store
+/.idea/
+/data/
+/tests/
 clean.sh
-data/*
 geoip/*.dat
 rsync.sh
-tests/*
