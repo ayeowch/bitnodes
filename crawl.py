@@ -40,13 +40,14 @@ import redis.connection
 import socket
 import sys
 import time
+from base64 import b32decode
 from binascii import hexlify
 from collections import Counter
 from ConfigParser import ConfigParser
 from ipaddress import ip_network
 
 from protocol import (ProtocolError, ConnectionError, Connection, SERVICES,
-                      DEFAULT_PORT)
+                      DEFAULT_PORT, ONION_PREFIX)
 
 redis.connection.socket = gevent.socket
 
@@ -72,7 +73,7 @@ def enumerate_node(redis_pipe, addr_msgs, now):
 
                 # Add peering node with age <= 24 hours into crawl set
                 if age >= 0 and age <= SETTINGS['max_age']:
-                    address = peer['ipv4'] if peer['ipv4'] else peer['ipv6']
+                    address = peer['ipv4'] or peer['ipv6'] or peer['onion']
                     port = peer['port'] if peer['port'] > 0 else DEFAULT_PORT
                     services = peer['services']
                     if not address:
@@ -108,6 +109,7 @@ def connect(redis_conn, key):
     conn = Connection((address, int(port)),
                       (SETTINGS['source_address'], 0),
                       socket_timeout=SETTINGS['socket_timeout'],
+                      proxy=SETTINGS['proxy'],
                       protocol_version=SETTINGS['protocol_version'],
                       to_services=int(services),
                       from_services=SETTINGS['services'],
@@ -153,6 +155,10 @@ def dump(timestamp, nodes):
             height = 0
         json_data.append([address, int(port), int(services), height])
 
+    if len(json_data) == 0:
+        logging.warning("len(json_data): %d", len(json_data))
+        return 0
+
     json_output = os.path.join(SETTINGS['crawl_dir'],
                                "{}.json".format(timestamp))
     open(json_output, 'w').write(json.dumps(json_data))
@@ -182,15 +188,15 @@ def restart(timestamp):
             redis_pipe.sadd('pending', (address, int(port), int(services)))
         redis_pipe.delete(key)
 
-    # Reachable nodes from https://getaddr.bitnodes.io/#join-the-network
-    checked_nodes = REDIS_CONN.zrangebyscore(
-        'check', timestamp - SETTINGS['max_age'], timestamp)
-    for node in checked_nodes:
-        (address, port, services) = eval(node)
-        if is_excluded(address):
-            logging.debug("Exclude: %s", address)
-            continue
-        redis_pipe.sadd('pending', (address, port, services))
+    if SETTINGS['include_checked']:
+        checked_nodes = REDIS_CONN.zrangebyscore(
+            'check', timestamp - SETTINGS['max_age'], timestamp)
+        for node in checked_nodes:
+            (address, port, services) = eval(node)
+            if is_excluded(address):
+                logging.debug("Exclude: %s", address)
+                continue
+            redis_pipe.sadd('pending', (address, port, services))
 
     redis_pipe.execute()
 
@@ -264,7 +270,7 @@ def task():
 def set_pending():
     """
     Initializes pending set in Redis with a list of reachable nodes from DNS
-    seeders to bootstrap the crawler.
+    seeders and hardcoded list of .onion nodes to bootstrap the crawler.
     """
     for seeder in SETTINGS['seeders']:
         nodes = []
@@ -280,12 +286,17 @@ def set_pending():
                 continue
             logging.debug("%s: %s", seeder, address)
             REDIS_CONN.sadd('pending', (address, DEFAULT_PORT, SERVICES))
+    if SETTINGS['onion']:
+        for address in SETTINGS['onion_nodes']:
+            REDIS_CONN.sadd('pending', (address, DEFAULT_PORT, SERVICES))
 
 
 def is_excluded(address):
     """
     Returns True if address is found in exclusion list, False if otherwise.
     """
+    if address.endswith(".onion"):
+        address = onion_to_ipv6(address)
     address_family = socket.AF_INET
     key = 'exclude_ipv4_networks'
     if ":" in address:
@@ -297,6 +308,14 @@ def is_excluded(address):
         logging.warning("Bad address: %s", address)
         return True
     return any([(addr & net[1] == net[0]) for net in SETTINGS[key]])
+
+
+def onion_to_ipv6(address):
+    """
+    Returns IPv6 equivalent of an .onion address.
+    """
+    ipv6_bytes = ONION_PREFIX + b32decode(address[:-6], True)
+    return socket.inet_ntop(socket.AF_INET6, ipv6_bytes)
 
 
 def init_settings(argv):
@@ -343,6 +362,16 @@ def init_settings(argv):
             continue
         SETTINGS['exclude_ipv6_networks'].append(
             (int(network.network_address), int(network.netmask)))
+
+    SETTINGS['onion'] = conf.getboolean('crawl', 'onion')
+    SETTINGS['proxy'] = None
+    if SETTINGS['onion']:
+        proxy = conf.get('crawl', 'proxy').split(":")
+        SETTINGS['proxy'] = (proxy[0], int(proxy[1]))
+    SETTINGS['onion_nodes'] = conf.get('crawl',
+                                       'onion_nodes').strip().split("\n")
+
+    SETTINGS['include_checked'] = conf.getboolean('crawl', 'include_checked')
 
     SETTINGS['crawl_dir'] = conf.get('crawl', 'crawl_dir')
     if not os.path.exists(SETTINGS['crawl_dir']):
