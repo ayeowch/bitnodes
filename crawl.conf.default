@@ -5,12 +5,13 @@ logfile = crawl.log
 
 # List of DNS seeders to get a subset of reachable nodes
 seeders =
-    seed.bitcoin.sipa.be
-    dnsseed.bluematt.me
     dnsseed.bitcoin.dashjr.org
+    dnsseed.bluematt.me
+    dnsseed.vinumeris.com
+    seed.bitcoin.jonasschnelli.ch
+    seed.bitcoin.sipa.be
     seed.bitcoinstats.com
     seed.bitnodes.io
-    bitseed.xf2.org
 
 # Number of concurrent workers (greenlets)
 workers = 500
@@ -61,12 +62,13 @@ exclude_ipv4_networks =
     11.0.0.0/8
     127.0.0.0/8
     13.0.0.0/10
+    130.180.0.0/18
+    130.180.64.0/18
     13.104.0.0/14
     13.64.0.0/11
     13.96.0.0/13
-    130.180.0.0/18
-    130.180.64.0/18
     14.103.0.0/16
+    162.216.46.0/24
     169.254.0.0/16
     172.16.0.0/12
     176.198.0.0/16
@@ -82,6 +84,7 @@ exclude_ipv4_networks =
     198.51.100.0/24
     200.0.0.0/16
     203.0.113.0/24
+    204.52.215.0/24
     224.0.0.0/4
     240.0.0.0/4
     25.0.0.0/8
@@ -89,6 +92,8 @@ exclude_ipv4_networks =
     3.0.0.0/8
     37.201.128.0/17
     46.105.210.0/24
+    46.23.64.0/21
+    5.0.0.0/8
     5.147.0.0/16
     62.143.0.0/17
     68.70.160.0/24
