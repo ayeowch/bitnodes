@@ -318,6 +318,25 @@ def onion_to_ipv6(address):
     return socket.inet_ntop(socket.AF_INET6, ipv6_bytes)
 
 
+def list_excluded_networks(txt):
+    """
+    Converts list of networks from configuration file in a list of tuples of
+    network address and netmask to be excluded from the crawl.
+    """
+    networks = []
+    lines = txt.strip().split("\n")
+    for line in lines:
+        line = line.split('#')[0].strip()
+        try:
+            network = ip_network(unicode(line))
+        except ValueError:
+            continue
+        else:
+            networks.append(
+                (int(network.network_address), int(network.netmask)))
+    return networks
+
+
 def init_settings(argv):
     """
     Populates SETTINGS with key-value pairs from configuration file.
@@ -338,30 +357,10 @@ def init_settings(argv):
     SETTINGS['max_age'] = conf.getint('crawl', 'max_age')
     SETTINGS['ipv6'] = conf.getboolean('crawl', 'ipv6')
 
-    exclude_ipv4_networks = conf.get(
-        'crawl', 'exclude_ipv4_networks').strip().split("\n")
-    exclude_ipv6_networks = conf.get(
-        'crawl', 'exclude_ipv6_networks').strip().split("\n")
-
-    # List of tuples of network address and netmask
-    SETTINGS['exclude_ipv4_networks'] = []
-    SETTINGS['exclude_ipv6_networks'] = []
-
-    for network in exclude_ipv4_networks:
-        try:
-            network = ip_network(unicode(network))
-        except ValueError:
-            continue
-        SETTINGS['exclude_ipv4_networks'].append(
-            (int(network.network_address), int(network.netmask)))
-
-    for network in exclude_ipv6_networks:
-        try:
-            network = ip_network(unicode(network))
-        except ValueError:
-            continue
-        SETTINGS['exclude_ipv6_networks'].append(
-            (int(network.network_address), int(network.netmask)))
+    SETTINGS['exclude_ipv4_networks'] = list_excluded_networks(
+        conf.get('crawl', 'exclude_ipv4_networks'))
+    SETTINGS['exclude_ipv6_networks'] = list_excluded_networks(
+        conf.get('crawl', 'exclude_ipv6_networks'))
 
     SETTINGS['onion'] = conf.getboolean('crawl', 'onion')
     SETTINGS['proxy'] = None
