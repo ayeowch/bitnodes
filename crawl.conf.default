@@ -80,6 +80,9 @@ exclude_ipv4_networks =
 # List of excluded IPv6 networks
 exclude_ipv6_networks =
 
+# Exclude IPv4 bogons
+exclude_ipv4_bogons = True
+
 # Attempt to establish connection with .onion nodes
 onion = False
 
