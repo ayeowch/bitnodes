@@ -37,6 +37,7 @@ import logging
 import os
 import redis
 import redis.connection
+import requests
 import socket
 import sys
 import time
@@ -172,6 +173,7 @@ def restart(timestamp):
     Dumps data for the reachable nodes into a JSON file.
     Loads all reachable nodes from Redis into the crawl set.
     Removes keys for all nodes from current crawl.
+    Updates excluded networks with current list of bogons.
     Updates number of reachable nodes and most common height in Redis.
     """
     nodes = []  # Reachable nodes
@@ -199,6 +201,8 @@ def restart(timestamp):
             redis_pipe.sadd('pending', (address, port, services))
 
     redis_pipe.execute()
+
+    update_excluded_networks()
 
     reachable_nodes = len(nodes)
     logging.info("Reachable nodes: %d", reachable_nodes)
@@ -318,12 +322,13 @@ def onion_to_ipv6(address):
     return socket.inet_ntop(socket.AF_INET6, ipv6_bytes)
 
 
-def list_excluded_networks(txt):
+def list_excluded_networks(txt, networks=None):
     """
-    Converts list of networks from configuration file in a list of tuples of
+    Converts list of networks from configuration file into a list of tuples of
     network address and netmask to be excluded from the crawl.
     """
-    networks = []
+    if networks is None:
+        networks = set()
     lines = txt.strip().split("\n")
     for line in lines:
         line = line.split('#')[0].strip()
@@ -332,9 +337,27 @@ def list_excluded_networks(txt):
         except ValueError:
             continue
         else:
-            networks.append(
-                (int(network.network_address), int(network.netmask)))
+            networks.add((int(network.network_address), int(network.netmask)))
     return networks
+
+
+def update_excluded_networks():
+    """
+    Adds bogons into the excluded IPv4 networks.
+    """
+    if not SETTINGS['exclude_ipv4_bogons']:
+        return
+    url = "http://www.team-cymru.org/Services/Bogons/fullbogons-ipv4.txt"
+    try:
+        response = requests.get(url)
+    except requests.exceptions.RequestException as err:
+        logging.warning(err)
+    else:
+        if response.status_code == 200:
+            SETTINGS['exclude_ipv4_networks'] = list_excluded_networks(
+                response.content,
+                networks=SETTINGS['initial_exclude_ipv4_networks'])
+            logging.info("%d", len(SETTINGS['exclude_ipv4_networks']))
 
 
 def init_settings(argv):
@@ -361,6 +384,12 @@ def init_settings(argv):
         conf.get('crawl', 'exclude_ipv4_networks'))
     SETTINGS['exclude_ipv6_networks'] = list_excluded_networks(
         conf.get('crawl', 'exclude_ipv6_networks'))
+
+    SETTINGS['exclude_ipv4_bogons'] = conf.getboolean('crawl',
+                                                      'exclude_ipv4_bogons')
+
+    SETTINGS['initial_exclude_ipv4_networks'] = \
+        SETTINGS['exclude_ipv4_networks']
 
     SETTINGS['onion'] = conf.getboolean('crawl', 'onion')
     SETTINGS['proxy'] = None
@@ -412,6 +441,7 @@ def main(argv):
         redis_pipe.delete('pending')
         redis_pipe.execute()
         set_pending()
+        update_excluded_networks()
 
     # Spawn workers (greenlets) including one worker reserved for cron tasks
     workers = []
