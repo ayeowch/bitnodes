@@ -187,7 +187,7 @@ class Seeder(object):
         self.blocklist.clear()
         for url in urls:
             try:
-                response = requests.get(url)
+                response = requests.get(url, timeout=15)
             except requests.exceptions.RequestException as err:
                 logging.warning(err)
                 continue

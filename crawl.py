@@ -349,7 +349,7 @@ def update_excluded_networks():
         return
     url = "http://www.team-cymru.org/Services/Bogons/fullbogons-ipv4.txt"
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=15)
     except requests.exceptions.RequestException as err:
         logging.warning(err)
     else:
