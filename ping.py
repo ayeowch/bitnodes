@@ -90,10 +90,21 @@ class Keepalive(object):
             if time.time() > self.last_ping + self.keepalive_time:
                 try:
                     self.ping()
+                except socket.error as err:
+                    logging.info("ping: Closing %s (%s)", self.node, err)
+                    break
+
+                try:
                     self.send_bestblockhash()
+                except socket.error as err:
+                    logging.info(
+                        "send_bestblockhash: Closing %s (%s)", self.node, err)
+                    break
+
+                try:
                     self.send_addr()
                 except socket.error as err:
-                    logging.debug("Closing %s (%s)", self.node, err)
+                    logging.info("send_addr: Closing %s (%s)", self.node, err)
                     break
 
             # Sink received messages to flush them off socket buffer
@@ -102,7 +113,7 @@ class Keepalive(object):
             except socket.timeout:
                 pass
             except (ProtocolError, ConnectionError, socket.error) as err:
-                logging.debug("Closing %s (%s)", self.node, err)
+                logging.info("get_messages: Closing %s (%s)", self.node, err)
                 break
             gevent.sleep(0.3)
 
