@@ -130,7 +130,7 @@ def connect(redis_conn, key):
     gevent.sleep(0.3)
     redis_pipe = redis_conn.pipeline()
     if len(handshake_msgs) > 0:
-        height_key = "height:{}-{}".format(address, port)
+        height_key = "height:{}-{}-{}".format(address, port, services)
         redis_pipe.setex(height_key, SETTINGS['max_age'],
                          handshake_msgs[0].get('height', 0))
         now = int(time.time())
@@ -149,10 +149,11 @@ def dump(timestamp, nodes):
 
     for node in nodes:
         (address, port, services) = node[5:].split("-", 2)
+        height_key = "height:{}-{}-{}".format(address, port, services)
         try:
-            height = int(REDIS_CONN.get("height:{}-{}".format(address, port)))
+            height = int(REDIS_CONN.get(height_key))
         except TypeError:
-            logging.warning("height:%s-%s missing", address, port)
+            logging.warning("%s missing", height_key)
             height = 0
         json_data.append([address, int(port), int(services), height])
 

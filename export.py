@@ -53,8 +53,9 @@ def get_row(node):
     node = eval(node)
     address = node[0]
     port = node[1]
+    services = node[-1]
 
-    height = REDIS_CONN.get('height:{}-{}'.format(address, port))
+    height = REDIS_CONN.get('height:{}-{}-{}'.format(address, port, services))
     if height is None:
         height = (0,)
     else:
