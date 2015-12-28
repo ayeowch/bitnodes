@@ -30,6 +30,7 @@ Saves messages from pcap files in Redis.
 
 import dpkt
 import glob
+import hashlib
 import logging
 import os
 import redis
@@ -162,7 +163,10 @@ class Cache(object):
                         # Ignore block inv first seen more than 3 hours ago
                         logging.debug("Skip: %s", key)
                         continue
-                self.redis_pipe.zadd(key, timestamp, node)
+                redis_timestamp = timestamp % 604800000  # 7-day timestamp
+                self.redis_pipe.zadd(key,
+                                     redis_timestamp,
+                                     self.node_hash(node))
                 self.redis_pipe.expire(key, SETTINGS['ttl'])
             self.count += msg['count']
         elif msg['command'] == "pong":
@@ -170,6 +174,13 @@ class Cache(object):
             self.redis_pipe.rpushx(key, timestamp)
             self.keys.add(key)
             self.count += 1
+
+    def node_hash(self, node):
+        """
+        Encodes a tuple of address and port in shorten hash for storage in
+        Redis.
+        """
+        return hashlib.sha256('%s-%d' % node).hexdigest()[:8]
 
     def cache_rtt(self):
         """

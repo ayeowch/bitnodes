@@ -19,4 +19,3 @@ python -u seeder.py seeder.conf > seeder.out 2>&1 &
 
 python -u pcap.py pcap.conf > pcap.1.out 2>&1 &
 python -u pcap.py pcap.conf > pcap.2.out 2>&1 &
-python -u pcap.py pcap.conf > pcap.3.out 2>&1 &
