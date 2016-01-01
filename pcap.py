@@ -163,10 +163,7 @@ class Cache(object):
                         # Ignore block inv first seen more than 3 hours ago
                         logging.debug("Skip: %s", key)
                         continue
-                redis_timestamp = timestamp % 604800000  # 7-day timestamp
-                self.redis_pipe.zadd(key,
-                                     redis_timestamp,
-                                     self.node_hash(node))
+                self.redis_pipe.zadd(key, timestamp, self.node_hash(node))
                 self.redis_pipe.expire(key, SETTINGS['ttl'])
             self.count += msg['count']
         elif msg['command'] == "pong":
