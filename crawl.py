@@ -179,7 +179,13 @@ def restart(timestamp):
     """
     nodes = []  # Reachable nodes
 
-    keys = REDIS_CONN.keys('node:*')
+    keys = []
+    cursor = 0
+    while True:
+        (cursor, partial_keys) = REDIS_CONN.scan(cursor, 'node:*')
+        keys.extend(partial_keys)
+        if cursor == 0:
+            break
     logging.debug("Keys: %d", len(keys))
 
     redis_pipe = REDIS_CONN.pipeline()
@@ -435,7 +441,13 @@ def main(argv):
     if SETTINGS['master']:
         REDIS_CONN.set('crawl:master:state', "starting")
         logging.info("Removing all keys")
-        keys = REDIS_CONN.keys('node:*')
+        keys = []
+        cursor = 0
+        while True:
+            (cursor, partial_keys) = REDIS_CONN.scan(cursor, 'node:*')
+            keys.extend(partial_keys)
+            if cursor == 0:
+                break
         redis_pipe = REDIS_CONN.pipeline()
         for key in keys:
             redis_pipe.delete(key)
