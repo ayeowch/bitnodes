@@ -130,7 +130,11 @@ def main(argv):
 
     pubsub = REDIS_CONN.pubsub()
     pubsub.subscribe('resolve')
-    for msg in pubsub.listen():
+    while True:
+        msg = pubsub.get_message()
+        if msg is None:
+            time.sleep(0.001)  # 1 ms artificial intrinsic latency.
+            continue
         # 'resolve' message is published by resolve.py after resolving hostname
         # and GeoIP data for all reachable nodes.
         if msg['channel'] == 'resolve' and msg['type'] == 'message':
