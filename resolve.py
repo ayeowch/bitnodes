@@ -241,7 +241,11 @@ def main(argv):
 
     pubsub = REDIS_CONN.pubsub()
     pubsub.subscribe('snapshot')
-    for msg in pubsub.listen():
+    while True:
+        msg = pubsub.get_message()
+        if msg is None:
+            time.sleep(0.001)  # 1 ms artificial intrinsic latency.
+            continue
         # 'snapshot' message is published by ping.py after establishing
         # connection with nodes from a new snapshot.
         if msg['channel'] == 'snapshot' and msg['type'] == 'message':
