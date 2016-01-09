@@ -200,7 +200,7 @@ def cron():
     Periodically fetches oldest pcap file to extract messages from.
     """
     while True:
-        time.sleep(1)
+        time.sleep(0.1)
 
         try:
             oldest = min(glob.iglob("{}/*.pcap".format(SETTINGS['pcap_dir'])))
