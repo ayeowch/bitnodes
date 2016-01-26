@@ -47,7 +47,7 @@ from collections import Counter
 from ConfigParser import ConfigParser
 from ipaddress import ip_network
 
-from protocol import (ProtocolError, ConnectionError, Connection, SERVICES,
+from protocol import (ProtocolError, ConnectionError, Connection, TO_SERVICES,
                       DEFAULT_PORT, ONION_PREFIX)
 
 redis.connection.socket = gevent.socket
@@ -103,6 +103,7 @@ def connect(redis_conn, key):
     redis_conn.hset(key, 'state', "")  # Set Redis hash for a new node
 
     (address, port, services) = key[5:].split("-", 2)
+    services = int(services)
     height = redis_conn.get('height')
     if height:
         height = int(height)
@@ -112,7 +113,7 @@ def connect(redis_conn, key):
                       socket_timeout=SETTINGS['socket_timeout'],
                       proxy=SETTINGS['proxy'],
                       protocol_version=SETTINGS['protocol_version'],
-                      to_services=int(services),
+                      to_services=services,
                       from_services=SETTINGS['services'],
                       user_agent=SETTINGS['user_agent'],
                       height=height,
@@ -130,9 +131,15 @@ def connect(redis_conn, key):
     gevent.sleep(0.3)
     redis_pipe = redis_conn.pipeline()
     if len(handshake_msgs) > 0:
+        version_msg = handshake_msgs[0]
+        from_services = version_msg.get('services', 0)
+        if from_services != services:
+            logging.debug("%s Expected %d, got %d for services", conn.to_addr,
+                          services, from_services)
+            return
         height_key = "height:{}-{}-{}".format(address, port, services)
         redis_pipe.setex(height_key, SETTINGS['max_age'],
-                         handshake_msgs[0].get('height', 0))
+                         version_msg.get('height', 0))
         now = int(time.time())
         peers = enumerate_node(redis_pipe, addr_msgs, now)
         logging.debug("%s Peers: %d", conn.to_addr, peers)
@@ -296,10 +303,10 @@ def set_pending():
                 logging.debug("Exclude: %s", address)
                 continue
             logging.debug("%s: %s", seeder, address)
-            REDIS_CONN.sadd('pending', (address, DEFAULT_PORT, SERVICES))
+            REDIS_CONN.sadd('pending', (address, DEFAULT_PORT, TO_SERVICES))
     if SETTINGS['onion']:
         for address in SETTINGS['onion_nodes']:
-            REDIS_CONN.sadd('pending', (address, DEFAULT_PORT, SERVICES))
+            REDIS_CONN.sadd('pending', (address, DEFAULT_PORT, TO_SERVICES))
 
 
 def is_excluded(address):
