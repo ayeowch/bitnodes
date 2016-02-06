@@ -229,7 +229,7 @@ def create_connection(address, timeout=SOCKET_TIMEOUT, source_address=None,
         sock.settimeout(timeout)
         try:
             sock.connect(address)
-        except socks.Socks5Error as err:
+        except socks.ProxyError as err:
             raise ConnectionError(err)
         return sock
     if ":" in address[0] and source_address and ":" not in source_address[0]:

@@ -130,8 +130,12 @@ class Seeder(object):
             age = self.now - node[4]
             height = node[6]
             asn = node[13]
-            if (port != DEFAULT_PORT or asn in asns or age < min_age or
-                    height < min_height or self.is_blocked(address)):
+            if (port != DEFAULT_PORT or
+                    asn is None or
+                    asn in asns or
+                    age < min_age or
+                    height < min_height or
+                    self.is_blocked(address)):
                 continue
             yield address
             asns.add(asn)

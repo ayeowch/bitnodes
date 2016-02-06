@@ -200,6 +200,7 @@ def task():
     handshake_msgs = []
     conn = Connection(node, (SETTINGS['source_address'], 0),
                       socket_timeout=SETTINGS['socket_timeout'],
+                      proxy=SETTINGS['proxy'],
                       protocol_version=SETTINGS['protocol_version'],
                       to_services=services,
                       from_services=SETTINGS['services'],
@@ -207,6 +208,7 @@ def task():
                       height=height,
                       relay=SETTINGS['relay'])
     try:
+        logging.debug("Connecting to %s", conn.to_addr)
         conn.open()
         handshake_msgs = conn.handshake()
     except (ProtocolError, ConnectionError, socket.error) as err:
@@ -357,6 +359,13 @@ def init_settings(argv):
     SETTINGS['socket_timeout'] = conf.getint('ping', 'socket_timeout')
     SETTINGS['cron_delay'] = conf.getint('ping', 'cron_delay')
     SETTINGS['ttl'] = conf.getint('ping', 'ttl')
+
+    SETTINGS['onion'] = conf.getboolean('ping', 'onion')
+    SETTINGS['proxy'] = None
+    if SETTINGS['onion']:
+        proxy = conf.get('ping', 'proxy').split(":")
+        SETTINGS['proxy'] = (proxy[0], int(proxy[1]))
+
     SETTINGS['crawl_dir'] = conf.get('ping', 'crawl_dir')
     if not os.path.exists(SETTINGS['crawl_dir']):
         os.makedirs(SETTINGS['crawl_dir'])

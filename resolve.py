@@ -80,6 +80,9 @@ class Resolve(object):
 
         idx = 0
         for address in self.addresses:
+            if address.endswith(".onion"):
+                continue
+
             key = 'resolve:{}'.format(address)
 
             if not REDIS_CONN.hexists(key, 'geoip'):
