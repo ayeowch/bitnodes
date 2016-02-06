@@ -39,5 +39,11 @@ cron_delay = 10
 # Redis TTL for cached RTT
 ttl = 10800
 
+# Attempt to establish connection with .onion nodes
+onion = False
+
+# Tor proxy is required to connect to .onion address
+proxy = 127.0.0.1:9050
+
 # Relative path to directory containing timestamp-prefixed JSON crawl files
 crawl_dir = data/crawl
