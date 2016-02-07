@@ -219,6 +219,12 @@ def task():
         REDIS_CONN.srem('open', node)
         return
 
+    if address.endswith(".onion"):
+        # Map local port to .onion node
+        local_port = conn.socket.getsockname()[1]
+        logging.info("%s: 127.0.0.1:%d", conn.to_addr, local_port)
+        REDIS_CONN.set('onion:{}'.format(local_port), conn.to_addr)
+
     Keepalive(conn=conn, version_msg=handshake_msgs[0]).keepalive()
     conn.close()
     REDIS_CONN.srem('open', node)
