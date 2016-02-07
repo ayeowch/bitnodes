@@ -12,5 +12,8 @@ ttl = 10800
 # Number of round-trip time (RTT) values to keep for each node
 rtt_count = 36
 
+# Tor proxy
+proxy = 127.0.0.1:9050
+
 # Relative path to directory containing pcap files
 pcap_dir = data/pcap

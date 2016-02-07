@@ -93,7 +93,10 @@ class Cache(object):
         """
         Reconstructs messages from TCP streams and caches them in Redis.
         """
-        self.extract_streams()
+        try:
+            self.extract_streams()
+        except dpkt.dpkt.NeedData:
+            logging.warning("Need data: %s", self.filepath)
         for stream_id, self.stream.segments in self.streams.iteritems():
             data = self.stream.data()
             _data = data.next()
@@ -113,7 +116,11 @@ class Cache(object):
                     except StopIteration:
                         break
                 else:
-                    node = (stream_id[0], stream_id[1])
+                    src = (stream_id[0], stream_id[1])
+                    dst = (stream_id[2], stream_id[3])
+                    node = src
+                    if src == SETTINGS['proxy']:
+                        node = dst
                     self.cache_message(node, self.stream.timestamp, msg)
         self.redis_pipe.execute()
         self.cache_rtt()
@@ -128,27 +135,39 @@ class Cache(object):
             for timestamp, buf in pcap_reader:
                 frame = dpkt.ethernet.Ethernet(buf)
                 ip_pkt = frame.data
-                if isinstance(ip_pkt.data, dpkt.tcp.TCP):
-                    ip_ver = socket.AF_INET
-                    if ip_pkt.v == 6:
-                        ip_ver = socket.AF_INET6
-                    tcp_pkt = ip_pkt.data
-                    stream_id = (
-                        socket.inet_ntop(ip_ver, ip_pkt.src),
-                        tcp_pkt.sport,
-                        socket.inet_ntop(ip_ver, ip_pkt.dst),
-                        tcp_pkt.dport
-                    )
-                    if len(tcp_pkt.data) > 0:
-                        timestamp = int(timestamp * 1000)  # in ms
-                        self.streams[stream_id].put(
-                            (tcp_pkt.seq, (timestamp, tcp_pkt)))
+                if not isinstance(ip_pkt, dpkt.ip.IP):
+                    continue
+                if not isinstance(ip_pkt.data, dpkt.tcp.TCP):
+                    continue
+                ip_ver = socket.AF_INET
+                if ip_pkt.v == 6:
+                    ip_ver = socket.AF_INET6
+                tcp_pkt = ip_pkt.data
+                stream_id = (
+                    socket.inet_ntop(ip_ver, ip_pkt.src),
+                    tcp_pkt.sport,
+                    socket.inet_ntop(ip_ver, ip_pkt.dst),
+                    tcp_pkt.dport
+                )
+                if len(tcp_pkt.data) > 0:
+                    timestamp = int(timestamp * 1000)  # in ms
+                    self.streams[stream_id].put(
+                        (tcp_pkt.seq, (timestamp, tcp_pkt)))
         logging.info("Streams: %d", len(self.streams))
 
     def cache_message(self, node, timestamp, msg):
         """
         Caches inv/pong message from the specified node.
         """
+        if msg['command'] not in ["inv", "pong"]:
+            return
+
+        if node[0] == "127.0.0.1":
+            # Restore .onion node
+            onion_node = REDIS_CONN.get("onion:{}".format(node[1]))
+            if onion_node:
+                node = eval(onion_node)
+
         if msg['command'] == "inv":
             for inv in msg['inventory']:
                 key = "inv:{}:{}".format(inv['type'], inv['hash'])
@@ -242,6 +261,10 @@ def init_settings(argv):
     SETTINGS['debug'] = conf.getboolean('pcap', 'debug')
     SETTINGS['ttl'] = conf.getint('pcap', 'ttl')
     SETTINGS['rtt_count'] = conf.getint('pcap', 'rtt_count')
+
+    proxy = conf.get('pcap', 'proxy').split(":")
+    SETTINGS['proxy'] = (proxy[0], int(proxy[1]))
+
     SETTINGS['pcap_dir'] = conf.get('pcap', 'pcap_dir')
     if not os.path.exists(SETTINGS['pcap_dir']):
         os.makedirs(SETTINGS['pcap_dir'])
