@@ -133,7 +133,10 @@ class Cache(object):
         with open(self.filepath) as pcap_file:
             pcap_reader = dpkt.pcap.Reader(pcap_file)
             for timestamp, buf in pcap_reader:
-                frame = dpkt.ethernet.Ethernet(buf)
+                try:
+                    frame = dpkt.ethernet.Ethernet(buf)
+                except dpkt.dpkt.UnpackError:
+                    continue
                 ip_pkt = frame.data
                 if not isinstance(ip_pkt, dpkt.ip.IP):
                     continue
