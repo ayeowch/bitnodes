@@ -138,7 +138,8 @@ class Cache(object):
                 except dpkt.dpkt.UnpackError:
                     continue
                 ip_pkt = frame.data
-                if not isinstance(ip_pkt, dpkt.ip.IP):
+                if (not isinstance(ip_pkt, dpkt.ip.IP) and
+                        not isinstance(ip_pkt, dpkt.ip6.IP6)):
                     continue
                 if not isinstance(ip_pkt.data, dpkt.tcp.TCP):
                     continue
