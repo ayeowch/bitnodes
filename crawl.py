@@ -136,8 +136,8 @@ def connect(redis_conn, key):
         if from_services != services:
             logging.debug("%s Expected %d, got %d for services", conn.to_addr,
                           services, from_services)
-            return
-        height_key = "height:{}-{}-{}".format(address, port, services)
+            key = "node:{}-{}-{}".format(address, port, from_services)
+        height_key = "height:{}-{}-{}".format(address, port, from_services)
         redis_pipe.setex(height_key, SETTINGS['max_age'],
                          version_msg.get('height', 0))
         now = int(time.time())
