@@ -85,10 +85,13 @@ class Resolve(object):
 
             key = 'resolve:{}'.format(address)
 
-            if not REDIS_CONN.hexists(key, 'geoip'):
-                self.resolved['geoip'][address] = None
+            ttl = REDIS_CONN.ttl(key)
+            expiring = False
+            if ttl < 0.1 * SETTINGS['ttl']:  # Less than 10% of initial TTL.
+                expiring = True
 
-            if not REDIS_CONN.hexists(key, 'hostname'):
+            if expiring:
+                self.resolved['geoip'][address] = None
                 if idx < 1000:
                     self.resolved['hostname'][address] = None
                 idx += 1
