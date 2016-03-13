@@ -108,10 +108,14 @@ def connect(redis_conn, key):
     if height:
         height = int(height)
 
+    proxy = None
+    if address.endswith(".onion"):
+        proxy = SETTINGS['tor_proxy']
+
     conn = Connection((address, int(port)),
                       (SETTINGS['source_address'], 0),
                       socket_timeout=SETTINGS['socket_timeout'],
-                      proxy=SETTINGS['proxy'],
+                      proxy=proxy,
                       protocol_version=SETTINGS['protocol_version'],
                       to_services=services,
                       from_services=SETTINGS['services'],
@@ -406,10 +410,10 @@ def init_settings(argv):
         SETTINGS['exclude_ipv4_networks']
 
     SETTINGS['onion'] = conf.getboolean('crawl', 'onion')
-    SETTINGS['proxy'] = None
+    SETTINGS['tor_proxy'] = None
     if SETTINGS['onion']:
-        proxy = conf.get('crawl', 'proxy').split(":")
-        SETTINGS['proxy'] = (proxy[0], int(proxy[1]))
+        tor_proxy = conf.get('crawl', 'tor_proxy').split(":")
+        SETTINGS['tor_proxy'] = (tor_proxy[0], int(tor_proxy[1]))
     SETTINGS['onion_nodes'] = conf.get('crawl',
                                        'onion_nodes').strip().split("\n")
 

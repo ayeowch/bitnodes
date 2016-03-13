@@ -197,10 +197,14 @@ def task():
         logging.debug("Connection exists: %s", node)
         return
 
+    proxy = None
+    if address.endswith(".onion"):
+        proxy = SETTINGS['tor_proxy']
+
     handshake_msgs = []
     conn = Connection(node, (SETTINGS['source_address'], 0),
                       socket_timeout=SETTINGS['socket_timeout'],
-                      proxy=SETTINGS['proxy'],
+                      proxy=proxy,
                       protocol_version=SETTINGS['protocol_version'],
                       to_services=services,
                       from_services=SETTINGS['services'],
@@ -367,10 +371,10 @@ def init_settings(argv):
     SETTINGS['ttl'] = conf.getint('ping', 'ttl')
 
     SETTINGS['onion'] = conf.getboolean('ping', 'onion')
-    SETTINGS['proxy'] = None
+    SETTINGS['tor_proxy'] = None
     if SETTINGS['onion']:
-        proxy = conf.get('ping', 'proxy').split(":")
-        SETTINGS['proxy'] = (proxy[0], int(proxy[1]))
+        tor_proxy = conf.get('ping', 'tor_proxy').split(":")
+        SETTINGS['tor_proxy'] = (tor_proxy[0], int(tor_proxy[1]))
 
     SETTINGS['crawl_dir'] = conf.get('ping', 'crawl_dir')
     if not os.path.exists(SETTINGS['crawl_dir']):
