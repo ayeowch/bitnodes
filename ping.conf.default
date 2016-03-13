@@ -43,7 +43,7 @@ ttl = 10800
 onion = False
 
 # Tor proxy is required to connect to .onion address
-proxy = 127.0.0.1:9050
+tor_proxy = 127.0.0.1:9050
 
 # Relative path to directory containing timestamp-prefixed JSON crawl files
 crawl_dir = data/crawl

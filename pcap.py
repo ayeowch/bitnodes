@@ -119,7 +119,7 @@ class Cache(object):
                     src = (stream_id[0], stream_id[1])
                     dst = (stream_id[2], stream_id[3])
                     node = src
-                    if src == SETTINGS['proxy']:
+                    if src == SETTINGS['tor_proxy']:
                         node = dst
                     self.cache_message(node, self.stream.timestamp, msg)
         self.redis_pipe.execute()
@@ -266,8 +266,8 @@ def init_settings(argv):
     SETTINGS['ttl'] = conf.getint('pcap', 'ttl')
     SETTINGS['rtt_count'] = conf.getint('pcap', 'rtt_count')
 
-    proxy = conf.get('pcap', 'proxy').split(":")
-    SETTINGS['proxy'] = (proxy[0], int(proxy[1]))
+    tor_proxy = conf.get('pcap', 'tor_proxy').split(":")
+    SETTINGS['tor_proxy'] = (tor_proxy[0], int(tor_proxy[1]))
 
     SETTINGS['pcap_dir'] = conf.get('pcap', 'pcap_dir')
     if not os.path.exists(SETTINGS['pcap_dir']):

@@ -220,10 +220,10 @@ def unpack(fmt, string):
 
 def create_connection(address, timeout=SOCKET_TIMEOUT, source_address=None,
                       proxy=None):
-    if address[0].endswith(".onion"):
-        if proxy is None:
-            raise ProxyRequired(
-                "tor proxy is required to connect to .onion address")
+    if address[0].endswith(".onion") and proxy is None:
+        raise ProxyRequired(
+            "tor proxy is required to connect to .onion address")
+    if proxy:
         socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, proxy[0], proxy[1])
         sock = socks.socksocket()
         sock.settimeout(timeout)
