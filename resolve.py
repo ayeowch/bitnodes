@@ -87,7 +87,7 @@ class Resolve(object):
 
             ttl = REDIS_CONN.ttl(key)
             expiring = False
-            if ttl < 0.1 * SETTINGS['ttl']:  # Less than 10% of initial TTL.
+            if ttl < 0.1 * SETTINGS['ttl']:  # Less than 10% of initial TTL
                 expiring = True
 
             if expiring:
