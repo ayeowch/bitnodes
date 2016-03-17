@@ -49,6 +49,7 @@ from ipaddress import ip_network
 
 from protocol import (ProtocolError, ConnectionError, Connection, TO_SERVICES,
                       DEFAULT_PORT, ONION_PREFIX)
+from utils import get_keys, ip_to_network
 
 redis.connection.socket = gevent.socket
 
@@ -190,22 +191,15 @@ def restart(timestamp):
     """
     nodes = []  # Reachable nodes
 
-    keys = []
-    cursor = 0
-    while True:
-        (cursor, partial_keys) = REDIS_CONN.scan(cursor, 'node:*')
-        keys.extend(partial_keys)
-        if cursor == 0:
-            break
-    logging.debug("Keys: %d", len(keys))
-
     redis_pipe = REDIS_CONN.pipeline()
-    for key in keys:
+    for key in get_keys(REDIS_CONN, 'node:*'):
         state = REDIS_CONN.hget(key, 'state')
         if state == "up":
             nodes.append(key)
             (address, port, services) = key[5:].split("-", 2)
             redis_pipe.sadd('pending', (address, int(port), int(services)))
+        redis_pipe.delete(key)
+    for key in get_keys(REDIS_CONN, 'crawl:cidr:*'):
         redis_pipe.delete(key)
 
     if SETTINGS['include_checked']:
@@ -285,6 +279,14 @@ def task():
         key = "node:{}-{}-{}".format(node[0], node[1], node[2])
         if redis_conn.exists(key):
             continue
+
+        # Check if prefix has hit its limit
+        if ":" in node[0] and SETTINGS['ipv6_prefix'] < 128:
+            cidr = ip_to_network(node[0], SETTINGS['ipv6_prefix'])
+            nodes = redis_conn.incr('crawl:cidr:{}'.format(cidr))
+            if nodes > SETTINGS['nodes_per_ipv6_prefix']:
+                logging.debug("CIDR %s: %d", cidr, nodes)
+                continue
 
         connect(redis_conn, key)
 
@@ -397,6 +399,9 @@ def init_settings(argv):
     SETTINGS['cron_delay'] = conf.getint('crawl', 'cron_delay')
     SETTINGS['max_age'] = conf.getint('crawl', 'max_age')
     SETTINGS['ipv6'] = conf.getboolean('crawl', 'ipv6')
+    SETTINGS['ipv6_prefix'] = conf.getint('crawl', 'ipv6_prefix')
+    SETTINGS['nodes_per_ipv6_prefix'] = conf.getint('crawl',
+                                                    'nodes_per_ipv6_prefix')
 
     SETTINGS['exclude_ipv4_networks'] = list_excluded_networks(
         conf.get('crawl', 'exclude_ipv4_networks'))
@@ -452,15 +457,10 @@ def main(argv):
     if SETTINGS['master']:
         REDIS_CONN.set('crawl:master:state', "starting")
         logging.info("Removing all keys")
-        keys = []
-        cursor = 0
-        while True:
-            (cursor, partial_keys) = REDIS_CONN.scan(cursor, 'node:*')
-            keys.extend(partial_keys)
-            if cursor == 0:
-                break
         redis_pipe = REDIS_CONN.pipeline()
-        for key in keys:
+        for key in get_keys(REDIS_CONN, 'node:*'):
+            redis_pipe.delete(key)
+        for key in get_keys(REDIS_CONN, 'crawl:cidr:*'):
             redis_pipe.delete(key)
         redis_pipe.delete('pending')
         redis_pipe.execute()
