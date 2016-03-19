@@ -194,19 +194,20 @@ def task():
     (address, port, services, height) = eval(node)
     node = (address, port)
 
+    if REDIS_CONN.sadd('open', node) == 0:
+        logging.debug("Connection exists: %s", node)
+        return
+
     # Check if prefix has hit its limit
     cidr_key = None
     if ":" in address and SETTINGS['ipv6_prefix'] < 128:
         cidr = ip_to_network(address, SETTINGS['ipv6_prefix'])
         cidr_key = 'ping:cidr:{}'.format(cidr)
         nodes = REDIS_CONN.incr(cidr_key)
+        logging.info("+CIDR %s: %d", cidr, nodes)
         if nodes > SETTINGS['nodes_per_ipv6_prefix']:
-            logging.debug("CIDR %s: %d", cidr, nodes)
+            logging.info("CIDR limit reached: %s", cidr)
             return
-
-    if REDIS_CONN.sadd('open', node) == 0:
-        logging.debug("Connection exists: %s", node)
-        return
 
     proxy = None
     if address.endswith(".onion"):
@@ -232,7 +233,8 @@ def task():
 
     if len(handshake_msgs) == 0:
         if cidr_key:
-            REDIS_CONN.decr(cidr_key)
+            nodes = REDIS_CONN.decr(cidr_key)
+            logging.info("-CIDR %s: %d", cidr, nodes)
         REDIS_CONN.srem('open', node)
         return
 
@@ -245,7 +247,8 @@ def task():
     Keepalive(conn=conn, version_msg=handshake_msgs[0]).keepalive()
     conn.close()
     if cidr_key:
-        REDIS_CONN.decr(cidr_key)
+        nodes = REDIS_CONN.decr(cidr_key)
+        logging.info("-CIDR %s: %d", cidr, nodes)
     REDIS_CONN.srem('open', node)
 
 
