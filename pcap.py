@@ -187,7 +187,8 @@ class Cache(object):
                         logging.debug("Skip: %s", key)
                         continue
                 self.redis_pipe.zadd(key, timestamp, self.node_hash(node))
-                self.redis_pipe.expire(key, SETTINGS['ttl'])
+                if not REDIS_CONN.exists(key):
+                    self.redis_pipe.expire(key, SETTINGS['ttl'])
             self.count += msg['count']
         elif msg['command'] == "pong":
             key = "ping:{}-{}:{}".format(node[0], node[1], msg['nonce'])
