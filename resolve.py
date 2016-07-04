@@ -54,10 +54,10 @@ REDIS_CONN = redis.StrictRedis(unix_socket_path=REDIS_SOCKET,
                                password=REDIS_PASSWORD)
 
 # MaxMind databases
-GEOIP4 = pygeoip.GeoIP("geoip/GeoLiteCity.dat", pygeoip.MMAP_CACHE)
-GEOIP6 = pygeoip.GeoIP("geoip/GeoLiteCityv6.dat", pygeoip.MMAP_CACHE)
-ASN4 = pygeoip.GeoIP("geoip/GeoIPASNum.dat", pygeoip.MMAP_CACHE)
-ASN6 = pygeoip.GeoIP("geoip/GeoIPASNumv6.dat", pygeoip.MMAP_CACHE)
+GEOIP4 = pygeoip.GeoIP("geoip/GeoLiteCity.dat", pygeoip.MEMORY_CACHE)
+GEOIP6 = pygeoip.GeoIP("geoip/GeoLiteCityv6.dat", pygeoip.MEMORY_CACHE)
+ASN4 = pygeoip.GeoIP("geoip/GeoIPASNum.dat", pygeoip.MEMORY_CACHE)
+ASN6 = pygeoip.GeoIP("geoip/GeoIPASNumv6.dat", pygeoip.MEMORY_CACHE)
 
 SETTINGS = {}
 
@@ -90,12 +90,11 @@ class Resolve(object):
             if ttl < 0.1 * SETTINGS['ttl']:  # Less than 10% of initial TTL
                 expiring = True
 
-            if expiring:
-                self.resolved['geoip'][address] = None
-                if idx < 1000:
-                    self.resolved['hostname'][address] = None
+            if expiring and idx < 1000:
+                self.resolved['hostname'][address] = None
                 idx += 1
-        self.redis_pipe.execute()
+
+            self.resolved['geoip'][address] = None
 
         logging.info("GeoIP: %d", len(self.resolved['geoip']))
         self.resolve_geoip()
@@ -119,7 +118,6 @@ class Resolve(object):
                 resolved += 1  # country/asn is set
             key = 'resolve:{}'.format(address)
             self.redis_pipe.hset(key, 'geoip', geoip)
-            self.redis_pipe.expire(key, SETTINGS['ttl'])
             logging.debug("%s geoip: %s", key, geoip)
         logging.info("GeoIP: %d resolved", resolved)
 
