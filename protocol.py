@@ -819,10 +819,17 @@ class Connection(object):
                 (msg, data) = self.serializer.deserialize_msg(data)
             if msg.get('command') == "ping":
                 self.pong(msg['nonce'])  # respond to ping immediately
+            elif msg.get('command') == "version":
+                self.verack(msg)  # respond to version immediately
             msgs.append(msg)
         if len(msgs) > 0 and commands:
             msgs[:] = [msg for msg in msgs if msg.get('command') in commands]
         return msgs
+
+    def set_min_version(self, version):
+        self.serializer.protocol_version = min(
+            self.serializer.protocol_version,
+            version.get('version', PROTOCOL_VERSION))
 
     def handshake(self):
         # [version] >>>
@@ -835,7 +842,13 @@ class Connection(object):
         msgs = self.get_messages(length=148, commands=["version", "verack"])
         if len(msgs) > 0:
             msgs[:] = sorted(msgs, key=itemgetter('command'), reverse=True)
+            self.set_min_version(msgs[0])
         return msgs
+
+    def verack(self, version):
+        # [verack] >>>
+        msg = self.serializer.serialize_msg(command="verack")
+        self.send(msg)
 
     def getaddr(self):
         # [getaddr] >>>
