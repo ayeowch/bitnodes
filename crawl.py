@@ -47,19 +47,31 @@ from collections import Counter
 from ConfigParser import ConfigParser
 from ipaddress import ip_network
 
-from protocol import (ProtocolError, ConnectionError, Connection, TO_SERVICES,
-                      DEFAULT_PORT, ONION_PREFIX)
-from utils import get_keys, ip_to_network
+from protocol import (
+    ProtocolError,
+    ConnectionError,
+    Connection,
+    TESTNET3,
+    MAINNET_DEFAULT_PORT,
+    TESTNET3_DEFAULT_PORT,
+    TO_SERVICES,
+    ONION_PREFIX,
+)
+from utils import new_redis_conn, get_keys, ip_to_network
 
 redis.connection.socket = gevent.socket
 
-# Redis connection setup
-REDIS_SOCKET = os.environ.get('REDIS_SOCKET', "/tmp/redis.sock")
-REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD', None)
-REDIS_CONN = redis.StrictRedis(unix_socket_path=REDIS_SOCKET,
-                               password=REDIS_PASSWORD)
-
+REDIS_CONN = None
 SETTINGS = {}
+
+
+def default_port():
+    """
+    Returns default port to use for the network.
+    """
+    if SETTINGS['network'] == TESTNET3:
+        return TESTNET3_DEFAULT_PORT
+    return MAINNET_DEFAULT_PORT  # default
 
 
 def enumerate_node(redis_pipe, addr_msgs, now):
@@ -76,7 +88,7 @@ def enumerate_node(redis_pipe, addr_msgs, now):
                 # Add peering node with age <= 24 hours into crawl set
                 if age >= 0 and age <= SETTINGS['max_age']:
                     address = peer['ipv4'] or peer['ipv6'] or peer['onion']
-                    port = peer['port'] if peer['port'] > 0 else DEFAULT_PORT
+                    port = peer['port'] if peer['port'] > 0 else default_port()
                     services = peer['services']
                     if not address:
                         continue
@@ -115,6 +127,7 @@ def connect(redis_conn, key):
 
     conn = Connection((address, int(port)),
                       (SETTINGS['source_address'], 0),
+                      network=SETTINGS['network'],
                       socket_timeout=SETTINGS['socket_timeout'],
                       proxy=proxy,
                       protocol_version=SETTINGS['protocol_version'],
@@ -246,6 +259,8 @@ def cron():
             logging.info("Elapsed: %d", elapsed)
             logging.info("Restarting")
             restart(now)
+            while int(time.time()) - start < SETTINGS['snapshot_delay']:
+                gevent.sleep(1)
             start = int(time.time())
             REDIS_CONN.set('crawl:master:state', "running")
 
@@ -257,8 +272,7 @@ def task():
     Assigned to a worker to retrieve (pop) a node from the crawl set and
     attempt to establish connection with a new node.
     """
-    redis_conn = redis.StrictRedis(unix_socket_path=REDIS_SOCKET,
-                                   password=REDIS_PASSWORD)
+    redis_conn = new_redis_conn(network=SETTINGS['network'])
 
     while True:
         if not SETTINGS['master']:
@@ -309,10 +323,10 @@ def set_pending():
                 logging.debug("Exclude: %s", address)
                 continue
             logging.debug("%s: %s", seeder, address)
-            REDIS_CONN.sadd('pending', (address, DEFAULT_PORT, TO_SERVICES))
+            REDIS_CONN.sadd('pending', (address, default_port(), TO_SERVICES))
     if SETTINGS['onion']:
         for address in SETTINGS['onion_nodes']:
-            REDIS_CONN.sadd('pending', (address, DEFAULT_PORT, TO_SERVICES))
+            REDIS_CONN.sadd('pending', (address, default_port(), TO_SERVICES))
 
 
 def is_excluded(address):
@@ -387,6 +401,7 @@ def init_settings(argv):
     conf = ConfigParser()
     conf.read(argv[1])
     SETTINGS['logfile'] = conf.get('crawl', 'logfile')
+    SETTINGS['network'] = conf.get('crawl', 'network')
     SETTINGS['seeders'] = conf.get('crawl', 'seeders').strip().split("\n")
     SETTINGS['workers'] = conf.getint('crawl', 'workers')
     SETTINGS['debug'] = conf.getboolean('crawl', 'debug')
@@ -397,6 +412,7 @@ def init_settings(argv):
     SETTINGS['relay'] = conf.getint('crawl', 'relay')
     SETTINGS['socket_timeout'] = conf.getint('crawl', 'socket_timeout')
     SETTINGS['cron_delay'] = conf.getint('crawl', 'cron_delay')
+    SETTINGS['snapshot_delay'] = conf.getint('crawl', 'snapshot_delay')
     SETTINGS['max_age'] = conf.getint('crawl', 'max_age')
     SETTINGS['ipv6'] = conf.getboolean('crawl', 'ipv6')
     SETTINGS['ipv6_prefix'] = conf.getint('crawl', 'ipv6_prefix')
@@ -453,6 +469,9 @@ def main(argv):
                         filemode='a')
     print("Writing output to {}, press CTRL+C to terminate..".format(
         SETTINGS['logfile']))
+
+    global REDIS_CONN
+    REDIS_CONN = new_redis_conn(network=SETTINGS['network'])
 
     if SETTINGS['master']:
         REDIS_CONN.set('crawl:master:state', "starting")
