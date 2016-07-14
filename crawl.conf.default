@@ -1,9 +1,13 @@
 [crawl]
 
 # Logfile
-logfile = crawl.log
+logfile = crawl.mainnet.log
+
+# Network (mainnet or testnet3)
+network = mainnet
 
 # List of DNS seeders to get a subset of reachable nodes
+# --- mainnet ---
 seeders =
     dnsseed.bitcoin.dashjr.org
     dnsseed.bluematt.me
@@ -12,6 +16,11 @@ seeders =
     seed.bitcoin.sipa.be
     seed.bitcoinstats.com
     seed.bitnodes.io
+# --- testnet3 ---
+#seeders =
+#    testnet-seed.bitcoin.jonasschnelli.ch
+#    testnet-seed.bluematt.me
+#    testnet-seed.bitcoin.schildbach.de
 
 # Number of concurrent workers (greenlets)
 workers = 500
@@ -41,10 +50,13 @@ services = 0
 relay = 0
 
 # Socket timeout
-socket_timeout = 10
+socket_timeout = 30
 
 # Run cron tasks every given interval
 cron_delay = 10
+
+# Take full network snapshot at most at every given interval
+snapshot_delay = 240
 
 # Max. age for peering node to be included in crawl set
 max_age = 86400
@@ -88,7 +100,7 @@ exclude_ipv6_networks =
 exclude_ipv4_bogons = True
 
 # Attempt to establish connection with .onion nodes
-onion = False
+onion = True
 
 # Tor proxy is required to connect to .onion address
 tor_proxy = 127.0.0.1:9050
@@ -120,4 +132,7 @@ onion_nodes =
 include_checked = False
 
 # Relative path to directory containing timestamp-prefixed JSON crawl files
-crawl_dir = data/crawl
+# --- mainnet ---
+crawl_dir = data/crawl/mainnet
+# --- testnet3 ---
+#crawl_dir = data/crawl/testnet3

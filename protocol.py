@@ -149,18 +149,25 @@ from binascii import hexlify, unhexlify
 from cStringIO import StringIO
 from operator import itemgetter
 
-MAGIC_NUMBER = "\xF9\xBE\xB4\xD9"
+MAINNET = "mainnet"
+TESTNET3 = "testnet3"
+
+MAINNET_MAGIC_NUMBER = "\xF9\xBE\xB4\xD9"
+TESTNET3_MAGIC_NUMBER = "\x0B\x11\x09\x07"
+
+MAINNET_DEFAULT_PORT = 8333
+TESTNET3_DEFAULT_PORT = 18333
+
 MIN_PROTOCOL_VERSION = 70001
 PROTOCOL_VERSION = 70002
 FROM_SERVICES = 0
 TO_SERVICES = 1  # NODE_NETWORK
 USER_AGENT = "/bitnodes.21.co:0.1/"
-HEIGHT = 395142
+HEIGHT = 420000
 RELAY = 0  # set to 1 to receive all txs
-DEFAULT_PORT = 8333
 
 SOCKET_BUFSIZE = 8192
-SOCKET_TIMEOUT = 15
+SOCKET_TIMEOUT = 30
 HEADER_LEN = 24
 
 ONION_PREFIX = "\xFD\x87\xD8\x7E\xEB\x43"  # ipv6 prefix for .onion address
@@ -240,6 +247,10 @@ def create_connection(address, timeout=SOCKET_TIMEOUT, source_address=None,
 
 class Serializer(object):
     def __init__(self, **config):
+        if config.get('network') == TESTNET3:
+            self.magic_number = TESTNET3_MAGIC_NUMBER
+        else:
+            self.magic_number = MAINNET_MAGIC_NUMBER  # default
         self.protocol_version = config.get('protocol_version',
                                            PROTOCOL_VERSION)
         self.to_services = config.get('to_services', TO_SERVICES)
@@ -256,7 +267,7 @@ class Serializer(object):
     def serialize_msg(self, **kwargs):
         command = kwargs['command']
         msg = [
-            MAGIC_NUMBER,
+            self.magic_number,
             command + "\x00" * (12 - len(command)),
         ]
 
@@ -337,9 +348,9 @@ class Serializer(object):
         data = StringIO(data)
 
         msg['magic_number'] = data.read(4)
-        if msg['magic_number'] != MAGIC_NUMBER:
+        if msg['magic_number'] != self.magic_number:
             raise InvalidMagicNumberError("{} != {}".format(
-                hexlify(msg['magic_number']), hexlify(MAGIC_NUMBER)))
+                hexlify(msg['magic_number']), hexlify(self.magic_number)))
 
         msg['command'] = data.read(12).strip("\x00")
         msg['length'] = struct.unpack("<I", data.read(4))[0]
@@ -748,7 +759,10 @@ class Serializer(object):
 class Connection(object):
     def __init__(self, to_addr, from_addr=("0.0.0.0", 0), **config):
         if to_addr[1] == 0:
-            to_addr = (to_addr[0], DEFAULT_PORT)
+            if config.get('network') == TESTNET3:
+                to_addr = (to_addr[0], TESTNET3_DEFAULT_PORT)
+            else:
+                to_addr = (to_addr[0], MAINNET_DEFAULT_PORT)  # default
         self.to_addr = to_addr
         self.from_addr = from_addr
         self.serializer = Serializer(**config)
@@ -919,7 +933,7 @@ class Connection(object):
 
 
 def main():
-    to_addr = ("148.251.238.178", 8333)
+    to_addr = ("136.243.139.96", MAINNET_DEFAULT_PORT)
     to_services = TO_SERVICES
 
     handshake_msgs = []

@@ -28,7 +28,24 @@
 Common helper methods.
 """
 
+import os
+import redis
 from ipaddress import ip_network
+
+from protocol import MAINNET, TESTNET3
+
+
+def new_redis_conn(network=MAINNET):
+    """
+    Returns new instance of Redis connection with the right db selected for the
+    network.
+    """
+    db = 0  # default
+    if network == TESTNET3:
+        db = 1
+    socket = os.environ.get('REDIS_SOCKET', "/tmp/redis.sock")
+    password = os.environ.get('REDIS_PASSWORD', None)
+    return redis.StrictRedis(db=db, password=password, unix_socket_path=socket)
 
 
 def get_keys(redis_conn, pattern):
