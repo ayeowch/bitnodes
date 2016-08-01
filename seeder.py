@@ -41,7 +41,7 @@ import time
 from ConfigParser import ConfigParser
 from ipaddress import ip_address, ip_network
 
-from protocol import DEFAULT_PORT
+from protocol import MAINNET_DEFAULT_PORT
 
 # Redis connection setup
 REDIS_SOCKET = os.environ.get('REDIS_SOCKET', "/tmp/redis.sock")
@@ -130,7 +130,7 @@ class Seeder(object):
             age = self.now - node[4]
             height = node[6]
             asn = node[13]
-            if (port != DEFAULT_PORT or
+            if (port != MAINNET_DEFAULT_PORT or
                     asn is None or
                     asn in asns or
                     age < min_age or
