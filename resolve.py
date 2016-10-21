@@ -80,9 +80,6 @@ class Resolve(object):
 
         idx = 0
         for address in self.addresses:
-            if address.endswith(".onion"):
-                continue
-
             key = 'resolve:{}'.format(address)
 
             ttl = REDIS_CONN.ttl(key)
@@ -90,7 +87,7 @@ class Resolve(object):
             if ttl < 0.1 * SETTINGS['ttl']:  # Less than 10% of initial TTL
                 expiring = True
 
-            if expiring and idx < 1000:
+            if expiring and idx < 1000 and not address.endswith(".onion"):
                 self.resolved['hostname'][address] = None
                 idx += 1
 
@@ -185,7 +182,9 @@ def raw_geoip(address):
 
     geoip_record = None
     prec = Decimal('.000001')
-    if ":" in address:
+    if address.endswith(".onion"):
+        geoip_record = None
+    elif ":" in address:
         geoip_record = GEOIP6.record_by_addr(address)
     else:
         geoip_record = GEOIP4.record_by_addr(address)
@@ -197,7 +196,9 @@ def raw_geoip(address):
         timezone = geoip_record['time_zone']
 
     asn_record = None
-    if ":" in address:
+    if address.endswith(".onion"):
+        asn_record = "TOR Tor network"
+    elif ":" in address:
         asn_record = ASN6.org_by_addr(address)
     else:
         asn_record = ASN4.org_by_addr(address)
