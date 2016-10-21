@@ -108,7 +108,7 @@ class Seeder(object):
             template = open(SETTINGS['template'], "r") \
                 .read() \
                 .replace("1413235952", serial) \
-                .replace("seed.bitnodes.io", zone)
+                .replace("seed.bitnodes.io.", zone.replace("zone", ""))
             content = "".join([
                 template,
                 "\n",
