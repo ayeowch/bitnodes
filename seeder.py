@@ -96,6 +96,10 @@ class Seeder(object):
             if i == 0:
                 zone = default_zone
                 zone_file = SETTINGS['zone_file']
+                wildcard = "".join([
+                    "\n",
+                    "*.seed.bitnodes.io.\tIN\tCNAME\tseed.bitnodes.io.",
+                ])
                 addresses = []
                 for services, addrs in self.addresses.iteritems():
                     if services & 1 == 1:  # NODE_NETWORK
@@ -103,6 +107,7 @@ class Seeder(object):
             else:
                 zone = 'x%x.%s' % (i, default_zone)
                 zone_file = SETTINGS['zone_file'].replace(default_zone, zone)
+                wildcard = ""
                 addresses = self.addresses[i]
             logging.info("Zone file: %s", zone_file)
             serial = str(self.now)
@@ -113,6 +118,7 @@ class Seeder(object):
                 .replace("seed.bitnodes.io.", zone.replace("zone", ""))
             content = "".join([
                 template,
+                wildcard,
                 "\n",
                 self.get_records(addresses),
             ]).strip() + "\n"
