@@ -96,8 +96,10 @@ class Seeder(object):
             if i == 0:
                 zone = default_zone
                 zone_file = SETTINGS['zone_file']
-                values = self.addresses.itervalues()
-                addresses = sorted({a for addrs in values for a in addrs})
+                addresses = []
+                for services, addrs in self.addresses.iteritems():
+                    if services & 1 == 1:  # NODE_NETWORK
+                        addresses.extend(addrs)
             else:
                 zone = 'x%x.%s' % (i, default_zone)
                 zone_file = SETTINGS['zone_file'].replace(default_zone, zone)
