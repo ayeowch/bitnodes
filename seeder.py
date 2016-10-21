@@ -126,6 +126,8 @@ class Seeder(object):
         asns = set()
         for node in self.nodes:
             address = node[0]
+            if address.endswith(".onion"):
+                continue
             port = node[1]
             age = self.now - node[4]
             height = node[6]
