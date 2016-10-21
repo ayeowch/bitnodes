@@ -171,7 +171,7 @@ class Keepalive(object):
             services = node[-1]
             if address == self.node[0]:
                 continue
-            if services != 1:  # Skip if not NODE_NETWORK
+            if not services & 1 == 1:  # Skip if not NODE_NETWORK
                 continue
             addr_list.append((timestamp, services, address, port))
         if len(addr_list) == 0:

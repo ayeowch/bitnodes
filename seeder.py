@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# seeder.py - Exports reachable nodes into a DNS zone file for DNS seeder.
+# seeder.py - Exports reachable nodes into DNS zone files for DNS seeder.
 #
 # Copyright (c) Addy Yeow Chin Heng <ayeowch@gmail.com>
 #
@@ -25,7 +25,7 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 """
-Exports reachable nodes into a DNS zone file for DNS seeder.
+Exports reachable nodes into DNS zone files for DNS seeder.
 """
 
 import glob
@@ -38,6 +38,7 @@ import redis
 import requests
 import sys
 import time
+from collections import defaultdict
 from ConfigParser import ConfigParser
 from ipaddress import ip_address, ip_network
 
@@ -55,21 +56,20 @@ SETTINGS = {}
 class Seeder(object):
     """
     Implements seeding mechanic by exporting reachable nodes as A and AAAA
-    records into a DNS zone file. A separate DNS server software is expected to
-    consume and serve the zone file to the public.
+    records into DNS zone files. A separate DNS server software is expected to
+    consume and serve the zone files to the public.
     """
     def __init__(self):
         self.dump = None
         self.nodes = []
-        self.a_records = []
-        self.aaaa_records = []
+        self.addresses = defaultdict(list)
         self.now = 0
         self.blocklist = set()
         self.blocklist_timestamp = 0
 
     def export_nodes(self, dump):
         """
-        Exports nodes as A and AAAA records from the latest snapshot.
+        Exports nodes to generate A and AAAA records from the latest snapshot.
         """
         self.now = int(time.time())
         if self.now - self.blocklist_timestamp > 3600:
@@ -81,36 +81,62 @@ class Seeder(object):
             except ValueError:
                 logging.warning("Write pending")
                 return
-            self.a_records = []
-            self.aaaa_records = []
-            for address in self.filter_nodes():
-                if ":" in address:
-                    self.aaaa_records.append("@\tIN\tAAAA\t{}".format(address))
-                else:
-                    self.a_records.append("@\tIN\tA\t{}".format(address))
+            self.addresses = defaultdict(list)
+            for address, services in self.filter_nodes():
+                self.addresses[services].append(address)
             self.dump = dump
-        self.save_zone_file()
+        self.save_zone_files()
 
-    def save_zone_file(self):
+    def save_zone_files(self):
         """
-        Saves A and AAAA records in DNS zone file.
+        Saves A and AAAA records in DNS zone files.
         """
-        logging.info("A records: %d", len(self.a_records))
-        logging.info("AAAA records: %d", len(self.aaaa_records))
-        random.shuffle(self.a_records)
-        random.shuffle(self.aaaa_records)
-        serial = str(self.now)
-        logging.debug("Serial: %s", serial)
-        template = open(SETTINGS['template'], "r").read()
-        template = template.replace("1413235952", serial)
-        content = "".join([
-            template,
-            "\n".join(self.a_records[:SETTINGS['a_records']]),
+        default_zone = os.path.basename(SETTINGS['zone_file'])
+        for i in range(0xf + 1):
+            if i == 0:
+                zone = default_zone
+                zone_file = SETTINGS['zone_file']
+                values = self.addresses.itervalues()
+                addresses = sorted({a for addrs in values for a in addrs})
+            else:
+                zone = 'x%x.%s' % (i, default_zone)
+                zone_file = SETTINGS['zone_file'].replace(default_zone, zone)
+                addresses = self.addresses[i]
+            logging.info("Zone file: %s", zone_file)
+            serial = str(self.now)
+            logging.debug("Serial: %s", serial)
+            template = open(SETTINGS['template'], "r") \
+                .read() \
+                .replace("1413235952", serial) \
+                .replace("seed.bitnodes.io", zone)
+            content = "".join([
+                template,
+                "\n",
+                self.get_records(addresses),
+            ]).strip() + "\n"
+            open(zone_file, "w").write(content)
+
+    def get_records(self, addresses):
+        """
+        Returns addresses formatted in A and AAAA records for a zone file.
+        """
+        a_records = []
+        aaaa_records = []
+        for address in addresses:
+            if ":" in address:
+                aaaa_records.append("@\tIN\tAAAA\t{}".format(address))
+            else:
+                a_records.append("@\tIN\tA\t{}".format(address))
+        logging.info("A records: %d", len(a_records))
+        logging.info("AAAA records: %d", len(aaaa_records))
+        random.shuffle(a_records)
+        random.shuffle(aaaa_records)
+        records = "".join([
+            "\n".join(a_records[:SETTINGS['a_records']]),
             "\n",
-            "\n".join(self.aaaa_records[:SETTINGS['aaaa_records']]),
-            "\n",
+            "\n".join(aaaa_records[:SETTINGS['aaaa_records']]),
         ])
-        open(SETTINGS['zone_file'], "w").write(content)
+        return records
 
     def filter_nodes(self):
         """
@@ -130,6 +156,7 @@ class Seeder(object):
                 continue
             port = node[1]
             age = self.now - node[4]
+            services = node[5]
             height = node[6]
             asn = node[13]
             if (port != MAINNET_DEFAULT_PORT or
@@ -139,7 +166,7 @@ class Seeder(object):
                     height < min_height or
                     self.is_blocked(address)):
                 continue
-            yield address
+            yield address, services
             asns.add(asn)
 
     def get_min_height(self):
@@ -215,7 +242,7 @@ class Seeder(object):
 
 def cron():
     """
-    Periodically fetches latest snapshot to sample nodes for DNS zone file.
+    Periodically fetches latest snapshot to sample nodes for DNS zone files.
     """
     seeder = Seeder()
     while True:
