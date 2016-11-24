@@ -626,7 +626,7 @@ class Serializer(object):
         return ''.join(payload)
 
     def deserialize_inventory(self, data):
-        inv_type = struct.unpack("<I", data.read(4))[0]
+        inv_type = unpack("<I", data.read(4))
         inv_hash = data.read(32)[::-1]  # BE -> LE
         return {
             'type': inv_type,
