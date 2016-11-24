@@ -375,7 +375,7 @@ class Serializer(object):
         msg = {}
         data = StringIO(data)
 
-        msg['version'] = struct.unpack("<i", data.read(4))[0]
+        msg['version'] = unpack("<i", data.read(4))
         if msg['version'] < MIN_PROTOCOL_VERSION:
             raise IncompatibleClientError("{} < {}".format(
                 msg['version'], MIN_PROTOCOL_VERSION))
