@@ -126,23 +126,30 @@ class Seeder(object):
 
     def get_records(self, addresses):
         """
-        Returns addresses formatted in A and AAAA records for a zone file.
+        Returns addresses formatted in A, AAAA, TXT records for a zone file.
         """
         a_records = []
         aaaa_records = []
+        txt_records = []
         for address in addresses:
-            if ":" in address:
+            if address.endswith(".onion"):
+                txt_records.append("@\tIN\tTXT\t{}".format(address))
+            elif ":" in address:
                 aaaa_records.append("@\tIN\tAAAA\t{}".format(address))
             else:
                 a_records.append("@\tIN\tA\t{}".format(address))
         logging.info("A records: %d", len(a_records))
         logging.info("AAAA records: %d", len(aaaa_records))
+        logging.info("TXT records: %d", len(txt_records))
         random.shuffle(a_records)
         random.shuffle(aaaa_records)
+        random.shuffle(txt_records)
         records = "".join([
             "\n".join(a_records[:SETTINGS['a_records']]),
             "\n",
             "\n".join(aaaa_records[:SETTINGS['aaaa_records']]),
+            "\n",
+            "\n".join(txt_records[:SETTINGS['txt_records']]),
         ])
         return records
 
@@ -160,8 +167,6 @@ class Seeder(object):
         asns = set()
         for node in self.nodes:
             address = node[0]
-            if address.endswith(".onion"):
-                continue
             port = node[1]
             age = self.now - node[4]
             services = node[5]
@@ -169,10 +174,11 @@ class Seeder(object):
             asn = node[13]
             if (port != MAINNET_DEFAULT_PORT or
                     asn is None or
-                    asn in asns or
                     age < min_age or
                     height < min_height or
                     self.is_blocked(address)):
+                continue
+            if asn in asns and not address.endswith(".onion"):
                 continue
             yield address, services
             asns.add(asn)
@@ -208,7 +214,7 @@ class Seeder(object):
         """
         Returns True if address is found in blocklist, False if otherwise.
         """
-        if ":" in address:
+        if address.endswith(".onion") or ":" in address:
             return False
         for network in self.blocklist:
             if ip_address(address) in network:
@@ -275,6 +281,7 @@ def init_settings(argv):
     SETTINGS['template'] = conf.get('seeder', 'template')
     SETTINGS['a_records'] = conf.getint('seeder', 'a_records')
     SETTINGS['aaaa_records'] = conf.getint('seeder', 'aaaa_records')
+    SETTINGS['txt_records'] = conf.getint('seeder', 'txt_records')
 
 
 def main(argv):
