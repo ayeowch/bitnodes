@@ -26,3 +26,6 @@ a_records = 25
 
 # Number of AAAA records to export into DNS zone file
 aaaa_records = 15
+
+# Number of TXT records to export into DNS zone file
+txt_records = 25
