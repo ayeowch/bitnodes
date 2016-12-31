@@ -13,12 +13,10 @@ seeders =
     dnsseed.bluematt.me
     dnsseed.vinumeris.com
     seed.bitcoin.jonasschnelli.ch
-    seed.bitcoin.sipa.be
     seed.bitcoinstats.com
     seed.bitnodes.io
 # --- testnet3 ---
 #seeders =
-#    testnet-seed.bitcoin.jonasschnelli.ch
 #    testnet-seed.bluematt.me
 #    testnet-seed.bitcoin.schildbach.de
 
