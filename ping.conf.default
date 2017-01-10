@@ -13,7 +13,7 @@ debug = False
 source_address = 0.0.0.0
 
 # Protocol version to use for outgoing version message
-protocol_version = 70002
+protocol_version = 70015
 
 # User agent (BIP 0014) to use for outgoing version message
 # -----------------------------------------------------------------------------
@@ -22,7 +22,7 @@ protocol_version = 70002
 # crawler. This is so that users will not confuse your crawler with another
 # instance that is already running and generating data for the project.
 # -----------------------------------------------------------------------------
-user_agent = /bitnodes.21.co:0.1/
+user_agent = /litenodes:1.0/
 
 # Services to use for outgoing network address message
 services = 0
@@ -44,7 +44,7 @@ nodes_per_ipv6_prefix = 1
 ttl = 10800
 
 # Attempt to establish connection with .onion nodes
-onion = True
+onion = False
 
 # Tor proxy is required to connect to .onion address
 tor_proxy = 127.0.0.1:9050

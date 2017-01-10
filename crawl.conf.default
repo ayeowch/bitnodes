@@ -9,16 +9,15 @@ network = mainnet
 # List of DNS seeders to get a subset of reachable nodes
 # --- mainnet ---
 seeders =
-    dnsseed.bitcoin.dashjr.org
-    dnsseed.bluematt.me
-    dnsseed.vinumeris.com
-    seed.bitcoin.jonasschnelli.ch
-    seed.bitcoinstats.com
-    seed.bitnodes.io
+    seed-a.litecoin.loshan.co.uk
+    dnsseed.thrasher.io
+    dnsseed.litecointools.com
+    dnsseed.litecoinpool.org
+    dnsseed.koin-project.com
 # --- testnet3 ---
 #seeders =
-#    testnet-seed.bluematt.me
-#    testnet-seed.bitcoin.schildbach.de
+#    seed-b.litecoin.loshan.co.uk
+#    testnet-seed.litecointools.com
 
 # Number of concurrent workers (greenlets)
 workers = 500
@@ -30,7 +29,7 @@ debug = False
 source_address = 0.0.0.0
 
 # Protocol version to use for outgoing version message
-protocol_version = 70002
+protocol_version = 70015
 
 # User agent (BIP 0014) to use for outgoing version message
 # -----------------------------------------------------------------------------
@@ -39,7 +38,7 @@ protocol_version = 70002
 # crawler. This is so that users will not confuse your crawler with another
 # instance that is already running and generating data for the project.
 # -----------------------------------------------------------------------------
-user_agent = /bitnodes.21.co:0.1/
+user_agent = /litenodes:1.0/
 
 # Services to use for outgoing network address message
 services = 0
@@ -98,7 +97,7 @@ exclude_ipv6_networks =
 exclude_ipv4_bogons = True
 
 # Attempt to establish connection with .onion nodes
-onion = True
+onion = False
 
 # Tor proxy is required to connect to .onion address
 tor_proxy = 127.0.0.1:9050
