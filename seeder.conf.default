@@ -4,13 +4,13 @@
 logfile = seeder.log
 
 # Print debug output
-debug = True
+debug = False
 
 # Relative path to directory containing timestamp-prefixed JSON export files
 export_dir = data/export
 
 # Minimum height for exported nodes
-min_height = 420000
+min_height = 456813
 
 # Minimum age for exported nodes
 min_age = 28800
