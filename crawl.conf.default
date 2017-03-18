@@ -11,9 +11,10 @@ network = mainnet
 seeders =
     dnsseed.bitcoin.dashjr.org
     dnsseed.bluematt.me
-    dnsseed.vinumeris.com
     seed.bitcoin.jonasschnelli.ch
+    seed.bitcoin.sipa.be
     seed.bitcoinstats.com
+    seed.btc.petertodd.org
     seed.bitnodes.io
 # --- testnet3 ---
 #seeders =
