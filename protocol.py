@@ -146,6 +146,7 @@ import sys
 import time
 from base64 import b32decode, b32encode
 from binascii import hexlify, unhexlify
+from collections import deque
 from cStringIO import StringIO
 from operator import itemgetter
 
@@ -756,6 +757,7 @@ class Connection(object):
         self.socket_timeout = config.get('socket_timeout', SOCKET_TIMEOUT)
         self.proxy = config.get('proxy', None)
         self.socket = None
+        self.bps = deque([], maxlen=128)  # bps samples for this connection
 
     def open(self):
         self.socket = create_connection(self.to_addr,
@@ -776,6 +778,7 @@ class Connection(object):
         self.socket.sendall(data)
 
     def recv(self, length=0):
+        start_t = time.time()
         if length > 0:
             chunks = []
             while length > 0:
@@ -791,6 +794,9 @@ class Connection(object):
             if not data:
                 raise RemoteHostClosedConnection(
                     "{} closed connection".format(self.to_addr))
+        if len(data) > SOCKET_BUFSIZE:
+            end_t = time.time()
+            self.bps.append((len(data) * 8) / (end_t - start_t))
         return data
 
     def get_messages(self, length=0, commands=None):

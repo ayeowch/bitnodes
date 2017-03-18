@@ -312,11 +312,22 @@ def set_pending():
     """
     for seeder in SETTINGS['seeders']:
         nodes = []
+
         try:
-            nodes = socket.getaddrinfo(seeder, None)
+            ipv4_nodes = socket.getaddrinfo(seeder, None, socket.AF_INET)
         except socket.gaierror as err:
             logging.warning("%s", err)
-            continue
+        else:
+            nodes.extend(ipv4_nodes)
+
+        if SETTINGS['ipv6']:
+            try:
+                ipv6_nodes = socket.getaddrinfo(seeder, None, socket.AF_INET6)
+            except socket.gaierror as err:
+                logging.warning("%s", err)
+            else:
+                nodes.extend(ipv6_nodes)
+
         for node in nodes:
             address = node[-1][0]
             if is_excluded(address):
@@ -324,6 +335,7 @@ def set_pending():
                 continue
             logging.debug("%s: %s", seeder, address)
             REDIS_CONN.sadd('pending', (address, default_port(), TO_SERVICES))
+
     if SETTINGS['onion']:
         for address in SETTINGS['onion_nodes']:
             REDIS_CONN.sadd('pending', (address, default_port(), TO_SERVICES))
