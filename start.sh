@@ -10,6 +10,7 @@ python -u ping.py ping.conf slave > ping.slave.1.out 2>&1 &
 python -u ping.py ping.conf slave > ping.slave.2.out 2>&1 &
 python -u ping.py ping.conf slave > ping.slave.3.out 2>&1 &
 python -u ping.py ping.conf slave > ping.slave.4.out 2>&1 &
+python -u ping.py ping.conf slave > ping.slave.5.out 2>&1 &
 
 python -u resolve.py resolve.conf > resolve.out 2>&1 &
 
