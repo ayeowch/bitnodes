@@ -153,7 +153,7 @@ from operator import itemgetter
 MAINNET = "mainnet"
 TESTNET3 = "testnet3"
 
-MAINNET_MAGIC_NUMBER = "\xF9\xBE\xB4\xD9"
+MAINNET_MAGIC_NUMBER = "\xFB\xC0\xB6\xDB"
 TESTNET3_MAGIC_NUMBER = "\x0B\x11\x09\x07"
 
 MAINNET_DEFAULT_PORT = 9333
