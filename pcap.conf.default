@@ -4,7 +4,7 @@
 logfile = pcap.log
 
 # Print debug output
-debug = False
+debug = True
 
 # Redis TTL for cached messages
 ttl = 10800
