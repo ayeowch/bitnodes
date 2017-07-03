@@ -10,7 +10,7 @@ debug = True
 ttl = 10800
 
 # Number of round-trip time (RTT) values to keep for each node
-rtt_count = 36
+rtt_count = 15
 
 # Tor proxy
 tor_proxy = 127.0.0.1:9050

@@ -4,13 +4,13 @@
 logfile = ping.log
 
 # Max. number of concurrent workers (greenlets) in a pool
-workers = 2000
+workers = 100
 
 # Print debug output
 debug = True
 
 # Public IP address for network interface
-source_address = 0.0.0.0
+source_address = 54.208.195.206
 
 # Protocol version to use for outgoing version message
 protocol_version = 70015
@@ -28,7 +28,7 @@ user_agent = /litenodes:1.0/
 services = 0
 
 # Set to 1 to receive all txs
-relay = 1
+relay = 0
 
 # Socket timeout
 socket_timeout = 30
