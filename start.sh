@@ -1,6 +1,5 @@
 #!/bin/bash
 # --- mainnet ---
-rm -rf data/*
 python -u crawl.py crawl.conf.default master >> log.out 2>&1 &
 python -u crawl.py crawl.conf.default slave >> log.out 2>&1 &
 # python -u crawl.py crawl.conf.default slave > crawl.mainnet.slave.2.out 2>&1 &
