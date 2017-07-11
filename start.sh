@@ -31,5 +31,5 @@ python -u pcap.py pcap.conf.default >> log.out 2>&1 &
 #python -u crawl.py crawl.testnet3.conf master > crawl.testnet3.master.out 2>&1 &
 
 # cd data/pcap
-# sudo rm *.pcap; sudo tcpdump -i eth0 -w %s.eth0.pcap -v -n -G 2 -B 65536 -Z ubuntu 'tcp and not src host 54.208.195.206' > eth0 2>&1 &
+# sudo tcpdump -i eth0 -w %s.eth0.pcap -v -n -G 2 -B 65536 -Z ubuntu 'tcp and not src host 54.208.195.206' > eth0 2>&1 &
 # sudo tcpdump -i lo -w %s.lo.pcap -v -n -G 2 -B 65536 -Z ubuntu 'tcp and port 9050' > lo 2>&1 &
