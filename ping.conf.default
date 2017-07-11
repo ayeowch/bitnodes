@@ -1,7 +1,7 @@
 [ping]
 
 # Logfile
-logfile = ping.log
+logfile = debug.log
 
 # Max. number of concurrent workers (greenlets) in a pool
 workers = 100
@@ -44,7 +44,7 @@ nodes_per_ipv6_prefix = 1
 ttl = 10800
 
 # Attempt to establish connection with .onion nodes
-onion = False
+onion = True
 
 # Tor proxy is required to connect to .onion address
 tor_proxy = 127.0.0.1:9050

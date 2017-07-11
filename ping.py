@@ -130,11 +130,14 @@ class Keepalive(object):
             self.conn.ping(nonce=nonce)
         except socket.error:
             raise
-        logging.debug("%s (%s)", self.node, nonce)
+
 
         self.last_ping = time.time()
         key = "ping:{}-{}:{}".format(self.node[0], self.node[1], nonce)
-        REDIS_CONN.lpush(key, int(self.last_ping * 1000))  # in ms
+        rtt = int(self.last_ping * 1000)
+        logging.debug("%s (%s) RTT: %s", self.node, nonce, rtt)
+
+        REDIS_CONN.lpush(key, rtt)  # in ms
         REDIS_CONN.expire(key, SETTINGS['ttl'])
 
         try:

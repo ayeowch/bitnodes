@@ -124,7 +124,7 @@ def main(argv):
     logging.basicConfig(level=loglevel,
                         format=logformat,
                         filename=SETTINGS['logfile'],
-                        filemode='w')
+                        filemode='a')
     print("Writing output to {}, press CTRL+C to terminate..".format(
         SETTINGS['logfile']))
 
@@ -144,6 +144,7 @@ def main(argv):
             logging.info("Nodes: %d", len(nodes))
             export_nodes(nodes, timestamp)
             REDIS_CONN.publish('export', timestamp)
+            REDIS_CONN.set('last_export', timestamp)
 
     return 0
 
