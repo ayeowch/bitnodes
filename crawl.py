@@ -473,7 +473,7 @@ def main(argv):
     if SETTINGS['debug']:
         loglevel = logging.DEBUG
 
-    logformat = ("[%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s "
+    logformat = ("%(filename)s [%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s "
                  "(%(funcName)s) %(message)s")
     logging.basicConfig(level=loglevel,
                         format=logformat,

@@ -144,6 +144,7 @@ import socks
 import struct
 import sys
 import time
+import re
 from base64 import b32decode, b32encode
 from binascii import hexlify, unhexlify
 from collections import deque
@@ -390,6 +391,11 @@ class Serializer(object):
         msg['nonce'] = unpack("<Q", data.read(8))
 
         msg['user_agent'] = self.deserialize_string(data)
+
+        banned_agent = re.compile(r"Feathercoin")
+        if re.match(banned_agent, msg['user_agent']) is not None:
+            raise IncompatibleClientError("{} < {}".format(
+                msg['user_agent'], MIN_PROTOCOL_VERSION))
 
         msg['height'] = unpack("<i", data.read(4))
 
