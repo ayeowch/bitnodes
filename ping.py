@@ -236,7 +236,7 @@ def task():
         conn.open()
         handshake_msgs = conn.handshake()
     except (ProtocolError, ConnectionError, socket.error) as err:
-        logging.debug("Closing %s (%s)", node, err)
+        logging.info("Closing %s (%s)", node, err)
         conn.close()
 
     if len(handshake_msgs) == 0:

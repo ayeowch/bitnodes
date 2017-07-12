@@ -392,7 +392,7 @@ class Serializer(object):
 
         msg['user_agent'] = self.deserialize_string(data)
 
-        banned_agent = re.compile(r"Feathercoin")
+        banned_agent = re.compile(r"Feathercoin|Digitalcoin")
         if re.match(banned_agent, msg['user_agent']) is not None:
             raise IncompatibleClientError("{} < {}".format(
                 msg['user_agent'], MIN_PROTOCOL_VERSION))

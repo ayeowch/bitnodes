@@ -104,13 +104,13 @@ class Cache(object):
                 try:
                     (msg, _data) = self.serializer.deserialize_msg(_data)
                 except (HeaderTooShortError, PayloadTooShortError) as err:
-                    logging.debug("%s: %s", stream_id, err)
+                    logging.info("%s: %s", stream_id, err)
                     try:
                         _data += data.next()
                     except StopIteration:
                         break
                 except ProtocolError as err:
-                    logging.debug("%s: %s", stream_id, err)
+                    logging.info("%s: %s", stream_id, err)
                     try:
                         _data = data.next()
                     except StopIteration:
