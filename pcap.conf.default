@@ -4,7 +4,7 @@
 logfile = debug.log
 
 # Print debug output
-debug = True
+debug = False
 
 # Redis TTL for cached messages
 ttl = 10800

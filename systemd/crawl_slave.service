@@ -1,0 +1,19 @@
+[Unit]
+Description=Start litecoin mainnet crawler slave
+
+[Service]
+WorkingDirectory=/home/ubuntu/bitnodes
+ExecStart=~/.virtualenvs/bitnodes/bin/python -u crawl.py crawl.conf.default slave
+
+# output goes to /var/log/syslog
+StandardOutput=syslog
+StandardError=syslog
+User=ubuntu
+Group=ubuntu
+
+SyslogIdentifier=crawl_slave
+
+[Install]
+WantedBy=multi-user.target
+Alias=crawl_slave.service
+

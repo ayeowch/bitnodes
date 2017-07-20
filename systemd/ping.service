@@ -1,0 +1,20 @@
+[Unit]
+Description=Ping script for the litecoin crawler
+
+[Service]
+WorkingDirectory=/home/ubuntu/bitnodes
+ExecStart=~/.virtualenvs/bitnodes/bin/python -u ping.py ping.conf.default master
+
+# output goes to /var/log/syslog
+StandardOutput=syslog
+StandardError=syslog
+User=ubuntu
+Group=ubuntu
+
+# This will default to "bundler" if we don't specify it
+SyslogIdentifier=ping
+
+[Install]
+WantedBy=multi-user.target
+Alias=ping.service
+

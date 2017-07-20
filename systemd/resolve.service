@@ -1,0 +1,19 @@
+[Unit]
+Description=Start litecoin mainnet resolver
+
+[Service]
+WorkingDirectory=/home/ubuntu/bitnodes
+ExecStart=/home/ubuntu/.virtualenvs/bitnodes/bin/python -u resolve.py resolve.conf.default
+
+# output goes to /var/log/syslog
+StandardOutput=syslog
+StandardError=syslog
+User=ubuntu
+Group=ubuntu
+
+SyslogIdentifier=resolve
+
+[Install]
+WantedBy=multi-user.target
+Alias=resolve.service
+
