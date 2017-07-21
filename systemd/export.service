@@ -3,7 +3,7 @@ Description=Exporter script for the litecoin crawler
 
 [Service]
 WorkingDirectory=/home/ubuntu/bitnodes
-ExecStart=~/.virtualenvs/bitnodes/bin/python -u export.py export.conf.default
+ExecStart=/home/ubuntu/.virtualenvs/bitnodes/bin/python -u export.py export.conf.default
 
 # output goes to /var/log/syslog
 StandardOutput=syslog

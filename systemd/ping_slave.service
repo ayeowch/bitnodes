@@ -3,7 +3,7 @@ Description=Ping script for the litecoin crawler
 
 [Service]
 WorkingDirectory=/home/ubuntu/bitnodes
-ExecStart=~/.virtualenvs/bitnodes/bin/python -u ping.py ping.conf.default slave
+ExecStart=/home/ubuntu/.virtualenvs/bitnodes/bin/python -u ping.py ping.conf.default slave
 
 # output goes to /var/log/syslog
 StandardOutput=syslog
