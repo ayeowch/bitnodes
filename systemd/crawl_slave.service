@@ -11,6 +11,10 @@ StandardError=syslog
 User=ubuntu
 Group=ubuntu
 
+TimeoutStartSec=10s
+Restart=on-failure
+RestartSec=20s
+
 SyslogIdentifier=crawl_slave
 
 [Install]

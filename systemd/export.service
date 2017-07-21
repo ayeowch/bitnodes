@@ -11,6 +11,10 @@ StandardError=syslog
 User=ubuntu
 Group=ubuntu
 
+TimeoutStartSec=16s
+Restart=on-failure
+RestartSec=20s
+
 # This will default to "bundler" if we don't specify it
 SyslogIdentifier=export
 
