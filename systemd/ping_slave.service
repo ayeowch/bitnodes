@@ -20,5 +20,4 @@ SyslogIdentifier=ping_slave
 
 [Install]
 WantedBy=multi-user.target
-Alias=ping_slave.service
 

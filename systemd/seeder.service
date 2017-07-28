@@ -19,5 +19,4 @@ SyslogIdentifier=seeder
 
 [Install]
 WantedBy=multi-user.target
-Alias=seeder.service
 

@@ -19,5 +19,4 @@ SyslogIdentifier=crawl_slave
 
 [Install]
 WantedBy=multi-user.target
-Alias=crawl_slave.service
 

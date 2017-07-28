@@ -19,5 +19,4 @@ SyslogIdentifier=resolve
 
 [Install]
 WantedBy=multi-user.target
-Alias=resolve.service
 

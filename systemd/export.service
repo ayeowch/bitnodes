@@ -20,5 +20,4 @@ SyslogIdentifier=export
 
 [Install]
 WantedBy=multi-user.target
-Alias=export.service
 

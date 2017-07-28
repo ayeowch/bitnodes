@@ -20,5 +20,4 @@ SyslogIdentifier=crawl
 
 [Install]
 WantedBy=multi-user.target
-Alias=crawl.service
 

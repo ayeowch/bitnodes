@@ -20,5 +20,4 @@ SyslogIdentifier=ping
 
 [Install]
 WantedBy=multi-user.target
-Alias=ping.service
 

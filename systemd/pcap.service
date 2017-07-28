@@ -19,5 +19,4 @@ SyslogIdentifier=pcap
 
 [Install]
 WantedBy=multi-user.target
-Alias=pcap.service
 
