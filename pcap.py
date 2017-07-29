@@ -123,6 +123,12 @@ class Cache(object):
                         _data = data.next()
                     except StopIteration:
                         break
+                except OverflowError as err:
+                    logging.error("OverflowError %s: %s", stream_id, err)
+                    try:
+                        _data = data.next()
+                    except StopIteration:
+                        break
                 else:
                     src = (stream_id[0], stream_id[1])
                     dst = (stream_id[2], stream_id[3])
