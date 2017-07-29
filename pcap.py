@@ -106,13 +106,13 @@ class Cache(object):
                 try:
                     (msg, _data) = self.serializer.deserialize_msg(_data)
                 except (HeaderTooShortError, PayloadTooShortError) as err:
-                    logging.error("HeaderTooShortError %s: %s", stream_id, err)
+                    #logging.error("HeaderTooShortError %s: %s", stream_id, err)
                     try:
                         _data += data.next()
                     except StopIteration:
                         break
                 except ProtocolError as err:
-                    logging.error("ProtocolError %s: %s", stream_id, err)
+                    #logging.error("ProtocolError %s: %s", stream_id, err)
                     try:
                         _data = data.next()
                     except StopIteration:
@@ -135,7 +135,7 @@ class Cache(object):
                     node = src
                     if src == SETTINGS['tor_proxy']:
                         node = dst
-                    logging.info("[SUCCESS] Node: %s: Command: %s", node, msg['command'])
+                    logging.info("[SUCCESS] Node: %s, Command: %s", node, msg['command'])
                     self.cache_message(node, self.stream.timestamp, msg)
         self.redis_pipe.execute()
         self.cache_rtt()
@@ -206,7 +206,7 @@ class Cache(object):
             self.count += msg['count']
         elif msg['command'] == "pong":
             key = "ping:{}-{}:{}".format(node[0], node[1], msg['nonce'])
-            logging.info("[SUCCESS] KEY: %s: timestamp: %s", key, timestamp)
+            logging.info("[PONG SUCCESS] KEY: %s, timestamp: %s", key, timestamp)
             self.redis_pipe.rpushx(key, timestamp)
             self.keys.add(key)
             self.count += 1
