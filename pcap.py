@@ -37,6 +37,8 @@ import redis
 import socket
 import sys
 import time
+import struct
+
 from collections import defaultdict
 from ConfigParser import ConfigParser
 from Queue import PriorityQueue
