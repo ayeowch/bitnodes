@@ -98,7 +98,7 @@ class Seeder(object):
                 zone_file = SETTINGS['zone_file']
                 wildcard = "".join([
                     "\n",
-                    "*.seed.bitnodes.io.\tIN\tCNAME\tseed.bitnodes.io.",
+                    "*.seed.litenodes.net.\tIN\tCNAME\tseed.litenodes.net.",
                 ])
                 addresses = []
                 for services, addrs in self.addresses.iteritems():
@@ -115,7 +115,7 @@ class Seeder(object):
             template = open(SETTINGS['template'], "r") \
                 .read() \
                 .replace("1413235952", serial) \
-                .replace("seed.bitnodes.io.", zone.replace("zone", ""))
+                .replace("seed.litenodes.net.", zone.replace("zone", ""))
             content = "".join([
                 template,
                 wildcard,
