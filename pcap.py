@@ -222,7 +222,9 @@ class Cache(object):
         Calculates round-trip time (RTT) values and caches them in Redis.
         """
         for key in self.keys:
+            logging.info("Key: %s", key)
             timestamps = REDIS_CONN.lrange(key, 0, 1)
+            logging.info("Timestamps: %s", timestamps)
             if len(timestamps) > 1:
                 rtt_key = "rtt:{}".format(':'.join(key.split(":")[1:-1]))
                 rtt = int(timestamps[1]) - int(timestamps[0])  # pong - ping
