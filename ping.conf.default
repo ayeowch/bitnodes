@@ -44,7 +44,7 @@ nodes_per_ipv6_prefix = 1
 ttl = 10800
 
 # Attempt to establish connection with .onion nodes
-onion = True
+onion = False
 
 # Tor proxy is required to connect to .onion address
 tor_proxy = 127.0.0.1:9050
