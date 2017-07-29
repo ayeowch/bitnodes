@@ -135,6 +135,7 @@ class Cache(object):
                     node = src
                     if src == SETTINGS['tor_proxy']:
                         node = dst
+                    logging.info("Sucess %s: %s", node, msg)
                     self.cache_message(node, self.stream.timestamp, msg)
         self.redis_pipe.execute()
         self.cache_rtt()
