@@ -119,7 +119,10 @@ class Cache(object):
                         break
                 except struct.error as err:
                     logging.error("struct.error %s: %s", stream_id, err)
-                    pass
+                    try:
+                        _data = data.next()
+                    except StopIteration:
+                        break
                 else:
                     src = (stream_id[0], stream_id[1])
                     dst = (stream_id[2], stream_id[3])
