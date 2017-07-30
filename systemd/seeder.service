@@ -1,5 +1,7 @@
 [Unit]
 Description=Start litecoin mainnet seeder
+After=redis.service
+
 
 [Service]
 WorkingDirectory=/home/ubuntu/bitnodes

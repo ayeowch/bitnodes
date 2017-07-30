@@ -1,5 +1,7 @@
 [Unit]
 Description=Ping script for the litecoin crawler
+After=redis.service ping.service
+
 
 [Service]
 WorkingDirectory=/home/ubuntu/bitnodes

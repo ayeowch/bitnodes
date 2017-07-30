@@ -1,10 +1,10 @@
 [Unit]
-Description=Start litecoin mainnet crawler slave
-After=redis.service crawl.service
+Description=Start tcpdump for litecoin network traffic
+
 
 [Service]
 WorkingDirectory=/home/ubuntu/bitnodes
-ExecStart=/home/ubuntu/.virtualenvs/bitnodes/bin/python -u crawl.py crawl.conf.default slave
+ExecStart=/bin/bash start_tcpdump.sh
 
 # output goes to /var/log/syslog
 StandardOutput=syslog
@@ -16,8 +16,7 @@ TimeoutStartSec=10s
 Restart=on-failure
 RestartSec=20s
 
-SyslogIdentifier=crawl_slave
+SyslogIdentifier=tcpdump
 
 [Install]
 WantedBy=multi-user.target
-

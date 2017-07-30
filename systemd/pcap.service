@@ -1,5 +1,7 @@
 [Unit]
 Description=Start litecoin mainnet pcap script
+After=redis.service
+
 
 [Service]
 WorkingDirectory=/home/ubuntu/bitnodes

@@ -1,5 +1,7 @@
 [Unit]
 Description=Exporter script for the litecoin crawler
+After=redis.service
+
 
 [Service]
 WorkingDirectory=/home/ubuntu/bitnodes

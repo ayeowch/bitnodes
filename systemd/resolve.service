@@ -1,5 +1,6 @@
 [Unit]
 Description=Start litecoin mainnet resolver
+After=redis.service
 
 [Service]
 WorkingDirectory=/home/ubuntu/bitnodes
