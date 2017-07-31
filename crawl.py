@@ -137,7 +137,7 @@ def connect(redis_conn, key):
                       height=height,
                       relay=SETTINGS['relay'])
     try:
-        logging.debug("Connecting to %s", conn.to_addr)
+        logging.info("Connecting to %s", conn.to_addr)
         conn.open()
         handshake_msgs = conn.handshake()
         addr_msgs = conn.getaddr()
@@ -296,10 +296,10 @@ def task():
 
         # Check if prefix has hit its limit
         if ":" in node[0] and SETTINGS['ipv6_prefix'] < 128:
-            cidr = ip_to_network(node[0], SETTINGS['ipv6_prefix'])
+            cidr = (node[0], SETTINGS['ipv6_prefix'])ip_to_network
             nodes = redis_conn.incr('crawl:cidr:{}'.format(cidr))
             if nodes > SETTINGS['nodes_per_ipv6_prefix']:
-                logging.debug("CIDR %s: %d", cidr, nodes)
+                logging.warning("CIDR %s: %d", cidr, nodes)
                 continue
 
         connect(redis_conn, key)
