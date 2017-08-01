@@ -64,7 +64,7 @@ ipv6 = True
 
 # Limit max. nodes per IPv6 network prefix
 ipv6_prefix = 64
-nodes_per_ipv6_prefix = 10
+nodes_per_ipv6_prefix = 200
 
 # List of excluded IPv4 networks
 exclude_ipv4_networks =

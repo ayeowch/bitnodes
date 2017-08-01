@@ -135,7 +135,7 @@ class Cache(object):
                     node = src
                     if src == SETTINGS['tor_proxy']:
                         node = dst
-                    logging.info("[SUCCESS] Node: %s, Command: %s", node, msg['command'])
+                    logging.debug("[SUCCESS] Node: %s, Command: %s", node, msg['command'])
                     self.cache_message(node, self.stream.timestamp, msg)
         self.redis_pipe.execute()
         self.cache_rtt()
@@ -206,7 +206,7 @@ class Cache(object):
             self.count += msg['count']
         elif msg['command'] == "pong":
             key = "ping:{}-{}:{}".format(node[0], node[1], msg['nonce'])
-            logging.info("[PONG SUCCESS] KEY: %s, timestamp: %s", key, timestamp)
+            logging.debug("[PONG SUCCESS] KEY: %s, timestamp: %s", key, timestamp)
             self.redis_pipe.rpushx(key, timestamp)
             self.keys.add(key)
             self.count += 1
