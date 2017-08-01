@@ -288,6 +288,7 @@ def task():
 
         # Skip IPv6 node
         if ":" in node[0] and not SETTINGS['ipv6']:
+            logging.warning("[WARNING] skipping ipv6")
             continue
 
         key = "node:{}-{}-{}".format(node[0], node[1], node[2])
@@ -296,11 +297,13 @@ def task():
 
         # Check if prefix has hit its limit
         if ":" in node[0] and SETTINGS['ipv6_prefix'] < 128:
-            cidr = (node[0], SETTINGS['ipv6_prefix'])ip_to_network
+            cidr = ip_to_network(node[0], SETTINGS['ipv6_prefix'])
             nodes = redis_conn.incr('crawl:cidr:{}'.format(cidr))
             if nodes > SETTINGS['nodes_per_ipv6_prefix']:
                 logging.warning("CIDR %s: %d", cidr, nodes)
                 continue
+        else:
+            logging.warning("[WARNING] skipping ipv6 %s", node[0])
 
         connect(redis_conn, key)
 
