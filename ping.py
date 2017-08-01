@@ -196,7 +196,7 @@ def task():
         return
     (address, port, services, height) = eval(node)
     node = (address, port)
-    logging.info("[NODE ADDRESS] %s", cidr)
+    # logging.info("[NODE ADDRESS] %s", cidr)
     # Check if prefix has hit its limit
     cidr_key = None
     if ":" in address and SETTINGS['ipv6_prefix'] < 128:
