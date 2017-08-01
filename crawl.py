@@ -300,10 +300,8 @@ def task():
             cidr = ip_to_network(node[0], SETTINGS['ipv6_prefix'])
             nodes = redis_conn.incr('crawl:cidr:{}'.format(cidr))
             if nodes > SETTINGS['nodes_per_ipv6_prefix']:
-                logging.warning("CIDR %s: %d", cidr, nodes)
+                logging.warning("[IPV6 SKIPPED] CIDR %s: %d", cidr, nodes)
                 continue
-        else:
-            logging.warning("[WARNING] skipping ipv6 %s", node[0])
 
         connect(redis_conn, key)
 
