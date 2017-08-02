@@ -1,7 +1,7 @@
 [pcap]
 
 # Logfile
-logfile = debug.log
+logfile = pcap.log
 
 # Print debug output
 debug = False

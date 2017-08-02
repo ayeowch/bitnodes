@@ -143,7 +143,7 @@ def connect(redis_conn, key):
         addr_msgs = conn.getaddr()
         logging.info("[SUCCESS] handshake_msgs: %s, addr_msgs: %s", handshake_msgs, addr_msgs)
     except (ProtocolError, ConnectionError, socket.error) as err:
-        logging.error("%s: %s", conn.to_addr, err)
+        logging.debug("%s: %s", conn.to_addr, err)
     finally:
         conn.close()
 
@@ -153,7 +153,7 @@ def connect(redis_conn, key):
         version_msg = handshake_msgs[0]
         from_services = version_msg.get('services', 0)
         if from_services != services:
-            logging.debug("%s Expected %d, got %d for services", conn.to_addr,
+            logging.info("%s Expected %d, got %d for services", conn.to_addr,
                           services, from_services)
             key = "node:{}-{}-{}".format(address, port, from_services)
         height_key = "height:{}-{}-{}".format(address, port, from_services)
