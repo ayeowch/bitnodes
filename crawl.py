@@ -141,7 +141,7 @@ def connect(redis_conn, key):
         conn.open()
         handshake_msgs = conn.handshake()
         addr_msgs = conn.getaddr()
-        logging.info("[SUCCESS] handshake_msgs: %s, addr_msgs: %s", handshake_msgs, addr_msgs)
+        logging.info("[SUCCESS]")
     except (ProtocolError, ConnectionError, socket.error) as err:
         logging.debug("%s: %s", conn.to_addr, err)
     finally:
