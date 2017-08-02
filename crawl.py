@@ -137,10 +137,11 @@ def connect(redis_conn, key):
                       height=height,
                       relay=SETTINGS['relay'])
     try:
-        logging.debug("Connecting to %s", conn.to_addr)
+        logging.info("Connecting to %s", conn.to_addr)
         conn.open()
         handshake_msgs = conn.handshake()
         addr_msgs = conn.getaddr()
+        logging.info("[SUCCESS] handshake_msgs: %s, addr_msgs: %s", handshake_msgs, addr_msgs)
     except (ProtocolError, ConnectionError, socket.error) as err:
         logging.error("%s: %s", conn.to_addr, err)
     finally:
