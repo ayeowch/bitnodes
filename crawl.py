@@ -141,9 +141,8 @@ def connect(redis_conn, key):
         conn.open()
         handshake_msgs = conn.handshake()
         addr_msgs = conn.getaddr()
-        logging.info("[SUCCESS]")
     except (ProtocolError, ConnectionError, socket.error) as err:
-        logging.debug("%s: %s", conn.to_addr, err)
+        logging.debug("[CRAWL FAILURE] %s: %s", conn.to_addr, err)
     finally:
         conn.close()
 
@@ -161,7 +160,7 @@ def connect(redis_conn, key):
                          version_msg.get('height', 0))
         now = int(time.time())
         peers = enumerate_node(redis_pipe, addr_msgs, now)
-        logging.debug("%s Peers: %d", conn.to_addr, peers)
+        logging.info("%s Peers: %d", conn.to_addr, peers)
         redis_pipe.hset(key, 'state', "up")
     redis_pipe.execute()
 

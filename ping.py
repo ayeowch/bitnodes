@@ -135,7 +135,7 @@ class Keepalive(object):
         self.last_ping = time.time()
         key = "ping:{}-{}:{}".format(self.node[0], self.node[1], nonce)
         rtt = int(self.last_ping * 1000)
-        logging.debug("%s (%s) RTT: %s", self.node, nonce, rtt)
+        logging.info("%s (%s) RTT: %s", self.node, nonce, rtt)
 
         REDIS_CONN.lpush(key, rtt)  # in ms
         REDIS_CONN.expire(key, SETTINGS['ttl'])
@@ -231,7 +231,7 @@ def task():
                       height=height,
                       relay=SETTINGS['relay'])
     try:
-        logging.debug("Connecting to %s", conn.to_addr)
+        logging.info("Connecting to %s", conn.to_addr)
         conn.open()
         handshake_msgs = conn.handshake()
     except (ProtocolError, ConnectionError, socket.error) as err:
@@ -425,7 +425,7 @@ def main(argv):
     if SETTINGS['debug']:
         loglevel = logging.DEBUG
 
-    logformat = ("%(filename)s %(lineno)d [%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s "
+    logformat = ("%(filename)s %(lineno)d  %(levelname)s "
                  "(%(funcName)s) %(message)s")
     logging.basicConfig(level=loglevel,
                         format=logformat,
