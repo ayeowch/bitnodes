@@ -1,7 +1,7 @@
 [export]
 
 # Logfile
-logfile = debug.log
+logfile = export.log
 
 # Print debug output
 debug = True

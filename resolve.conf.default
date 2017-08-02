@@ -1,7 +1,7 @@
 [resolve]
 
 # Logfile
-logfile = debug.log
+logfile = resolve.log
 
 # Print debug output
 debug = True

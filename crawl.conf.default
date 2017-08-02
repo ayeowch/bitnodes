@@ -1,7 +1,7 @@
 [crawl]
 
 # Logfile
-logfile = debug.log
+logfile = crawl.log
 
 # Network (mainnet or testnet3)
 network = mainnet
@@ -21,7 +21,7 @@ seeders =
 #    testnet-seed.litecointools.com
 
 # Number of concurrent workers (greenlets)
-workers = 500
+workers = 200
 
 # Print debug output
 debug = False

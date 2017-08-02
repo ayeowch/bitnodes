@@ -1,7 +1,7 @@
 [seeder]
 
 # Logfile
-logfile = debug.log
+logfile = seeder.log
 
 # Print debug output
 debug = True

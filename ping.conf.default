@@ -1,7 +1,7 @@
 [ping]
 
 # Logfile
-logfile = debug.log
+logfile = ping.log
 
 # Max. number of concurrent workers (greenlets) in a pool
 workers = 100
