@@ -205,9 +205,8 @@ def task():
         nodes = REDIS_CONN.incr(cidr_key)
         logging.info("+CIDR %s: %d", cidr, nodes)
         if nodes > SETTINGS['nodes_per_ipv6_prefix']:
-            logging.info("CIDR limit reached: %s", cidr)
             nodes = REDIS_CONN.decr(cidr_key)
-            logging.info("-CIDR %s: %d", cidr, nodes)
+            logging.info("CIDR limit reache %s: %d", cidr, nodes)
             return
 
     if REDIS_CONN.sadd('open', node) == 0:

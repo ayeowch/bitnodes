@@ -137,7 +137,7 @@ def connect(redis_conn, key):
                       height=height,
                       relay=SETTINGS['relay'])
     try:
-        logging.info("Connecting to %s", conn.to_addr)
+        logging.debug("Connecting to %s", conn.to_addr)
         conn.open()
         handshake_msgs = conn.handshake()
         addr_msgs = conn.getaddr()
@@ -332,7 +332,7 @@ def set_pending():
         for node in nodes:
             address = node[-1][0]
             if is_excluded(address):
-                logging.debug("Exclude: %s", address)
+                logging.warning("Exclude: %s", address)
                 continue
             logging.debug("%s: %s", seeder, address)
             REDIS_CONN.sadd('pending', (address, default_port(), TO_SERVICES))
