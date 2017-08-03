@@ -325,7 +325,7 @@ def set_pending():
             try:
                 ipv6_nodes = socket.getaddrinfo(seeder, None, socket.AF_INET6)
             except socket.gaierror as err:
-                logging.warning("%s", err)
+                logging.warning("[IPV6 FAILED] %s", err)
             else:
                 nodes.extend(ipv6_nodes)
 
