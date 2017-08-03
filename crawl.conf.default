@@ -127,7 +127,7 @@ onion_nodes =
     zy3kdqowmrb7xm7h.onion
 
 # Include reachable nodes from https://bitnodes.21.co/#join-the-network
-include_checked = False
+include_checked = True
 
 # Relative path to directory containing timestamp-prefixed JSON crawl files
 # --- mainnet ---
