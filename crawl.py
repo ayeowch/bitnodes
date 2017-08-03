@@ -145,6 +145,8 @@ def connect(redis_conn, key):
     except (ProtocolError, ConnectionError, socket.error) as err:
         if ":" in conn.to_addr:
             logging.info("[CRAWL FAILURE] %s: %s", conn.to_addr, err)
+    except:
+        logging.error("Unexpected error: %s", sys.exc_info()[0])
     finally:
         conn.close()
 
