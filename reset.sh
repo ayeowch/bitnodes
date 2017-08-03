@@ -14,6 +14,6 @@ sudo systemctl stop export
 redis-cli flushdb
 rm data/crawl/mainnet/*.json
 rm data/export/*.json
-rm data/pcap/*.json
+rm data/pcap/*.pcap
 
 rm *.log
