@@ -139,6 +139,7 @@ def connect(redis_conn, key):
     try:
         if ":" in conn.to_addr:
             logging.info("Connecting to %s", conn.to_addr)
+        logging.info("Connecting to %s", conn.to_addr)
         conn.open()
         handshake_msgs = conn.handshake()
         addr_msgs = conn.getaddr()
