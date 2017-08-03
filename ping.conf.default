@@ -4,7 +4,7 @@
 logfile = ping.log
 
 # Max. number of concurrent workers (greenlets) in a pool
-workers = 100
+workers = 500
 
 # Print debug output
 debug = False

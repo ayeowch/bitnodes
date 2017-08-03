@@ -142,7 +142,7 @@ def connect(redis_conn, key):
         handshake_msgs = conn.handshake()
         addr_msgs = conn.getaddr()
     except (ProtocolError, ConnectionError, socket.error) as err:
-        logging.debug("[CRAWL FAILURE] %s: %s", conn.to_addr, err)
+        logging.info("[CRAWL FAILURE] %s: %s", conn.to_addr, err)
     finally:
         conn.close()
 
