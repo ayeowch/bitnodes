@@ -137,15 +137,14 @@ def connect(redis_conn, key):
                       height=height,
                       relay=SETTINGS['relay'])
     try:
-        if ":" in conn.to_addr:
-            logging.info("Connecting to %s", conn.to_addr)
-        logging.info("Connecting to %s", conn.to_addr)
+        if ":" in address:
+            logging.info("Connecting to %s", address)
         conn.open()
         handshake_msgs = conn.handshake()
         addr_msgs = conn.getaddr()
     except (ProtocolError, ConnectionError, socket.error) as err:
-        if ":" in conn.to_addr:
-            logging.info("[CRAWL FAILURE] %s: %s", conn.to_addr, err)
+        if ":" in address:
+            logging.info("[CRAWL FAILURE] %s: %s", address, err)
     except:
         logging.error("Unexpected error: %s", sys.exc_info()[0])
     finally:
@@ -154,8 +153,8 @@ def connect(redis_conn, key):
     gevent.sleep(0.3)
     redis_pipe = redis_conn.pipeline()
     if len(handshake_msgs) > 0:
-        if ":" in conn.to_addr:
-            logging.info("[CRAWL SUCCESS] %s", conn.to_addr)
+        if ":" in address:
+            logging.info("[CRAWL SUCCESS] %s", address)
         version_msg = handshake_msgs[0]
         from_services = version_msg.get('services', 0)
         if from_services != services:
