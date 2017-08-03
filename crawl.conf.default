@@ -39,7 +39,7 @@ protocol_version = 70015
 # crawler. This is so that users will not confuse your crawler with another
 # instance that is already running and generating data for the project.
 # -----------------------------------------------------------------------------
-user_agent = /litenodes:1.0/
+user_agent = /litenodes.net:1.0/
 
 # Services to use for outgoing network address message
 services = 0

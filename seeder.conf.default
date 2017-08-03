@@ -16,7 +16,7 @@ min_height = 456813
 min_age = 28800
 
 # Relative path to DNS zone file containing exported nodes in A/AAAA records
-zone_file = data/seed.bitnodes.io.zone
+zone_file = data/seed.litenodes.net.zone
 
 # Initial template for DNS zone file
 template = zone.tmpl
