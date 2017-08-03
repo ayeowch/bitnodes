@@ -137,18 +137,22 @@ def connect(redis_conn, key):
                       height=height,
                       relay=SETTINGS['relay'])
     try:
-        logging.info("Connecting to %s", conn.to_addr)
+        if ":" in conn.to_addr:
+            logging.info("Connecting to %s", conn.to_addr)
         conn.open()
         handshake_msgs = conn.handshake()
         addr_msgs = conn.getaddr()
     except (ProtocolError, ConnectionError, socket.error) as err:
-        logging.info("[CRAWL FAILURE] %s: %s", conn.to_addr, err)
+        if ":" in conn.to_addr:
+            logging.info("[CRAWL FAILURE] %s: %s", conn.to_addr, err)
     finally:
         conn.close()
 
     gevent.sleep(0.3)
     redis_pipe = redis_conn.pipeline()
     if len(handshake_msgs) > 0:
+        if ":" in conn.to_addr:
+            logging.info("[CRAWL SUCCESS] %s", conn.to_addr)
         version_msg = handshake_msgs[0]
         from_services = version_msg.get('services', 0)
         if from_services != services:
@@ -474,7 +478,7 @@ def main(argv):
     if SETTINGS['debug']:
         loglevel = logging.DEBUG
 
-    logformat = ("%(filename)s [%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s "
+    logformat = ("%(filename)s %(levelname)s "
                  "(%(funcName)s) %(message)s")
     logging.basicConfig(level=loglevel,
                         format=logformat,
