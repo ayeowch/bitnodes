@@ -206,7 +206,7 @@ class Cache(object):
             self.count += msg['count']
         elif msg['command'] == "pong":
             key = "ping:{}-{}:{}".format(node[0], node[1], msg['nonce'])
-            logging.info("[PONG SUCCESS] KEY: %s, timestamp: %s", key, timestamp)
+            logging.debug("[PONG SUCCESS] KEY: %s, timestamp: %s", key, timestamp)
             self.redis_pipe.rpushx(key, timestamp)
             self.keys.add(key)
             self.count += 1
@@ -227,7 +227,7 @@ class Cache(object):
             if len(timestamps) > 1:
                 rtt_key = "rtt:{}".format(':'.join(key.split(":")[1:-1]))
                 rtt = int(timestamps[1]) - int(timestamps[0])  # pong - ping
-                logging.info("%s: %d", rtt_key, rtt)
+                logging.debug("%s: %d", rtt_key, rtt)
                 self.redis_pipe.lpush(rtt_key, rtt)
                 self.redis_pipe.ltrim(rtt_key, 0, SETTINGS['rtt_count'] - 1)
                 self.redis_pipe.expire(rtt_key, SETTINGS['ttl'])
