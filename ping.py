@@ -135,7 +135,7 @@ class Keepalive(object):
         self.last_ping = time.time()
         key = "ping:{}-{}:{}".format(self.node[0], self.node[1], nonce)
         rtt = int(self.last_ping * 1000)
-        logging.info("%s (%s) RTT: %s", self.node, nonce, rtt)
+        logging.debug("%s (%s) RTT: %s", self.node, nonce, rtt)
 
         REDIS_CONN.lpush(key, rtt)  # in ms
         REDIS_CONN.expire(key, SETTINGS['ttl'])
@@ -203,7 +203,7 @@ def task():
         cidr = ip_to_network(address, SETTINGS['ipv6_prefix'])
         cidr_key = 'ping:cidr:{}'.format(cidr)
         nodes = REDIS_CONN.incr(cidr_key)
-        logging.info("+CIDR %s: %d", cidr, nodes)
+        logging.debug("+CIDR %s: %d", cidr, nodes)
         if nodes > SETTINGS['nodes_per_ipv6_prefix']:
             nodes = REDIS_CONN.decr(cidr_key)
             logging.info("CIDR limit reached %s: %d", cidr, nodes)
@@ -231,17 +231,17 @@ def task():
                       height=height,
                       relay=SETTINGS['relay'])
     try:
-        logging.info("Connecting to %s", conn.to_addr)
+        logging.debug("Connecting to %s", conn.to_addr)
         conn.open()
         handshake_msgs = conn.handshake()
     except (ProtocolError, ConnectionError, socket.error) as err:
-        logging.info("[FAILED] Closing %s (%s)", node, err)
+        logging.error("[FAILED] Closing %s (%s)", node, err)
         conn.close()
 
     if len(handshake_msgs) == 0:
         if cidr_key:
             nodes = REDIS_CONN.decr(cidr_key)
-            logging.info("-CIDR %s: %d", cidr, nodes)
+            logging.debug("-CIDR %s: %d", cidr, nodes)
         REDIS_CONN.srem('open', node)
         return
 
