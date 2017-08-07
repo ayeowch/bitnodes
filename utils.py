@@ -42,14 +42,14 @@ def new_redis_conn(db=0):
     return redis.StrictRedis(db=db, password=password, unix_socket_path=socket)
 
 
-def get_keys(redis_conn, pattern, count=100):
+def get_keys(redis_conn, pattern):
     """
     Returns Redis keys matching pattern by iterating the keys space.
     """
     keys = []
     cursor = 0
     while True:
-        (cursor, partial_keys) = redis_conn.scan(cursor, pattern, count)
+        (cursor, partial_keys) = redis_conn.scan(cursor, pattern)
         keys.extend(partial_keys)
         if cursor == 0:
             break
