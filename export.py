@@ -31,18 +31,14 @@ Exports enumerated data for reachable nodes into a JSON file.
 import json
 import logging
 import os
-import redis
 import sys
 import time
 from ConfigParser import ConfigParser
 
-# Redis connection setup
-REDIS_SOCKET = os.environ.get('REDIS_SOCKET', "/tmp/redis.sock")
-REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD', None)
-REDIS_CONN = redis.StrictRedis(unix_socket_path=REDIS_SOCKET,
-                               password=REDIS_PASSWORD)
+from utils import new_redis_conn
 
-SETTINGS = {}
+REDIS_CONN = None
+CONF = {}
 
 
 def get_row(node):
@@ -88,22 +84,23 @@ def export_nodes(nodes, timestamp):
     elapsed = end - start
     logging.info("Elapsed: %d", elapsed)
 
-    dump = os.path.join(SETTINGS['export_dir'], "{}.json".format(timestamp))
+    dump = os.path.join(CONF['export_dir'], "{}.json".format(timestamp))
     open(dump, 'w').write(json.dumps(rows, encoding="latin-1"))
     logging.info("Wrote %s", dump)
 
 
-def init_settings(argv):
+def init_conf(argv):
     """
-    Populates SETTINGS with key-value pairs from configuration file.
+    Populates CONF with key-value pairs from configuration file.
     """
     conf = ConfigParser()
     conf.read(argv[1])
-    SETTINGS['logfile'] = conf.get('export', 'logfile')
-    SETTINGS['debug'] = conf.getboolean('export', 'debug')
-    SETTINGS['export_dir'] = conf.get('export', 'export_dir')
-    if not os.path.exists(SETTINGS['export_dir']):
-        os.makedirs(SETTINGS['export_dir'])
+    CONF['logfile'] = conf.get('export', 'logfile')
+    CONF['db'] = conf.getint('export', 'db')
+    CONF['debug'] = conf.getboolean('export', 'debug')
+    CONF['export_dir'] = conf.get('export', 'export_dir')
+    if not os.path.exists(CONF['export_dir']):
+        os.makedirs(CONF['export_dir'])
 
 
 def main(argv):
@@ -111,22 +108,24 @@ def main(argv):
         print("Usage: export.py [config]")
         return 1
 
-    # Initialize global settings
-    init_settings(argv)
+    # Initialize global conf
+    init_conf(argv)
 
     # Initialize logger
     loglevel = logging.INFO
-    if SETTINGS['debug']:
+    if CONF['debug']:
         loglevel = logging.DEBUG
 
     logformat = ("%(asctime)s,%(msecs)05.1f %(levelname)s (%(funcName)s) "
                  "%(message)s")
     logging.basicConfig(level=loglevel,
                         format=logformat,
-                        filename=SETTINGS['logfile'],
+                        filename=CONF['logfile'],
                         filemode='w')
-    print("Writing output to {}, press CTRL+C to terminate..".format(
-        SETTINGS['logfile']))
+    print("Log: {}, press CTRL+C to terminate..".format(CONF['logfile']))
+
+    global REDIS_CONN
+    REDIS_CONN = new_redis_conn(db=CONF['db'])
 
     pubsub = REDIS_CONN.pubsub()
     pubsub.subscribe('resolve')

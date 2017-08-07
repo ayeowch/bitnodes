@@ -32,30 +32,24 @@ import os
 import redis
 from ipaddress import ip_network
 
-from protocol import MAINNET, TESTNET3
 
-
-def new_redis_conn(network=MAINNET):
+def new_redis_conn(db=0):
     """
-    Returns new instance of Redis connection with the right db selected for the
-    network.
+    Returns new instance of Redis connection with the right db selected.
     """
-    db = 0  # default
-    if network == TESTNET3:
-        db = 1
     socket = os.environ.get('REDIS_SOCKET', "/tmp/redis.sock")
     password = os.environ.get('REDIS_PASSWORD', None)
     return redis.StrictRedis(db=db, password=password, unix_socket_path=socket)
 
 
-def get_keys(redis_conn, pattern):
+def get_keys(redis_conn, pattern, count=100):
     """
     Returns Redis keys matching pattern by iterating the keys space.
     """
     keys = []
     cursor = 0
     while True:
-        (cursor, partial_keys) = redis_conn.scan(cursor, pattern)
+        (cursor, partial_keys) = redis_conn.scan(cursor, pattern, count)
         keys.extend(partial_keys)
         if cursor == 0:
             break

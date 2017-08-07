@@ -1,10 +1,13 @@
 [export]
 
 # Logfile
-logfile = export.log
+logfile = log/export.f9beb4d9.log
+
+# Redis database number
+db = 0
 
 # Print debug output
 debug = False
 
 # Relative path to directory containing timestamp-prefixed JSON export files
-export_dir = data/export
+export_dir = data/export/f9beb4d9

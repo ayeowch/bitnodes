@@ -1,7 +1,10 @@
 [resolve]
 
 # Logfile
-logfile = resolve.log
+logfile = log/resolve.f9beb4d9.log
+
+# Redis database number
+db = 0
 
 # Print debug output
 debug = False
