@@ -1,13 +1,18 @@
 [crawl]
 
 # Logfile
-logfile = crawl.mainnet.log
+logfile = log/crawl.f9beb4d9.log
 
-# Network (mainnet or testnet3)
-network = mainnet
+# Network magic number
+magic_number = f9beb4d9
+
+# Default/fallback port number
+port = 8333
+
+# Redis database number
+db = 0
 
 # List of DNS seeders to get a subset of reachable nodes
-# --- mainnet ---
 seeders =
     dnsseed.bitcoin.dashjr.org
     dnsseed.bluematt.me
@@ -16,10 +21,6 @@ seeders =
     seed.bitcoinstats.com
     seed.btc.petertodd.org
     seed.bitnodes.io
-# --- testnet3 ---
-#seeders =
-#    testnet-seed.bluematt.me
-#    testnet-seed.bitcoin.schildbach.de
 
 # Number of concurrent workers (greenlets)
 workers = 500
@@ -131,7 +132,4 @@ onion_nodes =
 include_checked = False
 
 # Relative path to directory containing timestamp-prefixed JSON crawl files
-# --- mainnet ---
-crawl_dir = data/crawl/mainnet
-# --- testnet3 ---
-#crawl_dir = data/crawl/testnet3
+crawl_dir = data/crawl/f9beb4d9

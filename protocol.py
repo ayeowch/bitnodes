@@ -150,21 +150,14 @@ from collections import deque
 from cStringIO import StringIO
 from operator import itemgetter
 
-MAINNET = "mainnet"
-TESTNET3 = "testnet3"
-
-MAINNET_MAGIC_NUMBER = "\xF9\xBE\xB4\xD9"
-TESTNET3_MAGIC_NUMBER = "\x0B\x11\x09\x07"
-
-MAINNET_DEFAULT_PORT = 8333
-TESTNET3_DEFAULT_PORT = 18333
-
+MAGIC_NUMBER = "\xF9\xBE\xB4\xD9"
+PORT = 8333
 MIN_PROTOCOL_VERSION = 70001
 PROTOCOL_VERSION = 70015
 FROM_SERVICES = 0
 TO_SERVICES = 1  # NODE_NETWORK
 USER_AGENT = "/bitnodes.21.co:0.1/"
-HEIGHT = 456813
+HEIGHT = 478000
 RELAY = 0  # set to 1 to receive all txs
 
 SOCKET_BUFSIZE = 8192
@@ -247,20 +240,16 @@ def create_connection(address, timeout=SOCKET_TIMEOUT, source_address=None,
 
 
 class Serializer(object):
-    def __init__(self, **config):
-        if config.get('network') == TESTNET3:
-            self.magic_number = TESTNET3_MAGIC_NUMBER
-        else:
-            self.magic_number = MAINNET_MAGIC_NUMBER  # default
-        self.protocol_version = config.get('protocol_version',
-                                           PROTOCOL_VERSION)
-        self.to_services = config.get('to_services', TO_SERVICES)
-        self.from_services = config.get('from_services', FROM_SERVICES)
-        self.user_agent = config.get('user_agent', USER_AGENT)
-        self.height = config.get('height', HEIGHT)
+    def __init__(self, **conf):
+        self.magic_number = conf.get('magic_number', MAGIC_NUMBER)
+        self.protocol_version = conf.get('protocol_version', PROTOCOL_VERSION)
+        self.to_services = conf.get('to_services', TO_SERVICES)
+        self.from_services = conf.get('from_services', FROM_SERVICES)
+        self.user_agent = conf.get('user_agent', USER_AGENT)
+        self.height = conf.get('height', HEIGHT)
         if self.height is None:
             self.height = HEIGHT
-        self.relay = config.get('relay', RELAY)
+        self.relay = conf.get('relay', RELAY)
         # This is set prior to throwing PayloadTooShortError exception to
         # allow caller to fetch more data over the network.
         self.required_len = 0
@@ -745,17 +734,12 @@ class Serializer(object):
 
 
 class Connection(object):
-    def __init__(self, to_addr, from_addr=("0.0.0.0", 0), **config):
-        if to_addr[1] == 0:
-            if config.get('network') == TESTNET3:
-                to_addr = (to_addr[0], TESTNET3_DEFAULT_PORT)
-            else:
-                to_addr = (to_addr[0], MAINNET_DEFAULT_PORT)  # default
+    def __init__(self, to_addr, from_addr=("0.0.0.0", 0), **conf):
         self.to_addr = to_addr
         self.from_addr = from_addr
-        self.serializer = Serializer(**config)
-        self.socket_timeout = config.get('socket_timeout', SOCKET_TIMEOUT)
-        self.proxy = config.get('proxy', None)
+        self.serializer = Serializer(**conf)
+        self.socket_timeout = conf.get('socket_timeout', SOCKET_TIMEOUT)
+        self.proxy = conf.get('proxy', None)
         self.socket = None
         self.bps = deque([], maxlen=128)  # bps samples for this connection
 
@@ -939,7 +923,7 @@ class Connection(object):
 
 
 def main():
-    to_addr = ("136.243.139.96", MAINNET_DEFAULT_PORT)
+    to_addr = ("136.243.139.96", PORT)
     to_services = TO_SERVICES
 
     handshake_msgs = []
