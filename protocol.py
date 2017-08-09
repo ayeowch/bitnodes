@@ -480,7 +480,7 @@ class Serializer(object):
             tx_out = self.deserialize_tx_out(data)
             msg['tx_out'].append(tx_out)
 
-        msg['lock_time'] = struct.unpack("<I", data.read(4))[0]
+        msg['lock_time'] = unpack("<I", data.read(4))
 
         # Calculate hash from the entire payload
         payload = self.serialize_tx_payload(msg)
