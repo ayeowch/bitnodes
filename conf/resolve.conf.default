@@ -3,6 +3,9 @@
 # Logfile
 logfile = log/resolve.f9beb4d9.log
 
+# Network magic number
+magic_number = f9beb4d9
+
 # Redis database number
 db = 0
 

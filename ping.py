@@ -43,7 +43,7 @@ import redis.connection
 import socket
 import sys
 import time
-from binascii import unhexlify
+from binascii import hexlify, unhexlify
 from ConfigParser import ConfigParser
 
 from protocol import ProtocolError, ConnectionError, Connection
@@ -269,6 +269,7 @@ def cron(pool):
     [Master/Slave]
     1) Spawns workers to establish and maintain connection with reachable nodes
     """
+    publish_key = 'snapshot:{}'.format(hexlify(CONF['magic_number']))
     snapshot = None
 
     while True:
@@ -290,7 +291,7 @@ def cron(pool):
 
                 # Allow connections to stabilize before publishing snapshot
                 gevent.sleep(CONF['socket_timeout'])
-                REDIS_CONN.publish('snapshot', int(time.time()))
+                REDIS_CONN.publish(publish_key, int(time.time()))
 
             connections = REDIS_CONN.scard('open')
             logging.info("Connections: %d", connections)
