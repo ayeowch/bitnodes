@@ -33,6 +33,7 @@ import logging
 import os
 import sys
 import time
+from binascii import hexlify, unhexlify
 from ConfigParser import ConfigParser
 
 from utils import new_redis_conn
@@ -96,6 +97,7 @@ def init_conf(argv):
     conf = ConfigParser()
     conf.read(argv[1])
     CONF['logfile'] = conf.get('export', 'logfile')
+    CONF['magic_number'] = unhexlify(conf.get('export', 'magic_number'))
     CONF['db'] = conf.getint('export', 'db')
     CONF['debug'] = conf.getboolean('export', 'debug')
     CONF['export_dir'] = conf.get('export', 'export_dir')
@@ -127,8 +129,11 @@ def main(argv):
     global REDIS_CONN
     REDIS_CONN = new_redis_conn(db=CONF['db'])
 
+    subscribe_key = 'resolve:{}'.format(hexlify(CONF['magic_number']))
+    publish_key = 'export:{}'.format(hexlify(CONF['magic_number']))
+
     pubsub = REDIS_CONN.pubsub()
-    pubsub.subscribe('resolve')
+    pubsub.subscribe(subscribe_key)
     while True:
         msg = pubsub.get_message()
         if msg is None:
@@ -136,13 +141,13 @@ def main(argv):
             continue
         # 'resolve' message is published by resolve.py after resolving hostname
         # and GeoIP data for all reachable nodes.
-        if msg['channel'] == 'resolve' and msg['type'] == 'message':
+        if msg['channel'] == subscribe_key and msg['type'] == 'message':
             timestamp = int(msg['data'])  # From ping.py's 'snapshot' message
             logging.info("Timestamp: %d", timestamp)
             nodes = REDIS_CONN.smembers('opendata')
             logging.info("Nodes: %d", len(nodes))
             export_nodes(nodes, timestamp)
-            REDIS_CONN.publish('export', timestamp)
+            REDIS_CONN.publish(publish_key, timestamp)
 
     return 0
 

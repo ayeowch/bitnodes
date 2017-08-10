@@ -41,6 +41,7 @@ import redis.connection
 import socket
 import sys
 import time
+from binascii import hexlify, unhexlify
 from collections import defaultdict
 from ConfigParser import ConfigParser
 from decimal import Decimal
@@ -215,6 +216,7 @@ def init_conf(argv):
     conf = ConfigParser()
     conf.read(argv[1])
     CONF['logfile'] = conf.get('resolve', 'logfile')
+    CONF['magic_number'] = unhexlify(conf.get('resolve', 'magic_number'))
     CONF['db'] = conf.getint('resolve', 'db')
     CONF['debug'] = conf.getboolean('resolve', 'debug')
     CONF['ttl'] = conf.getint('resolve', 'ttl')
@@ -244,8 +246,11 @@ def main(argv):
     global REDIS_CONN
     REDIS_CONN = new_redis_conn(db=CONF['db'])
 
+    subscribe_key = 'snapshot:{}'.format(hexlify(CONF['magic_number']))
+    publish_key = 'resolve:{}'.format(hexlify(CONF['magic_number']))
+
     pubsub = REDIS_CONN.pubsub()
-    pubsub.subscribe('snapshot')
+    pubsub.subscribe(subscribe_key)
     while True:
         msg = pubsub.get_message()
         if msg is None:
@@ -253,7 +258,7 @@ def main(argv):
             continue
         # 'snapshot' message is published by ping.py after establishing
         # connection with nodes from a new snapshot.
-        if msg['channel'] == 'snapshot' and msg['type'] == 'message':
+        if msg['channel'] == subscribe_key and msg['type'] == 'message':
             timestamp = int(msg['data'])
             logging.info("Timestamp: %d", timestamp)
             nodes = REDIS_CONN.smembers('opendata')
@@ -261,7 +266,7 @@ def main(argv):
             addresses = set([eval(node)[0] for node in nodes])
             resolve = Resolve(addresses=addresses)
             resolve.resolve_addresses()
-            REDIS_CONN.publish('resolve', timestamp)
+            REDIS_CONN.publish(publish_key, timestamp)
 
     return 0
 
