@@ -638,7 +638,7 @@ class Serializer(object):
         prev_out_index = struct.unpack("<I", data.read(4))[0]
         script_length = self.deserialize_int(data)
         script = data.read(script_length)
-        sequence = struct.unpack("<I", data.read(4))[0]
+        sequence = unpack("<I", data.read(4))
         return {
             'prev_out_hash': hexlify(prev_out_hash),
             'prev_out_index': prev_out_index,
