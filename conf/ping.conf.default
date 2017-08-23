@@ -1,16 +1,16 @@
 [ping]
 
 # Logfile
-logfile = log/ping.f9beb4d9.log
+logfile = log/ping.fbc0b6db.log
 
 # Network magic number
-magic_number = f9beb4d9
+magic_number = fbc0b6db
 
 # Redis database number
 db = 0
 
 # Max. number of concurrent workers (greenlets) in a pool
-workers = 2000
+workers = 500
 
 # Print debug output
 debug = False
@@ -28,13 +28,13 @@ protocol_version = 70015
 # crawler. This is so that users will not confuse your crawler with another
 # instance that is already running and generating data for the project.
 # -----------------------------------------------------------------------------
-user_agent = /bitnodes.21.co:0.1/
+user_agent = /litenodes:1.0/
 
 # Services to use for outgoing network address message
 services = 0
 
 # Set to 1 to receive all txs
-relay = 1
+relay = 0
 
 # Socket timeout
 socket_timeout = 30
@@ -44,7 +44,7 @@ cron_delay = 10
 
 # Limit max. nodes per IPv6 network prefix
 ipv6_prefix = 64
-nodes_per_ipv6_prefix = 1
+nodes_per_ipv6_prefix = 200
 
 # Redis TTL for cached RTT
 ttl = 10800
@@ -56,4 +56,4 @@ onion = True
 tor_proxy = 127.0.0.1:9050
 
 # Relative path to directory containing timestamp-prefixed JSON crawl files
-crawl_dir = data/crawl/f9beb4d9
+crawl_dir = data/crawl/fbc0b6db

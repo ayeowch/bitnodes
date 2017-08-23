@@ -1,0 +1,19 @@
+[Unit]
+Description=Listen for bitnodes crawling
+
+[Service]
+WorkingDirectory=/var/www/litenodes/current
+ExecStart=/bin/bash -lc '/var/www/litenodes/current/bin/bundle exec rake litenodes:listen_for_export'
+Environment=RAILS_ENV=production
+
+# output goes to /var/log/syslog
+StandardOutput=syslog
+StandardError=syslog
+User=ubuntu
+Group=ubuntu
+
+# This will default to "bundler" if we don't specify it
+SyslogIdentifier=process_nodes
+
+[Install]
+WantedBy=multi-user.target

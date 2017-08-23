@@ -1,10 +1,10 @@
 [pcap]
 
 # Logfile
-logfile = log/pcap.f9beb4d9.log
+logfile = log/pcap.fbc0b6db.log
 
 # Network magic number
-magic_number = f9beb4d9
+magic_number = fbc0b6db
 
 # Redis database number
 db = 0
@@ -16,10 +16,10 @@ debug = False
 ttl = 10800
 
 # Number of round-trip time (RTT) values to keep for each node
-rtt_count = 36
+rtt_count = 15
 
 # Tor proxy
 tor_proxy = 127.0.0.1:9050
 
 # Relative path to directory containing pcap files
-pcap_dir = data/pcap/f9beb4d9
+pcap_dir = data/pcap/fbc0b6db

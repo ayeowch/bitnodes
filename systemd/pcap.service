@@ -1,0 +1,24 @@
+[Unit]
+Description=Start litecoin mainnet pcap script
+After=redis.service
+
+
+[Service]
+WorkingDirectory=/home/ubuntu/bitnodes
+ExecStart=/home/ubuntu/.virtualenvs/bitnodes/bin/python -u pcap.py conf/pcap.conf.default
+
+# output goes to /var/log/syslog
+StandardOutput=syslog
+StandardError=syslog
+User=ubuntu
+Group=ubuntu
+
+TimeoutStartSec=16s
+Restart=on-failure
+RestartSec=20s
+
+SyslogIdentifier=pcap
+
+[Install]
+WantedBy=multi-user.target
+

@@ -125,12 +125,13 @@ def connect(redis_conn, key):
                       height=height,
                       relay=CONF['relay'])
     try:
-        logging.debug("Connecting to %s", conn.to_addr)
         conn.open()
         handshake_msgs = conn.handshake()
         addr_msgs = conn.getaddr()
     except (ProtocolError, ConnectionError, socket.error) as err:
-        logging.debug("%s: %s", conn.to_addr, err)
+        logging.debug("[CRAWL FAILURE] %s: %s", address, err)
+    except:
+        logging.error("Unexpected error: %s", sys.exc_info()[0])
     finally:
         conn.close()
 
@@ -140,7 +141,7 @@ def connect(redis_conn, key):
         version_msg = handshake_msgs[0]
         from_services = version_msg.get('services', 0)
         if from_services != services:
-            logging.debug("%s Expected %d, got %d for services", conn.to_addr,
+            logging.warning("%s Expected %d, got %d for services", conn.to_addr,
                           services, from_services)
             key = "node:{}-{}-{}".format(address, port, from_services)
         height_key = "height:{}-{}-{}".format(address, port, from_services)
@@ -148,7 +149,7 @@ def connect(redis_conn, key):
                          version_msg.get('height', 0))
         now = int(time.time())
         peers = enumerate_node(redis_pipe, addr_msgs, now)
-        logging.debug("%s Peers: %d", conn.to_addr, peers)
+        logging.info("%s Peers: %d", conn.to_addr, peers)
         redis_pipe.hset(key, 'state', "up")
     redis_pipe.execute()
 
@@ -311,14 +312,14 @@ def set_pending():
             try:
                 ipv6_nodes = socket.getaddrinfo(seeder, None, socket.AF_INET6)
             except socket.gaierror as err:
-                logging.warning("%s", err)
+                logging.warning("[IPV6 FAILED] %s", err)
             else:
                 nodes.extend(ipv6_nodes)
 
         for node in nodes:
             address = node[-1][0]
             if is_excluded(address):
-                logging.debug("Exclude: %s", address)
+                logging.warning("Exclude: %s", address)
                 continue
             logging.debug("%s: %s", seeder, address)
             REDIS_CONN.sadd('pending', (address, CONF['port'], TO_SERVICES))
@@ -460,7 +461,7 @@ def main(argv):
     if CONF['debug']:
         loglevel = logging.DEBUG
 
-    logformat = ("[%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s "
+    logformat = ("%(filename)s %(levelname)s "
                  "(%(funcName)s) %(message)s")
     logging.basicConfig(level=loglevel,
                         format=logformat,

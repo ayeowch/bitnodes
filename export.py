@@ -118,7 +118,7 @@ def main(argv):
     if CONF['debug']:
         loglevel = logging.DEBUG
 
-    logformat = ("%(asctime)s,%(msecs)05.1f %(levelname)s (%(funcName)s) "
+    logformat = ("%(filename)s %(asctime)s,%(msecs)05.1f %(levelname)s (%(funcName)s) "
                  "%(message)s")
     logging.basicConfig(level=loglevel,
                         format=logformat,
@@ -147,6 +147,8 @@ def main(argv):
             nodes = REDIS_CONN.smembers('opendata')
             logging.info("Nodes: %d", len(nodes))
             export_nodes(nodes, timestamp)
+            REDIS_CONN.publish('export', timestamp)
+            REDIS_CONN.set('last_export', timestamp)
             REDIS_CONN.publish(publish_key, timestamp)
 
     return 0

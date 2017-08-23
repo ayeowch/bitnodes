@@ -104,13 +104,25 @@ class Cache(object):
                 try:
                     (msg, _data) = self.serializer.deserialize_msg(_data)
                 except (HeaderTooShortError, PayloadTooShortError) as err:
-                    logging.debug("%s: %s", stream_id, err)
+                    #logging.error("HeaderTooShortError %s: %s", stream_id, err)
                     try:
                         _data += data.next()
                     except StopIteration:
                         break
                 except ProtocolError as err:
-                    logging.debug("%s: %s", stream_id, err)
+                    #logging.error("ProtocolError %s: %s", stream_id, err)
+                    try:
+                        _data = data.next()
+                    except StopIteration:
+                        break
+                except struct.error as err:
+                    logging.error("struct.error %s: %s", stream_id, err)
+                    try:
+                        _data = data.next()
+                    except StopIteration:
+                        break
+                except OverflowError as err:
+                    logging.error("OverflowError %s: %s", stream_id, err)
                     try:
                         _data = data.next()
                     except StopIteration:
@@ -121,6 +133,7 @@ class Cache(object):
                     node = src
                     if src == CONF['tor_proxy']:
                         node = dst
+                    logging.debug("[SUCCESS] Node: %s, Command: %s", node, msg['command'])
                     self.cache_message(node, self.stream.timestamp, msg)
         self.redis_pipe.execute()
         self.cache_rtt()
@@ -191,6 +204,7 @@ class Cache(object):
             self.count += msg['count']
         elif msg['command'] == "pong":
             key = "ping:{}-{}:{}".format(node[0], node[1], msg['nonce'])
+            logging.debug("[PONG SUCCESS] KEY: %s, timestamp: %s", key, timestamp)
             self.redis_pipe.rpushx(key, timestamp)
             self.keys.add(key)
             self.count += 1
@@ -288,6 +302,7 @@ def main(argv):
     loglevel = logging.INFO
     if CONF['debug']:
         loglevel = logging.DEBUG
+
 
     logformat = ("[%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s "
                  "(%(funcName)s) %(message)s")

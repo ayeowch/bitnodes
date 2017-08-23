@@ -235,7 +235,7 @@ def main(argv):
     if CONF['debug']:
         loglevel = logging.DEBUG
 
-    logformat = ("%(asctime)s,%(msecs)05.1f %(levelname)s (%(funcName)s) "
+    logformat = ("%(filename)s %(lineno)d  (%(funcName)s) "
                  "%(message)s")
     logging.basicConfig(level=loglevel,
                         format=logformat,

@@ -126,7 +126,7 @@ class Keepalive(object):
             self.conn.ping(nonce=nonce)
         except socket.error:
             raise
-        logging.debug("%s (%s)", self.node, nonce)
+
 
         self.last_ping = time.time()
         key = "ping:{}-{}:{}".format(self.node[0], self.node[1], nonce)
@@ -189,7 +189,7 @@ def task():
         return
     (address, port, services, height) = eval(node)
     node = (address, port)
-
+    # logging.info("[NODE ADDRESS] %s", cidr)
     # Check if prefix has hit its limit
     cidr_key = None
     if ":" in address and CONF['ipv6_prefix'] < 128:
@@ -200,7 +200,7 @@ def task():
         if nodes > CONF['nodes_per_ipv6_prefix']:
             logging.info("CIDR limit reached: %s", cidr)
             nodes = REDIS_CONN.decr(cidr_key)
-            logging.info("-CIDR %s: %d", cidr, nodes)
+            logging.info("CIDR limit reached %s: %d", cidr, nodes)
             return
 
     if REDIS_CONN.sadd('open', node) == 0:
@@ -231,13 +231,13 @@ def task():
         conn.open()
         handshake_msgs = conn.handshake()
     except (ProtocolError, ConnectionError, socket.error) as err:
-        logging.debug("Closing %s (%s)", node, err)
+        logging.error("[FAILED] Closing %s (%s)", node, err)
         conn.close()
 
     if len(handshake_msgs) == 0:
         if cidr_key:
             nodes = REDIS_CONN.decr(cidr_key)
-            logging.info("-CIDR %s: %d", cidr, nodes)
+            logging.debug("-CIDR %s: %d", cidr, nodes)
         REDIS_CONN.srem('open', node)
         return
 
@@ -424,7 +424,7 @@ def main(argv):
     if CONF['debug']:
         loglevel = logging.DEBUG
 
-    logformat = ("[%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s "
+    logformat = ("%(filename)s %(lineno)d  %(levelname)s "
                  "(%(funcName)s) %(message)s")
     logging.basicConfig(level=loglevel,
                         format=logformat,
