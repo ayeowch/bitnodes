@@ -4,7 +4,7 @@ After=redis.service
 
 [Service]
 WorkingDirectory=/home/ubuntu/bitnodes
-ExecStart=/home/ubuntu/.virtualenvs/bitnodes/bin/python -u resolve.py resolve.conf.default
+ExecStart=/home/ubuntu/.virtualenvs/bitnodes/bin/python -u resolve.py conf/resolve.conf.default
 
 # output goes to /var/log/syslog
 StandardOutput=syslog

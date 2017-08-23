@@ -5,7 +5,7 @@ After=redis.service
 
 [Service]
 WorkingDirectory=/home/ubuntu/bitnodes
-ExecStart=/home/ubuntu/.virtualenvs/bitnodes/bin/python -u seeder.py seeder.conf.default
+ExecStart=/home/ubuntu/.virtualenvs/bitnodes/bin/python -u seeder.py conf/seeder.conf.default
 
 # output goes to /var/log/syslog
 StandardOutput=syslog

@@ -4,7 +4,7 @@ After=redis.service crawl.service
 
 [Service]
 WorkingDirectory=/home/ubuntu/bitnodes
-ExecStart=/home/ubuntu/.virtualenvs/bitnodes/bin/python -u crawl.py crawl.conf.default slave
+ExecStart=/home/ubuntu/.virtualenvs/bitnodes/bin/python -u crawl.py conf/crawl.conf.default slave
 
 # output goes to /var/log/syslog
 StandardOutput=syslog

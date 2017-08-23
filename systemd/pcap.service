@@ -5,7 +5,7 @@ After=redis.service
 
 [Service]
 WorkingDirectory=/home/ubuntu/bitnodes
-ExecStart=/home/ubuntu/.virtualenvs/bitnodes/bin/python -u pcap.py pcap.conf.default
+ExecStart=/home/ubuntu/.virtualenvs/bitnodes/bin/python -u pcap.py conf/pcap.conf.default
 
 # output goes to /var/log/syslog
 StandardOutput=syslog
