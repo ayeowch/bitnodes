@@ -34,7 +34,6 @@ import logging
 import operator
 import os
 import random
-import redis
 import requests
 import sys
 import time
@@ -42,15 +41,10 @@ from collections import defaultdict
 from ConfigParser import ConfigParser
 from ipaddress import ip_address, ip_network
 
-from protocol import MAINNET_DEFAULT_PORT
+from utils import new_redis_conn
 
-# Redis connection setup
-REDIS_SOCKET = os.environ.get('REDIS_SOCKET', "/tmp/redis.sock")
-REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD', None)
-REDIS_CONN = redis.StrictRedis(unix_socket_path=REDIS_SOCKET,
-                               password=REDIS_PASSWORD)
-
-SETTINGS = {}
+REDIS_CONN = None
+CONF = {}
 
 
 class Seeder(object):
@@ -81,6 +75,9 @@ class Seeder(object):
             except ValueError:
                 logging.warning("Write pending")
                 return
+            if len(self.nodes) == 0:
+                logging.warning("len(self.nodes): %d", len(self.nodes))
+                return
             self.addresses = defaultdict(list)
             for address, services in self.filter_nodes():
                 self.addresses[services].append(address)
@@ -91,14 +88,14 @@ class Seeder(object):
         """
         Saves A and AAAA records in DNS zone files.
         """
-        default_zone = os.path.basename(SETTINGS['zone_file'])
+        default_zone = os.path.basename(CONF['zone_file'])
         for i in range(0xf + 1):
             if i == 0:
                 zone = default_zone
-                zone_file = SETTINGS['zone_file']
+                zone_file = CONF['zone_file']
                 wildcard = "".join([
                     "\n",
-                    "*.seed.litenodes.net.\tIN\tCNAME\tseed.litenodes.net.",
+                    "*.{0}.\tIN\tCNAME\t{0}.".format(default_zone),
                 ])
                 addresses = []
                 for services, addrs in self.addresses.iteritems():
@@ -106,15 +103,15 @@ class Seeder(object):
                         addresses.extend(addrs)
             else:
                 zone = 'x%x.%s' % (i, default_zone)
-                zone_file = SETTINGS['zone_file'].replace(default_zone, zone)
+                zone_file = CONF['zone_file'].replace(default_zone, zone)
                 wildcard = ""
                 addresses = self.addresses[i]
-            logging.info("Zone file: %s", zone_file)
+            logging.debug("Zone file: %s", zone_file)
             serial = str(self.now)
             logging.debug("Serial: %s", serial)
-            template = open(SETTINGS['template'], "r") \
+            template = open(CONF['template'], "r") \
                 .read() \
-                .replace("1413235952", serial) \
+                .replace("1501826735", serial) \
                 .replace("seed.litenodes.net.", zone.replace("zone", ""))
             content = "".join([
                 template,
@@ -138,18 +135,18 @@ class Seeder(object):
                 aaaa_records.append("@\tIN\tAAAA\t{}".format(address))
             else:
                 a_records.append("@\tIN\tA\t{}".format(address))
-        logging.info("A records: %d", len(a_records))
-        logging.info("AAAA records: %d", len(aaaa_records))
-        logging.info("TXT records: %d", len(txt_records))
+        logging.debug("A records: %d", len(a_records))
+        logging.debug("AAAA records: %d", len(aaaa_records))
+        logging.debug("TXT records: %d", len(txt_records))
         random.shuffle(a_records)
         random.shuffle(aaaa_records)
         random.shuffle(txt_records)
         records = "".join([
-            "\n".join(a_records[:SETTINGS['a_records']]),
+            "\n".join(a_records[:CONF['a_records']]),
             "\n",
-            "\n".join(aaaa_records[:SETTINGS['aaaa_records']]),
+            "\n".join(aaaa_records[:CONF['aaaa_records']]),
             "\n",
-            "\n".join(txt_records[:SETTINGS['txt_records']]),
+            "\n".join(txt_records[:CONF['txt_records']]),
         ])
         return records
 
@@ -159,7 +156,7 @@ class Seeder(object):
         1) Height must be equal or greater than the consensus height
         2) Uptime must be equal or greater than the configured min. age
         3) Max. one node per ASN
-        4) Uses default port, i.e. port 8333
+        4) Uses default port
         5) Not listed in blocklist
         """
         min_height = self.get_min_height()
@@ -172,7 +169,7 @@ class Seeder(object):
             services = node[5]
             height = node[6]
             asn = node[13]
-            if (port != MAINNET_DEFAULT_PORT or
+            if (port != CONF['port'] or
                     asn is None or
                     age < min_age or
                     height < min_height or
@@ -190,7 +187,7 @@ class Seeder(object):
         """
         min_height = REDIS_CONN.get('height')
         if min_height is None:
-            min_height = SETTINGS['min_height']
+            min_height = CONF['min_height']
         else:
             min_height = int(min_height)
         logging.info("Min. height: %d", min_height)
@@ -202,7 +199,7 @@ class Seeder(object):
         the configured value, use a fallback value of max. 1 percent away from
         the uptime of the oldest node.
         """
-        min_age = SETTINGS['min_age']
+        min_age = CONF['min_age']
         oldest = self.now - min(self.nodes, key=operator.itemgetter(4))[4]
         logging.info("Longest uptime: %d", oldest)
         if oldest < min_age:
@@ -261,27 +258,36 @@ def cron():
     seeder = Seeder()
     while True:
         time.sleep(5)
-        dump = max(glob.iglob("{}/*.json".format(SETTINGS['export_dir'])))
+        try:
+            dump = max(glob.iglob("{}/*.json".format(CONF['export_dir'])))
+        except ValueError as err:
+            logging.warning(err)
+            continue
         logging.info("Dump: %s", dump)
         seeder.export_nodes(dump)
 
 
-def init_settings(argv):
+def init_conf(argv):
     """
-    Populates SETTINGS with key-value pairs from configuration file.
+    Populates CONF with key-value pairs from configuration file.
     """
     conf = ConfigParser()
     conf.read(argv[1])
-    SETTINGS['logfile'] = conf.get('seeder', 'logfile')
-    SETTINGS['debug'] = conf.getboolean('seeder', 'debug')
-    SETTINGS['export_dir'] = conf.get('seeder', 'export_dir')
-    SETTINGS['min_height'] = conf.getint('seeder', 'min_height')
-    SETTINGS['min_age'] = conf.getint('seeder', 'min_age')
-    SETTINGS['zone_file'] = conf.get('seeder', 'zone_file')
-    SETTINGS['template'] = conf.get('seeder', 'template')
-    SETTINGS['a_records'] = conf.getint('seeder', 'a_records')
-    SETTINGS['aaaa_records'] = conf.getint('seeder', 'aaaa_records')
-    SETTINGS['txt_records'] = conf.getint('seeder', 'txt_records')
+    CONF['logfile'] = conf.get('seeder', 'logfile')
+    CONF['port'] = conf.getint('seeder', 'port')
+    CONF['db'] = conf.getint('seeder', 'db')
+    CONF['debug'] = conf.getboolean('seeder', 'debug')
+    CONF['export_dir'] = conf.get('seeder', 'export_dir')
+    CONF['min_height'] = conf.getint('seeder', 'min_height')
+    CONF['min_age'] = conf.getint('seeder', 'min_age')
+    CONF['zone_file'] = conf.get('seeder', 'zone_file')
+    CONF['template'] = conf.get('seeder', 'template')
+    CONF['a_records'] = conf.getint('seeder', 'a_records')
+    CONF['aaaa_records'] = conf.getint('seeder', 'aaaa_records')
+    CONF['txt_records'] = conf.getint('seeder', 'txt_records')
+    zone_dir = os.path.dirname(CONF['zone_file'])
+    if not os.path.exists(zone_dir):
+        os.makedirs(zone_dir)
 
 
 def main(argv):
@@ -289,22 +295,24 @@ def main(argv):
         print("Usage: seeder.py [config]")
         return 1
 
-    # Initialize global settings
-    init_settings(argv)
+    # Initialize global conf
+    init_conf(argv)
 
     # Initialize logger
     loglevel = logging.INFO
-    if SETTINGS['debug']:
+    if CONF['debug']:
         loglevel = logging.DEBUG
 
     logformat = ("%(filename)s %(lineno)d  %(levelname)s (%(funcName)s) "
                  "%(message)s")
     logging.basicConfig(level=loglevel,
                         format=logformat,
-                        filename=SETTINGS['logfile'],
+                        filename=CONF['logfile'],
                         filemode='w')
-    print("Writing output to {}, press CTRL+C to terminate..".format(
-        SETTINGS['logfile']))
+    print("Log: {}, press CTRL+C to terminate..".format(CONF['logfile']))
+
+    global REDIS_CONN
+    REDIS_CONN = new_redis_conn(db=CONF['db'])
 
     cron()
 

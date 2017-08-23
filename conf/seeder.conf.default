@@ -1,22 +1,28 @@
 [seeder]
 
 # Logfile
-logfile = seeder.log
+logfile = log/seeder.fbc0b6db.log
+
+# Default/fallback port number
+port = 9333
+
+# Redis database number
+db = 0
 
 # Print debug output
 debug = True
 
 # Relative path to directory containing timestamp-prefixed JSON export files
-export_dir = data/export
+export_dir = data/export/fbc0b6db
 
 # Minimum height for exported nodes
-min_height = 456813
+min_height = 478000
 
 # Minimum age for exported nodes
 min_age = 28800
 
 # Relative path to DNS zone file containing exported nodes in A/AAAA records
-zone_file = data/seed.litenodes.net.zone
+zone_file = data/zone/seed.litenodes.net.zone
 
 # Initial template for DNS zone file
 template = zone.tmpl

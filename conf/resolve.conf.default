@@ -1,7 +1,13 @@
 [resolve]
 
 # Logfile
-logfile = resolve.log
+logfile = log/resolve.fbc0b6db.log
+
+# Network magic number
+magic_number = fbc0b6db
+
+# Redis database number
+db = 0
 
 # Print debug output
 debug = True

@@ -1,7 +1,13 @@
 [ping]
 
 # Logfile
-logfile = ping.log
+logfile = log/ping.fbc0b6db.log
+
+# Network magic number
+magic_number = fbc0b6db
+
+# Redis database number
+db = 0
 
 # Max. number of concurrent workers (greenlets) in a pool
 workers = 500
@@ -50,4 +56,4 @@ onion = True
 tor_proxy = 127.0.0.1:9050
 
 # Relative path to directory containing timestamp-prefixed JSON crawl files
-crawl_dir = data/crawl/mainnet
+crawl_dir = data/crawl/fbc0b6db

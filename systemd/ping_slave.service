@@ -5,7 +5,7 @@ After=redis.service ping.service
 
 [Service]
 WorkingDirectory=/home/ubuntu/bitnodes
-ExecStart=/home/ubuntu/.virtualenvs/bitnodes/bin/python -u ping.py ping.conf.default slave
+ExecStart=/home/ubuntu/.virtualenvs/bitnodes/bin/python -u ping.py conf/ping.conf.default slave
 
 # output goes to /var/log/syslog
 StandardOutput=syslog

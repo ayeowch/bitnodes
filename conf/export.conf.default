@@ -1,0 +1,16 @@
+[export]
+
+# Logfile
+logfile = log/export.fbc0b6db.log
+
+# Network magic number
+magic_number = fbc0b6db
+
+# Redis database number
+db = 0
+
+# Print debug output
+debug = False
+
+# Relative path to directory containing timestamp-prefixed JSON export files
+export_dir = data/export/fbc0b6db
