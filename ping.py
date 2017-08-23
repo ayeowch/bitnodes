@@ -43,20 +43,16 @@ import redis.connection
 import socket
 import sys
 import time
+from binascii import hexlify, unhexlify
 from ConfigParser import ConfigParser
 
 from protocol import ProtocolError, ConnectionError, Connection
-from utils import get_keys, ip_to_network
+from utils import new_redis_conn, get_keys, ip_to_network
 
 redis.connection.socket = gevent.socket
 
-# Redis connection setup
-REDIS_SOCKET = os.environ.get('REDIS_SOCKET', "/tmp/redis.sock")
-REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD', None)
-REDIS_CONN = redis.StrictRedis(unix_socket_path=REDIS_SOCKET,
-                               password=REDIS_PASSWORD)
-
-SETTINGS = {}
+REDIS_CONN = None
+CONF = {}
 
 
 class Keepalive(object):
@@ -134,11 +130,8 @@ class Keepalive(object):
 
         self.last_ping = time.time()
         key = "ping:{}-{}:{}".format(self.node[0], self.node[1], nonce)
-        rtt = int(self.last_ping * 1000)
-        logging.debug("%s (%s) RTT: %s", self.node, nonce, rtt)
-
-        REDIS_CONN.lpush(key, rtt)  # in ms
-        REDIS_CONN.expire(key, SETTINGS['ttl'])
+        REDIS_CONN.lpush(key, int(self.last_ping * 1000))  # in ms
+        REDIS_CONN.expire(key, CONF['ttl'])
 
         try:
             self.keepalive_time = int(REDIS_CONN.get('elapsed'))
@@ -199,12 +192,13 @@ def task():
     # logging.info("[NODE ADDRESS] %s", cidr)
     # Check if prefix has hit its limit
     cidr_key = None
-    if ":" in address and SETTINGS['ipv6_prefix'] < 128:
-        cidr = ip_to_network(address, SETTINGS['ipv6_prefix'])
+    if ":" in address and CONF['ipv6_prefix'] < 128:
+        cidr = ip_to_network(address, CONF['ipv6_prefix'])
         cidr_key = 'ping:cidr:{}'.format(cidr)
         nodes = REDIS_CONN.incr(cidr_key)
-        logging.debug("+CIDR %s: %d", cidr, nodes)
-        if nodes > SETTINGS['nodes_per_ipv6_prefix']:
+        logging.info("+CIDR %s: %d", cidr, nodes)
+        if nodes > CONF['nodes_per_ipv6_prefix']:
+            logging.info("CIDR limit reached: %s", cidr)
             nodes = REDIS_CONN.decr(cidr_key)
             logging.info("CIDR limit reached %s: %d", cidr, nodes)
             return
@@ -218,18 +212,20 @@ def task():
 
     proxy = None
     if address.endswith(".onion"):
-        proxy = SETTINGS['tor_proxy']
+        proxy = CONF['tor_proxy']
 
     handshake_msgs = []
-    conn = Connection(node, (SETTINGS['source_address'], 0),
-                      socket_timeout=SETTINGS['socket_timeout'],
+    conn = Connection(node,
+                      (CONF['source_address'], 0),
+                      magic_number=CONF['magic_number'],
+                      socket_timeout=CONF['socket_timeout'],
                       proxy=proxy,
-                      protocol_version=SETTINGS['protocol_version'],
+                      protocol_version=CONF['protocol_version'],
                       to_services=services,
-                      from_services=SETTINGS['services'],
-                      user_agent=SETTINGS['user_agent'],
+                      from_services=CONF['services'],
+                      user_agent=CONF['user_agent'],
                       height=height,
-                      relay=SETTINGS['relay'])
+                      relay=CONF['relay'])
     try:
         logging.debug("Connecting to %s", conn.to_addr)
         conn.open()
@@ -273,10 +269,11 @@ def cron(pool):
     [Master/Slave]
     1) Spawns workers to establish and maintain connection with reachable nodes
     """
+    publish_key = 'snapshot:{}'.format(hexlify(CONF['magic_number']))
     snapshot = None
 
     while True:
-        if SETTINGS['master']:
+        if CONF['master']:
             new_snapshot = get_snapshot()
 
             if new_snapshot != snapshot:
@@ -293,8 +290,8 @@ def cron(pool):
                 logging.info("New reachable nodes: %d", reachable_nodes)
 
                 # Allow connections to stabilize before publishing snapshot
-                gevent.sleep(SETTINGS['socket_timeout'])
-                REDIS_CONN.publish('snapshot', int(time.time()))
+                gevent.sleep(CONF['socket_timeout'])
+                REDIS_CONN.publish(publish_key, int(time.time()))
 
             connections = REDIS_CONN.scard('open')
             logging.info("Connections: %d", connections)
@@ -304,10 +301,10 @@ def cron(pool):
         for _ in xrange(min(REDIS_CONN.scard('reachable'), pool.free_count())):
             pool.spawn(task)
 
-        workers = SETTINGS['workers'] - pool.free_count()
+        workers = CONF['workers'] - pool.free_count()
         logging.info("Workers: %d", workers)
 
-        gevent.sleep(SETTINGS['cron_delay'])
+        gevent.sleep(CONF['cron_delay'])
 
 
 def get_snapshot():
@@ -317,7 +314,7 @@ def get_snapshot():
     """
     snapshot = None
     try:
-        snapshot = max(glob.iglob("{}/*.json".format(SETTINGS['crawl_dir'])))
+        snapshot = max(glob.iglob("{}/*.json".format(CONF['crawl_dir'])))
     except ValueError as err:
         logging.warning(err)
     return snapshot
@@ -377,39 +374,41 @@ def set_bestblockhash():
         logging.info("bestblockhash: %s", lastblockhash)
 
 
-def init_settings(argv):
+def init_conf(argv):
     """
-    Populates SETTINGS with key-value pairs from configuration file.
+    Populates CONF with key-value pairs from configuration file.
     """
     conf = ConfigParser()
     conf.read(argv[1])
-    SETTINGS['logfile'] = conf.get('ping', 'logfile')
-    SETTINGS['workers'] = conf.getint('ping', 'workers')
-    SETTINGS['debug'] = conf.getboolean('ping', 'debug')
-    SETTINGS['source_address'] = conf.get('ping', 'source_address')
-    SETTINGS['protocol_version'] = conf.getint('ping', 'protocol_version')
-    SETTINGS['user_agent'] = conf.get('ping', 'user_agent')
-    SETTINGS['services'] = conf.getint('ping', 'services')
-    SETTINGS['relay'] = conf.getint('ping', 'relay')
-    SETTINGS['socket_timeout'] = conf.getint('ping', 'socket_timeout')
-    SETTINGS['cron_delay'] = conf.getint('ping', 'cron_delay')
-    SETTINGS['ttl'] = conf.getint('ping', 'ttl')
-    SETTINGS['ipv6_prefix'] = conf.getint('ping', 'ipv6_prefix')
-    SETTINGS['nodes_per_ipv6_prefix'] = conf.getint('ping',
-                                                    'nodes_per_ipv6_prefix')
+    CONF['logfile'] = conf.get('ping', 'logfile')
+    CONF['magic_number'] = unhexlify(conf.get('ping', 'magic_number'))
+    CONF['db'] = conf.getint('ping', 'db')
+    CONF['workers'] = conf.getint('ping', 'workers')
+    CONF['debug'] = conf.getboolean('ping', 'debug')
+    CONF['source_address'] = conf.get('ping', 'source_address')
+    CONF['protocol_version'] = conf.getint('ping', 'protocol_version')
+    CONF['user_agent'] = conf.get('ping', 'user_agent')
+    CONF['services'] = conf.getint('ping', 'services')
+    CONF['relay'] = conf.getint('ping', 'relay')
+    CONF['socket_timeout'] = conf.getint('ping', 'socket_timeout')
+    CONF['cron_delay'] = conf.getint('ping', 'cron_delay')
+    CONF['ttl'] = conf.getint('ping', 'ttl')
+    CONF['ipv6_prefix'] = conf.getint('ping', 'ipv6_prefix')
+    CONF['nodes_per_ipv6_prefix'] = conf.getint('ping',
+                                                'nodes_per_ipv6_prefix')
 
-    SETTINGS['onion'] = conf.getboolean('ping', 'onion')
-    SETTINGS['tor_proxy'] = None
-    if SETTINGS['onion']:
+    CONF['onion'] = conf.getboolean('ping', 'onion')
+    CONF['tor_proxy'] = None
+    if CONF['onion']:
         tor_proxy = conf.get('ping', 'tor_proxy').split(":")
-        SETTINGS['tor_proxy'] = (tor_proxy[0], int(tor_proxy[1]))
+        CONF['tor_proxy'] = (tor_proxy[0], int(tor_proxy[1]))
 
-    SETTINGS['crawl_dir'] = conf.get('ping', 'crawl_dir')
-    if not os.path.exists(SETTINGS['crawl_dir']):
-        os.makedirs(SETTINGS['crawl_dir'])
+    CONF['crawl_dir'] = conf.get('ping', 'crawl_dir')
+    if not os.path.exists(CONF['crawl_dir']):
+        os.makedirs(CONF['crawl_dir'])
 
     # Set to True for master process
-    SETTINGS['master'] = argv[2] == "master"
+    CONF['master'] = argv[2] == "master"
 
 
 def main(argv):
@@ -417,24 +416,26 @@ def main(argv):
         print("Usage: ping.py [config] [master|slave]")
         return 1
 
-    # Initialize global settings
-    init_settings(argv)
+    # Initialize global conf
+    init_conf(argv)
 
     # Initialize logger
     loglevel = logging.INFO
-    if SETTINGS['debug']:
+    if CONF['debug']:
         loglevel = logging.DEBUG
 
     logformat = ("%(filename)s %(lineno)d  %(levelname)s "
                  "(%(funcName)s) %(message)s")
     logging.basicConfig(level=loglevel,
                         format=logformat,
-                        filename=SETTINGS['logfile'],
+                        filename=CONF['logfile'],
                         filemode='a')
-    print("Writing output to {}, press CTRL+C to terminate..".format(
-        SETTINGS['logfile']))
+    print("Log: {}, press CTRL+C to terminate..".format(CONF['logfile']))
 
-    if SETTINGS['master']:
+    global REDIS_CONN
+    REDIS_CONN = new_redis_conn(db=CONF['db'])
+
+    if CONF['master']:
         redis_pipe = REDIS_CONN.pipeline()
         logging.info("Removing all keys")
         redis_pipe.delete('reachable')
@@ -445,7 +446,7 @@ def main(argv):
         redis_pipe.execute()
 
     # Initialize a pool of workers (greenlets)
-    pool = gevent.pool.Pool(SETTINGS['workers'])
+    pool = gevent.pool.Pool(CONF['workers'])
     pool.spawn(cron, pool)
     pool.join()
 

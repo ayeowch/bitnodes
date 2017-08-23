@@ -151,21 +151,15 @@ from collections import deque
 from cStringIO import StringIO
 from operator import itemgetter
 
-MAINNET = "mainnet"
-TESTNET3 = "testnet3"
 
-MAINNET_MAGIC_NUMBER = "\xFB\xC0\xB6\xDB"
-TESTNET3_MAGIC_NUMBER = "\xFC\xC1\xB7\xDC"
-
-MAINNET_DEFAULT_PORT = 9333
-TESTNET3_DEFAULT_PORT = 19333
-
+MAGIC_NUMBER = "\xFB\xC0\xB6\xDB"
+PORT = 9333
 MIN_PROTOCOL_VERSION = 70001
 PROTOCOL_VERSION = 70015
 FROM_SERVICES = 0
 TO_SERVICES = 1  # NODE_NETWORK
 USER_AGENT = "/litenodes:1.0/"
-HEIGHT = 1130000
+HEIGHT = 478000
 RELAY = 0  # set to 1 to receive all txs
 
 SOCKET_BUFSIZE = 8192
@@ -248,20 +242,16 @@ def create_connection(address, timeout=SOCKET_TIMEOUT, source_address=None,
 
 
 class Serializer(object):
-    def __init__(self, **config):
-        if config.get('network') == TESTNET3:
-            self.magic_number = TESTNET3_MAGIC_NUMBER
-        else:
-            self.magic_number = MAINNET_MAGIC_NUMBER  # default
-        self.protocol_version = config.get('protocol_version',
-                                           PROTOCOL_VERSION)
-        self.to_services = config.get('to_services', TO_SERVICES)
-        self.from_services = config.get('from_services', FROM_SERVICES)
-        self.user_agent = config.get('user_agent', USER_AGENT)
-        self.height = config.get('height', HEIGHT)
+    def __init__(self, **conf):
+        self.magic_number = conf.get('magic_number', MAGIC_NUMBER)
+        self.protocol_version = conf.get('protocol_version', PROTOCOL_VERSION)
+        self.to_services = conf.get('to_services', TO_SERVICES)
+        self.from_services = conf.get('from_services', FROM_SERVICES)
+        self.user_agent = conf.get('user_agent', USER_AGENT)
+        self.height = conf.get('height', HEIGHT)
         if self.height is None:
             self.height = HEIGHT
-        self.relay = config.get('relay', RELAY)
+        self.relay = conf.get('relay', RELAY)
         # This is set prior to throwing PayloadTooShortError exception to
         # allow caller to fetch more data over the network.
         self.required_len = 0
@@ -497,7 +487,7 @@ class Serializer(object):
             tx_out = self.deserialize_tx_out(data)
             msg['tx_out'].append(tx_out)
 
-        msg['lock_time'] = struct.unpack("<I", data.read(4))[0]
+        msg['lock_time'] = unpack("<I", data.read(4))
 
         # Calculate hash from the entire payload
         payload = self.serialize_tx_payload(msg)
@@ -655,7 +645,7 @@ class Serializer(object):
         prev_out_index = struct.unpack("<I", data.read(4))[0]
         script_length = self.deserialize_int(data)
         script = data.read(script_length)
-        sequence = struct.unpack("<I", data.read(4))[0]
+        sequence = unpack("<I", data.read(4))
         return {
             'prev_out_hash': hexlify(prev_out_hash),
             'prev_out_index': prev_out_index,
@@ -751,17 +741,12 @@ class Serializer(object):
 
 
 class Connection(object):
-    def __init__(self, to_addr, from_addr=("0.0.0.0", 0), **config):
-        if to_addr[1] == 0:
-            if config.get('network') == TESTNET3:
-                to_addr = (to_addr[0], TESTNET3_DEFAULT_PORT)
-            else:
-                to_addr = (to_addr[0], MAINNET_DEFAULT_PORT)  # default
+    def __init__(self, to_addr, from_addr=("0.0.0.0", 0), **conf):
         self.to_addr = to_addr
         self.from_addr = from_addr
-        self.serializer = Serializer(**config)
-        self.socket_timeout = config.get('socket_timeout', SOCKET_TIMEOUT)
-        self.proxy = config.get('proxy', None)
+        self.serializer = Serializer(**conf)
+        self.socket_timeout = conf.get('socket_timeout', SOCKET_TIMEOUT)
+        self.proxy = conf.get('proxy', None)
         self.socket = None
         self.bps = deque([], maxlen=128)  # bps samples for this connection
 
@@ -945,7 +930,7 @@ class Connection(object):
 
 
 def main():
-    to_addr = ("173.209.44.34", MAINNET_DEFAULT_PORT)
+    to_addr = ("173.209.44.34", PORT)
     to_services = TO_SERVICES
 
     handshake_msgs = []

@@ -1,13 +1,18 @@
 [crawl]
 
 # Logfile
-logfile = crawl.log
+logfile = log/crawl.log
 
-# Network (mainnet or testnet3)
-network = mainnet
+# Network magic number
+magic_number = fbc0b6db
+
+# Default/fallback port number
+port = 9333
+
+# Redis database number
+db = 0
 
 # List of DNS seeders to get a subset of reachable nodes
-# --- mainnet ---
 seeders =
     seed-a.litecoin.loshan.co.uk
     dnsseed.thrasher.io
@@ -19,6 +24,7 @@ seeders =
 #seeders =
 #    seed-b.litecoin.loshan.co.uk
 #    testnet-seed.litecointools.com
+
 
 # Number of concurrent workers (greenlets)
 workers = 500
@@ -130,7 +136,4 @@ onion_nodes =
 include_checked = True
 
 # Relative path to directory containing timestamp-prefixed JSON crawl files
-# --- mainnet ---
-crawl_dir = data/crawl/mainnet
-# --- testnet3 ---
-#crawl_dir = data/crawl/testnet3
+crawl_dir = data/crawl/fbc0b6db

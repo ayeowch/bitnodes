@@ -42,36 +42,24 @@ import socket
 import sys
 import time
 from base64 import b32decode
-from binascii import hexlify
+from binascii import hexlify, unhexlify
 from collections import Counter
 from ConfigParser import ConfigParser
 from ipaddress import ip_network
 
 from protocol import (
-    ProtocolError,
-    ConnectionError,
-    Connection,
-    TESTNET3,
-    MAINNET_DEFAULT_PORT,
-    TESTNET3_DEFAULT_PORT,
-    TO_SERVICES,
     ONION_PREFIX,
+    TO_SERVICES,
+    Connection,
+    ConnectionError,
+    ProtocolError,
 )
 from utils import new_redis_conn, get_keys, ip_to_network
 
 redis.connection.socket = gevent.socket
 
 REDIS_CONN = None
-SETTINGS = {}
-
-
-def default_port():
-    """
-    Returns default port to use for the network.
-    """
-    if SETTINGS['network'] == TESTNET3:
-        return TESTNET3_DEFAULT_PORT
-    return MAINNET_DEFAULT_PORT  # default
+CONF = {}
 
 
 def enumerate_node(redis_pipe, addr_msgs, now):
@@ -86,9 +74,9 @@ def enumerate_node(redis_pipe, addr_msgs, now):
                 age = now - peer['timestamp']  # seconds
 
                 # Add peering node with age <= 24 hours into crawl set
-                if age >= 0 and age <= SETTINGS['max_age']:
+                if age >= 0 and age <= CONF['max_age']:
                     address = peer['ipv4'] or peer['ipv6'] or peer['onion']
-                    port = peer['port'] if peer['port'] > 0 else default_port()
+                    port = peer['port'] if peer['port'] > 0 else CONF['port']
                     services = peer['services']
                     if not address:
                         continue
@@ -123,19 +111,19 @@ def connect(redis_conn, key):
 
     proxy = None
     if address.endswith(".onion"):
-        proxy = SETTINGS['tor_proxy']
+        proxy = CONF['tor_proxy']
 
     conn = Connection((address, int(port)),
-                      (SETTINGS['source_address'], 0),
-                      network=SETTINGS['network'],
-                      socket_timeout=SETTINGS['socket_timeout'],
+                      (CONF['source_address'], 0),
+                      magic_number=CONF['magic_number'],
+                      socket_timeout=CONF['socket_timeout'],
                       proxy=proxy,
-                      protocol_version=SETTINGS['protocol_version'],
+                      protocol_version=CONF['protocol_version'],
                       to_services=services,
-                      from_services=SETTINGS['services'],
-                      user_agent=SETTINGS['user_agent'],
+                      from_services=CONF['services'],
+                      user_agent=CONF['user_agent'],
                       height=height,
-                      relay=SETTINGS['relay'])
+                      relay=CONF['relay'])
     try:
         conn.open()
         handshake_msgs = conn.handshake()
@@ -157,7 +145,7 @@ def connect(redis_conn, key):
                           services, from_services)
             key = "node:{}-{}-{}".format(address, port, from_services)
         height_key = "height:{}-{}-{}".format(address, port, from_services)
-        redis_pipe.setex(height_key, SETTINGS['max_age'],
+        redis_pipe.setex(height_key, CONF['max_age'],
                          version_msg.get('height', 0))
         now = int(time.time())
         peers = enumerate_node(redis_pipe, addr_msgs, now)
@@ -187,8 +175,7 @@ def dump(timestamp, nodes):
         logging.warning("len(json_data): %d", len(json_data))
         return 0
 
-    json_output = os.path.join(SETTINGS['crawl_dir'],
-                               "{}.json".format(timestamp))
+    json_output = os.path.join(CONF['crawl_dir'], "{}.json".format(timestamp))
     open(json_output, 'w').write(json.dumps(json_data))
     logging.info("Wrote %s", json_output)
 
@@ -216,9 +203,9 @@ def restart(timestamp):
     for key in get_keys(REDIS_CONN, 'crawl:cidr:*'):
         redis_pipe.delete(key)
 
-    if SETTINGS['include_checked']:
+    if CONF['include_checked']:
         checked_nodes = REDIS_CONN.zrangebyscore(
-            'check', timestamp - SETTINGS['max_age'], timestamp)
+            'check', timestamp - CONF['max_age'], timestamp)
         for node in checked_nodes:
             (address, port, services) = eval(node)
             if is_excluded(address):
@@ -260,12 +247,12 @@ def cron():
             logging.info("Elapsed: %d", elapsed)
             logging.info("Restarting")
             restart(now)
-            while int(time.time()) - start < SETTINGS['snapshot_delay']:
+            while int(time.time()) - start < CONF['snapshot_delay']:
                 gevent.sleep(1)
             start = int(time.time())
             REDIS_CONN.set('crawl:master:state', "running")
 
-        gevent.sleep(SETTINGS['cron_delay'])
+        gevent.sleep(CONF['cron_delay'])
 
 
 def task():
@@ -273,12 +260,12 @@ def task():
     Assigned to a worker to retrieve (pop) a node from the crawl set and
     attempt to establish connection with a new node.
     """
-    redis_conn = new_redis_conn(network=SETTINGS['network'])
+    redis_conn = new_redis_conn(db=CONF['db'])
 
     while True:
-        if not SETTINGS['master']:
+        if not CONF['master']:
             while REDIS_CONN.get('crawl:master:state') != "running":
-                gevent.sleep(SETTINGS['socket_timeout'])
+                gevent.sleep(CONF['socket_timeout'])
 
         node = redis_conn.spop('pending')  # Pop random node from set
         if node is None:
@@ -288,8 +275,7 @@ def task():
         node = eval(node)  # Convert string from Redis to tuple
 
         # Skip IPv6 node
-        if ":" in node[0] and not SETTINGS['ipv6']:
-            logging.warning("[WARNING] skipping ipv6")
+        if ":" in node[0] and not CONF['ipv6']:
             continue
 
         key = "node:{}-{}-{}".format(node[0], node[1], node[2])
@@ -297,11 +283,11 @@ def task():
             continue
 
         # Check if prefix has hit its limit
-        if ":" in node[0] and SETTINGS['ipv6_prefix'] < 128:
-            cidr = ip_to_network(node[0], SETTINGS['ipv6_prefix'])
+        if ":" in node[0] and CONF['ipv6_prefix'] < 128:
+            cidr = ip_to_network(node[0], CONF['ipv6_prefix'])
             nodes = redis_conn.incr('crawl:cidr:{}'.format(cidr))
-            if nodes > SETTINGS['nodes_per_ipv6_prefix']:
-                logging.warning("[IPV6 SKIPPED] CIDR %s: %d", cidr, nodes)
+            if nodes > CONF['nodes_per_ipv6_prefix']:
+                logging.debug("CIDR %s: %d", cidr, nodes)
                 continue
 
         connect(redis_conn, key)
@@ -312,7 +298,7 @@ def set_pending():
     Initializes pending set in Redis with a list of reachable nodes from DNS
     seeders and hardcoded list of .onion nodes to bootstrap the crawler.
     """
-    for seeder in SETTINGS['seeders']:
+    for seeder in CONF['seeders']:
         nodes = []
 
         try:
@@ -322,7 +308,7 @@ def set_pending():
         else:
             nodes.extend(ipv4_nodes)
 
-        if SETTINGS['ipv6']:
+        if CONF['ipv6']:
             try:
                 ipv6_nodes = socket.getaddrinfo(seeder, None, socket.AF_INET6)
             except socket.gaierror as err:
@@ -336,11 +322,11 @@ def set_pending():
                 logging.warning("Exclude: %s", address)
                 continue
             logging.debug("%s: %s", seeder, address)
-            REDIS_CONN.sadd('pending', (address, default_port(), TO_SERVICES))
+            REDIS_CONN.sadd('pending', (address, CONF['port'], TO_SERVICES))
 
-    if SETTINGS['onion']:
-        for address in SETTINGS['onion_nodes']:
-            REDIS_CONN.sadd('pending', (address, default_port(), TO_SERVICES))
+    if CONF['onion']:
+        for address in CONF['onion_nodes']:
+            REDIS_CONN.sadd('pending', (address, CONF['port'], TO_SERVICES))
 
 
 def is_excluded(address):
@@ -359,7 +345,7 @@ def is_excluded(address):
     except socket.error:
         logging.warning("Bad address: %s", address)
         return True
-    return any([(addr & net[1] == net[0]) for net in SETTINGS[key]])
+    return any([(addr & net[1] == net[0]) for net in CONF[key]])
 
 
 def onion_to_ipv6(address):
@@ -393,7 +379,7 @@ def update_excluded_networks():
     """
     Adds bogons into the excluded IPv4 networks.
     """
-    if not SETTINGS['exclude_ipv4_bogons']:
+    if not CONF['exclude_ipv4_bogons']:
         return
     url = "http://www.team-cymru.org/Services/Bogons/fullbogons-ipv4.txt"
     try:
@@ -402,64 +388,64 @@ def update_excluded_networks():
         logging.warning(err)
     else:
         if response.status_code == 200:
-            SETTINGS['exclude_ipv4_networks'] = list_excluded_networks(
+            CONF['exclude_ipv4_networks'] = list_excluded_networks(
                 response.content,
-                networks=SETTINGS['initial_exclude_ipv4_networks'])
-            logging.info("%d", len(SETTINGS['exclude_ipv4_networks']))
+                networks=CONF['initial_exclude_ipv4_networks'])
+            logging.info("%d", len(CONF['exclude_ipv4_networks']))
 
 
-def init_settings(argv):
+def init_conf(argv):
     """
-    Populates SETTINGS with key-value pairs from configuration file.
+    Populates CONF with key-value pairs from configuration file.
     """
     conf = ConfigParser()
     conf.read(argv[1])
-    SETTINGS['logfile'] = conf.get('crawl', 'logfile')
-    SETTINGS['network'] = conf.get('crawl', 'network')
-    SETTINGS['seeders'] = conf.get('crawl', 'seeders').strip().split("\n")
-    SETTINGS['workers'] = conf.getint('crawl', 'workers')
-    SETTINGS['debug'] = conf.getboolean('crawl', 'debug')
-    SETTINGS['source_address'] = conf.get('crawl', 'source_address')
-    SETTINGS['protocol_version'] = conf.getint('crawl', 'protocol_version')
-    SETTINGS['user_agent'] = conf.get('crawl', 'user_agent')
-    SETTINGS['services'] = conf.getint('crawl', 'services')
-    SETTINGS['relay'] = conf.getint('crawl', 'relay')
-    SETTINGS['socket_timeout'] = conf.getint('crawl', 'socket_timeout')
-    SETTINGS['cron_delay'] = conf.getint('crawl', 'cron_delay')
-    SETTINGS['snapshot_delay'] = conf.getint('crawl', 'snapshot_delay')
-    SETTINGS['max_age'] = conf.getint('crawl', 'max_age')
-    SETTINGS['ipv6'] = conf.getboolean('crawl', 'ipv6')
-    SETTINGS['ipv6_prefix'] = conf.getint('crawl', 'ipv6_prefix')
-    SETTINGS['nodes_per_ipv6_prefix'] = conf.getint('crawl',
-                                                    'nodes_per_ipv6_prefix')
+    CONF['logfile'] = conf.get('crawl', 'logfile')
+    CONF['magic_number'] = unhexlify(conf.get('crawl', 'magic_number'))
+    CONF['port'] = conf.getint('crawl', 'port')
+    CONF['db'] = conf.getint('crawl', 'db')
+    CONF['seeders'] = conf.get('crawl', 'seeders').strip().split("\n")
+    CONF['workers'] = conf.getint('crawl', 'workers')
+    CONF['debug'] = conf.getboolean('crawl', 'debug')
+    CONF['source_address'] = conf.get('crawl', 'source_address')
+    CONF['protocol_version'] = conf.getint('crawl', 'protocol_version')
+    CONF['user_agent'] = conf.get('crawl', 'user_agent')
+    CONF['services'] = conf.getint('crawl', 'services')
+    CONF['relay'] = conf.getint('crawl', 'relay')
+    CONF['socket_timeout'] = conf.getint('crawl', 'socket_timeout')
+    CONF['cron_delay'] = conf.getint('crawl', 'cron_delay')
+    CONF['snapshot_delay'] = conf.getint('crawl', 'snapshot_delay')
+    CONF['max_age'] = conf.getint('crawl', 'max_age')
+    CONF['ipv6'] = conf.getboolean('crawl', 'ipv6')
+    CONF['ipv6_prefix'] = conf.getint('crawl', 'ipv6_prefix')
+    CONF['nodes_per_ipv6_prefix'] = conf.getint('crawl',
+                                                'nodes_per_ipv6_prefix')
 
-    SETTINGS['exclude_ipv4_networks'] = list_excluded_networks(
+    CONF['exclude_ipv4_networks'] = list_excluded_networks(
         conf.get('crawl', 'exclude_ipv4_networks'))
-    SETTINGS['exclude_ipv6_networks'] = list_excluded_networks(
+    CONF['exclude_ipv6_networks'] = list_excluded_networks(
         conf.get('crawl', 'exclude_ipv6_networks'))
 
-    SETTINGS['exclude_ipv4_bogons'] = conf.getboolean('crawl',
-                                                      'exclude_ipv4_bogons')
+    CONF['exclude_ipv4_bogons'] = conf.getboolean('crawl',
+                                                  'exclude_ipv4_bogons')
 
-    SETTINGS['initial_exclude_ipv4_networks'] = \
-        SETTINGS['exclude_ipv4_networks']
+    CONF['initial_exclude_ipv4_networks'] = CONF['exclude_ipv4_networks']
 
-    SETTINGS['onion'] = conf.getboolean('crawl', 'onion')
-    SETTINGS['tor_proxy'] = None
-    if SETTINGS['onion']:
+    CONF['onion'] = conf.getboolean('crawl', 'onion')
+    CONF['tor_proxy'] = None
+    if CONF['onion']:
         tor_proxy = conf.get('crawl', 'tor_proxy').split(":")
-        SETTINGS['tor_proxy'] = (tor_proxy[0], int(tor_proxy[1]))
-    SETTINGS['onion_nodes'] = conf.get('crawl',
-                                       'onion_nodes').strip().split("\n")
+        CONF['tor_proxy'] = (tor_proxy[0], int(tor_proxy[1]))
+    CONF['onion_nodes'] = conf.get('crawl', 'onion_nodes').strip().split("\n")
 
-    SETTINGS['include_checked'] = conf.getboolean('crawl', 'include_checked')
+    CONF['include_checked'] = conf.getboolean('crawl', 'include_checked')
 
-    SETTINGS['crawl_dir'] = conf.get('crawl', 'crawl_dir')
-    if not os.path.exists(SETTINGS['crawl_dir']):
-        os.makedirs(SETTINGS['crawl_dir'])
+    CONF['crawl_dir'] = conf.get('crawl', 'crawl_dir')
+    if not os.path.exists(CONF['crawl_dir']):
+        os.makedirs(CONF['crawl_dir'])
 
     # Set to True for master process
-    SETTINGS['master'] = argv[2] == "master"
+    CONF['master'] = argv[2] == "master"
 
 
 def main(argv):
@@ -467,27 +453,26 @@ def main(argv):
         print("Usage: crawl.py [config] [master|slave]")
         return 1
 
-    # Initialize global settings
-    init_settings(argv)
+    # Initialize global conf
+    init_conf(argv)
 
     # Initialize logger
     loglevel = logging.INFO
-    if SETTINGS['debug']:
+    if CONF['debug']:
         loglevel = logging.DEBUG
 
     logformat = ("%(filename)s %(levelname)s "
                  "(%(funcName)s) %(message)s")
     logging.basicConfig(level=loglevel,
                         format=logformat,
-                        filename=SETTINGS['logfile'],
+                        filename=CONF['logfile'],
                         filemode='a')
-    print("Writing output to {}, press CTRL+C to terminate..".format(
-        SETTINGS['logfile']))
+    print("Log: {}, press CTRL+C to terminate..".format(CONF['logfile']))
 
     global REDIS_CONN
-    REDIS_CONN = new_redis_conn(network=SETTINGS['network'])
+    REDIS_CONN = new_redis_conn(db=CONF['db'])
 
-    if SETTINGS['master']:
+    if CONF['master']:
         REDIS_CONN.set('crawl:master:state', "starting")
         logging.info("Removing all keys")
         redis_pipe = REDIS_CONN.pipeline()
@@ -502,9 +487,9 @@ def main(argv):
 
     # Spawn workers (greenlets) including one worker reserved for cron tasks
     workers = []
-    if SETTINGS['master']:
+    if CONF['master']:
         workers.append(gevent.spawn(cron))
-    for _ in xrange(SETTINGS['workers'] - len(workers)):
+    for _ in xrange(CONF['workers'] - len(workers)):
         workers.append(gevent.spawn(task))
     logging.info("Workers: %d", len(workers))
     gevent.joinall(workers)

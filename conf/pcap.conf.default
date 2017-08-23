@@ -1,7 +1,13 @@
 [pcap]
 
 # Logfile
-logfile = pcap.log
+logfile = log/pcap.fbc0b6db.log
+
+# Network magic number
+magic_number = fbc0b6db
+
+# Redis database number
+db = 0
 
 # Print debug output
 debug = False
@@ -16,4 +22,4 @@ rtt_count = 15
 tor_proxy = 127.0.0.1:9050
 
 # Relative path to directory containing pcap files
-pcap_dir = data/pcap
+pcap_dir = data/pcap/fbc0b6db
