@@ -148,6 +148,7 @@ from base64 import b32decode, b32encode
 from binascii import hexlify, unhexlify
 from collections import deque
 from cStringIO import StringIO
+from io import SEEK_CUR
 from operator import itemgetter
 
 MAGIC_NUMBER = "\xF9\xBE\xB4\xD9"
@@ -468,6 +469,14 @@ class Serializer(object):
 
         msg['version'] = struct.unpack("<I", data.read(4))[0]
 
+        # Check for BIP144 marker
+        marker = data.read(1)
+        if marker == '\x00':  # BIP144 marker is set
+            flags = data.read(1)
+        else:
+            flags = '\x00'
+            data.seek(-1, SEEK_CUR)
+
         msg['tx_in_count'] = self.deserialize_int(data)
         msg['tx_in'] = []
         for _ in xrange(msg['tx_in_count']):
@@ -479,6 +488,12 @@ class Serializer(object):
         for _ in xrange(msg['tx_out_count']):
             tx_out = self.deserialize_tx_out(data)
             msg['tx_out'].append(tx_out)
+
+        if flags != '\x00':
+            for in_num in xrange(msg['tx_in_count']):
+                msg['tx_in'][in_num].update({
+                    'wits': self.deserialize_string_vector(data),
+                })
 
         msg['lock_time'] = unpack("<I", data.read(4))
 
@@ -698,6 +713,19 @@ class Serializer(object):
             'nonce': nonce,
             'tx_count': tx_count,
         }
+
+    def serialize_string_vector(self, data):
+        payload = [
+            self.serialize_int(len(data)),
+        ] + [self.serialize_string(item) for item in data]
+        return ''.join(payload)
+
+    def deserialize_string_vector(self, data):
+        items = []
+        count = self.deserialize_int(data)
+        for _ in xrange(count):
+            items.append(self.deserialize_string(data))
+        return items
 
     def serialize_string(self, data):
         length = len(data)
