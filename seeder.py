@@ -153,13 +153,13 @@ class Seeder(object):
     def filter_nodes(self):
         """
         Returns nodes that satisfy the minimum requirements listed below:
-        1) Height must be equal or greater than the consensus height
+        1) Height must be at most 2 blocks away from the consensus height
         2) Uptime must be equal or greater than the configured min. age
         3) Max. one node per ASN
         4) Uses default port
         5) Not listed in blocklist
         """
-        min_height = self.get_min_height()
+        consensus_height = self.get_consensus_height()
         min_age = self.get_min_age()
         asns = set()
         for node in self.nodes:
@@ -172,26 +172,24 @@ class Seeder(object):
             if (port != CONF['port'] or
                     asn is None or
                     age < min_age or
-                    height < min_height or
                     self.is_blocked(address)):
+                continue
+            if consensus_height and abs(consensus_height - height) > 2:
                 continue
             if asn in asns and not address.endswith(".onion"):
                 continue
             yield address, services
             asns.add(asn)
 
-    def get_min_height(self):
+    def get_consensus_height(self):
         """
-        Returns the most common height from Redis. If the value has not been
-        set in Redis, use the configured fallback value.
+        Returns the most common height from Redis.
         """
-        min_height = REDIS_CONN.get('height')
-        if min_height is None:
-            min_height = CONF['min_height']
-        else:
-            min_height = int(min_height)
-        logging.info("Min. height: %d", min_height)
-        return min_height
+        height = REDIS_CONN.get('height')
+        if height:
+            height = int(height)
+        logging.info("Consensus. height: %d", height)
+        return height
 
     def get_min_age(self):
         """
@@ -278,7 +276,6 @@ def init_conf(argv):
     CONF['db'] = conf.getint('seeder', 'db')
     CONF['debug'] = conf.getboolean('seeder', 'debug')
     CONF['export_dir'] = conf.get('seeder', 'export_dir')
-    CONF['min_height'] = conf.getint('seeder', 'min_height')
     CONF['min_age'] = conf.getint('seeder', 'min_age')
     CONF['zone_file'] = conf.get('seeder', 'zone_file')
     CONF['template'] = conf.get('seeder', 'template')
