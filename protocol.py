@@ -157,7 +157,7 @@ MIN_PROTOCOL_VERSION = 70001
 PROTOCOL_VERSION = 70015
 FROM_SERVICES = 0
 TO_SERVICES = 1  # NODE_NETWORK
-USER_AGENT = "/bitnodes.21.co:0.1/"
+USER_AGENT = "/bitnodes.earn.com:0.1/"
 HEIGHT = 478000
 RELAY = 0  # set to 1 to receive all txs
 
