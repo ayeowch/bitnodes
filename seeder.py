@@ -188,7 +188,7 @@ class Seeder(object):
         height = REDIS_CONN.get('height')
         if height:
             height = int(height)
-        logging.info("Consensus. height: %d", height)
+        logging.info("Consensus. height: %s", height)
         return height
 
     def get_min_age(self):
