@@ -101,7 +101,7 @@ def connect(redis_conn, key):
     handshake_msgs = []
     addr_msgs = []
 
-    redis_conn.hset(key, 'state', "")  # Set Redis hash for a new node
+    redis_conn.set(key, "")  # Set Redis key for a new node
 
     (address, port, services) = key[5:].split("-", 2)
     services = int(services)
@@ -149,7 +149,8 @@ def connect(redis_conn, key):
         now = int(time.time())
         peers = enumerate_node(redis_pipe, addr_msgs, now)
         logging.debug("%s Peers: %d", conn.to_addr, peers)
-        redis_pipe.hset(key, 'state', "up")
+        redis_pipe.set(key, "")
+        redis_pipe.sadd('up', key)
     redis_pipe.execute()
 
 
@@ -189,16 +190,18 @@ def restart(timestamp):
     Updates excluded networks with current list of bogons.
     Updates number of reachable nodes and most common height in Redis.
     """
-    nodes = []  # Reachable nodes
-
     redis_pipe = REDIS_CONN.pipeline()
+
+    nodes = REDIS_CONN.smembers('up')  # Reachable nodes
+    redis_pipe.delete('up')
+
+    for node in nodes:
+        (address, port, services) = node[5:].split("-", 2)
+        redis_pipe.sadd('pending', (address, int(port), int(services)))
+
     for key in get_keys(REDIS_CONN, 'node:*'):
-        state = REDIS_CONN.hget(key, 'state')
-        if state == "up":
-            nodes.append(key)
-            (address, port, services) = key[5:].split("-", 2)
-            redis_pipe.sadd('pending', (address, int(port), int(services)))
         redis_pipe.delete(key)
+
     for key in get_keys(REDIS_CONN, 'crawl:cidr:*'):
         redis_pipe.delete(key)
 
@@ -475,6 +478,7 @@ def main(argv):
         REDIS_CONN.set('crawl:master:state', "starting")
         logging.info("Removing all keys")
         redis_pipe = REDIS_CONN.pipeline()
+        redis_pipe.delete('up')
         for key in get_keys(REDIS_CONN, 'node:*'):
             redis_pipe.delete(key)
         for key in get_keys(REDIS_CONN, 'crawl:cidr:*'):
