@@ -52,5 +52,3 @@ python -u resolve.py conf/resolve.e3e1f3e8.conf > log/resolve.e3e1f3e8.out 2>&1 
 python -u export.py conf/export.e3e1f3e8.conf > log/export.e3e1f3e8.out 2>&1 &
 
 python -u seeder.py conf/seeder.e3e1f3e8.conf > log/seeder.e3e1f3e8.out 2>&1 &
-
-python -u pcap.py conf/pcap.e3e1f3e8.conf > log/pcap.e3e1f3e8.1.out 2>&1 &
