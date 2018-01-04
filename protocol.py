@@ -467,7 +467,7 @@ class Serializer(object):
         if isinstance(data, str):
             data = StringIO(data)
 
-        msg['version'] = struct.unpack("<I", data.read(4))[0]
+        msg['version'] = unpack("<I", data.read(4))
 
         # Check for BIP144 marker
         marker = data.read(1)
