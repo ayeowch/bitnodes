@@ -28,6 +28,7 @@
 Saves messages from pcap files in Redis.
 """
 
+import bisect
 import dpkt
 import glob
 import hashlib
@@ -87,7 +88,8 @@ class Cache(object):
         self.streams = defaultdict(PriorityQueue)
         self.stream = Stream()
         self.count = 0
-        self.keys = set()  # ping:ADDRESS-PORT:NONCE
+        self.ping_keys = set()  # ping:ADDRESS-PORT:NONCE
+        self.invs = defaultdict(list)
 
     def cache_messages(self):
         """
@@ -173,8 +175,14 @@ class Cache(object):
                 node = eval(onion_node)
 
         if msg['command'] == "inv":
+            invs = 0
             for inv in msg['inventory']:
                 key = "inv:{}:{}".format(inv['type'], inv['hash'])
+                if (len(self.invs[key]) >= CONF['inv_count'] and
+                        timestamp > self.invs[key][0]):
+                    logging.debug("Skip: %s (%d)", key, timestamp)
+                    continue
+                bisect.insort(self.invs[key], timestamp)
                 if inv['type'] == 2:
                     # Redis key for reference (first seen) block inv
                     rkey = "r{}".format(key)
@@ -184,15 +192,16 @@ class Cache(object):
                         self.redis_pipe.set("lastblockhash", inv['hash'])
                     elif (timestamp - int(rkey_ms)) / 1000 > CONF['ttl']:
                         # Ignore block inv first seen more than 3 hours ago
-                        logging.debug("Skip: %s", key)
+                        logging.debug("Skip: %s (%d)", key, timestamp)
                         continue
+                invs += 1
                 self.redis_pipe.zadd(key, timestamp, self.node_hash(node))
                 self.redis_pipe.expire(key, CONF['ttl'])
-            self.count += msg['count']
+            self.count += invs
         elif msg['command'] == "pong":
             key = "ping:{}-{}:{}".format(node[0], node[1], msg['nonce'])
             self.redis_pipe.rpushx(key, timestamp)
-            self.keys.add(key)
+            self.ping_keys.add(key)
             self.count += 1
 
     def node_hash(self, node):
@@ -206,7 +215,7 @@ class Cache(object):
         """
         Calculates round-trip time (RTT) values and caches them in Redis.
         """
-        for key in self.keys:
+        for key in self.ping_keys:
             timestamps = REDIS_CONN.lrange(key, 0, 1)
             if len(timestamps) > 1:
                 rtt_key = "rtt:{}".format(':'.join(key.split(":")[1:-1]))
@@ -267,6 +276,7 @@ def init_conf(argv):
     CONF['debug'] = conf.getboolean('pcap', 'debug')
     CONF['ttl'] = conf.getint('pcap', 'ttl')
     CONF['rtt_count'] = conf.getint('pcap', 'rtt_count')
+    CONF['inv_count'] = conf.getint('pcap', 'inv_count')
 
     tor_proxy = conf.get('pcap', 'tor_proxy').split(":")
     CONF['tor_proxy'] = (tor_proxy[0], int(tor_proxy[1]))

@@ -18,6 +18,9 @@ ttl = 10800
 # Number of round-trip time (RTT) values to keep for each node
 rtt_count = 36
 
+# Number of messages for the same inv to cache from each pcap file
+inv_count = 1000
+
 # Tor proxy
 tor_proxy = 127.0.0.1:9050
 
