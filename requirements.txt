@@ -1,7 +1,7 @@
-dpkt==1.8.8
-gevent==1.2.1
-ipaddress==1.0.18
+dpkt==1.9.1
+gevent==1.2.2
+ipaddress==1.0.19
 pygeoip==0.3.2
-PySocks==1.6.6
-redis==2.10.5
-requests==2.13.0
+PySocks==1.6.8
+redis==2.10.6
+requests==2.18.4
