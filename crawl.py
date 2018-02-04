@@ -128,15 +128,26 @@ def connect(redis_conn, key):
         logging.debug("Connecting to %s", conn.to_addr)
         conn.open()
         handshake_msgs = conn.handshake()
-        addr_msgs = conn.getaddr()
+        conn.getaddr(block=False)
     except (ProtocolError, ConnectionError, socket.error) as err:
         logging.debug("%s: %s", conn.to_addr, err)
-    finally:
-        conn.close()
 
-    gevent.sleep(0.3)
     redis_pipe = redis_conn.pipeline()
     if len(handshake_msgs) > 0:
+        # Wait for addr message.
+        addr_wait = 0
+        while addr_wait < CONF['socket_timeout']:
+            addr_wait += 1
+            gevent.sleep(0.3)
+            try:
+                msgs = conn.get_messages(commands=['addr'])
+            except (ProtocolError, ConnectionError, socket.error) as err:
+                logging.debug("%s: %s", conn.to_addr, err)
+                break
+            if msgs and any([msg['count'] > 1 for msg in msgs]):
+                addr_msgs = msgs
+                break
+
         version_msg = handshake_msgs[0]
         from_services = version_msg.get('services', 0)
         if from_services != services:
@@ -151,6 +162,7 @@ def connect(redis_conn, key):
         logging.debug("%s Peers: %d", conn.to_addr, peers)
         redis_pipe.set(key, "")
         redis_pipe.sadd('up', key)
+    conn.close()
     redis_pipe.execute()
 
 
@@ -487,6 +499,7 @@ def main(argv):
         redis_pipe.execute()
         set_pending()
         update_excluded_networks()
+        REDIS_CONN.set('crawl:master:state', "running")
 
     # Spawn workers (greenlets) including one worker reserved for cron tasks
     workers = []
