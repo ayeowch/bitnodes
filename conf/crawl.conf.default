@@ -23,7 +23,7 @@ seeders =
     seed.bitnodes.io
 
 # Number of concurrent workers (greenlets)
-workers = 500
+workers = 700
 
 # Print debug output
 debug = False
