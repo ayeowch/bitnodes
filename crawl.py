@@ -128,25 +128,28 @@ def connect(redis_conn, key):
         logging.debug("Connecting to %s", conn.to_addr)
         conn.open()
         handshake_msgs = conn.handshake()
-        conn.getaddr(block=False)
     except (ProtocolError, ConnectionError, socket.error) as err:
         logging.debug("%s: %s", conn.to_addr, err)
 
     redis_pipe = redis_conn.pipeline()
     if len(handshake_msgs) > 0:
-        # Wait for addr message.
-        addr_wait = 0
-        while addr_wait < CONF['socket_timeout']:
-            addr_wait += 1
-            gevent.sleep(0.3)
-            try:
-                msgs = conn.get_messages(commands=['addr'])
-            except (ProtocolError, ConnectionError, socket.error) as err:
-                logging.debug("%s: %s", conn.to_addr, err)
-                break
-            if msgs and any([msg['count'] > 1 for msg in msgs]):
-                addr_msgs = msgs
-                break
+        try:
+            conn.getaddr(block=False)
+        except (ProtocolError, ConnectionError, socket.error) as err:
+            logging.debug("%s: %s", conn.to_addr, err)
+        else:
+            addr_wait = 0
+            while addr_wait < CONF['socket_timeout']:
+                addr_wait += 1
+                gevent.sleep(0.3)
+                try:
+                    msgs = conn.get_messages(commands=['addr'])
+                except (ProtocolError, ConnectionError, socket.error) as err:
+                    logging.debug("%s: %s", conn.to_addr, err)
+                    break
+                if msgs and any([msg['count'] > 1 for msg in msgs]):
+                    addr_msgs = msgs
+                    break
 
         version_msg = handshake_msgs[0]
         from_services = version_msg.get('services', 0)
