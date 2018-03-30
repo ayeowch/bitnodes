@@ -35,6 +35,7 @@ import gevent
 import json
 import logging
 import os
+import pygeoip
 import redis
 import redis.connection
 import requests
@@ -60,6 +61,10 @@ redis.connection.socket = gevent.socket
 
 REDIS_CONN = None
 CONF = {}
+
+# MaxMind databases
+ASN4 = pygeoip.GeoIP("geoip/GeoIPASNum.dat", pygeoip.MEMORY_CACHE)
+ASN6 = pygeoip.GeoIP("geoip/GeoIPASNumv6.dat", pygeoip.MEMORY_CACHE)
 
 
 def enumerate_node(redis_pipe, addr_msgs, now):
@@ -352,17 +357,31 @@ def is_excluded(address):
     """
     if address.endswith(".onion"):
         address = onion_to_ipv6(address)
-    address_family = socket.AF_INET
-    key = 'exclude_ipv4_networks'
+
     if ":" in address:
         address_family = socket.AF_INET6
         key = 'exclude_ipv6_networks'
+        asn_record = ASN6.org_by_addr(address)
+    else:
+        address_family = socket.AF_INET
+        key = 'exclude_ipv4_networks'
+        asn_record = ASN4.org_by_addr(address)
+
     try:
         addr = int(hexlify(socket.inet_pton(address_family, address)), 16)
     except socket.error:
         logging.warning("Bad address: %s", address)
         return True
-    return any([(addr & net[1] == net[0]) for net in CONF[key]])
+
+    if any([(addr & net[1] == net[0]) for net in CONF[key]]):
+        return True
+
+    if asn_record:
+        asn = asn_record.split(" ", 1)[0]
+        if asn in CONF['exclude_asns']:
+            return True
+
+    return False
 
 
 def onion_to_ipv6(address):
@@ -437,6 +456,9 @@ def init_conf(argv):
     CONF['ipv6_prefix'] = conf.getint('crawl', 'ipv6_prefix')
     CONF['nodes_per_ipv6_prefix'] = conf.getint('crawl',
                                                 'nodes_per_ipv6_prefix')
+
+    CONF['exclude_asns'] = conf.get('crawl',
+                                    'exclude_asns').strip().split("\n")
 
     CONF['exclude_ipv4_networks'] = list_excluded_networks(
         conf.get('crawl', 'exclude_ipv4_networks'))
