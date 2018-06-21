@@ -46,7 +46,7 @@ from base64 import b32decode
 from binascii import hexlify, unhexlify
 from collections import Counter
 from ConfigParser import ConfigParser
-from ipaddress import ip_network
+from ipaddress import ip_address, ip_network
 
 from protocol import (
     ONION_PREFIX,
@@ -357,6 +357,8 @@ def is_excluded(address):
     """
     if address.endswith(".onion"):
         address = onion_to_ipv6(address)
+    elif ip_address(unicode(address)).is_private:
+        return True
 
     if ":" in address:
         address_family = socket.AF_INET6
