@@ -8,4 +8,6 @@
 /tests/
 clean.sh
 geoip/*.dat
+geoip/*.mmdb
+geoip/*.txt
 rsync.sh
