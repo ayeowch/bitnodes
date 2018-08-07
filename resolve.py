@@ -31,11 +31,11 @@ Resolves hostname and GeoIP data for each reachable node.
 from gevent import monkey
 monkey.patch_all()
 
+import geoip2.database
 import gevent
 import gevent.pool
 import logging
 import os
-import pygeoip
 import redis
 import redis.connection
 import socket
@@ -45,6 +45,7 @@ from binascii import hexlify, unhexlify
 from collections import defaultdict
 from ConfigParser import ConfigParser
 from decimal import Decimal
+from geoip2.errors import AddressNotFoundError
 
 from utils import new_redis_conn
 
@@ -54,10 +55,9 @@ REDIS_CONN = None
 CONF = {}
 
 # MaxMind databases
-GEOIP4 = pygeoip.GeoIP("geoip/GeoLiteCity.dat", pygeoip.MEMORY_CACHE)
-GEOIP6 = pygeoip.GeoIP("geoip/GeoLiteCityv6.dat", pygeoip.MEMORY_CACHE)
-ASN4 = pygeoip.GeoIP("geoip/GeoIPASNum.dat", pygeoip.MEMORY_CACHE)
-ASN6 = pygeoip.GeoIP("geoip/GeoIPASNumv6.dat", pygeoip.MEMORY_CACHE)
+GEOIP_CITY = geoip2.database.Reader("geoip/GeoLite2-City.mmdb")
+GEOIP_COUNTRY = geoip2.database.Reader("geoip/GeoLite2-Country.mmdb")
+ASN = geoip2.database.Reader("geoip/GeoLite2-ASN.mmdb")
 
 
 class Resolve(object):
@@ -170,43 +170,49 @@ def raw_geoip(address):
     """
     Resolves GeoIP data for the specified address using MaxMind databases.
     """
-    city = None
     country = None
-    latitude = 0.0
-    longitude = 0.0
+    city = None
+    lat = 0.0
+    lng = 0.0
     timezone = None
     asn = None
     org = None
 
-    geoip_record = None
     prec = Decimal('.000001')
-    if address.endswith(".onion"):
-        geoip_record = None
-    elif ":" in address:
-        geoip_record = GEOIP6.record_by_addr(address)
-    else:
-        geoip_record = GEOIP4.record_by_addr(address)
-    if geoip_record:
-        city = geoip_record['city']
-        country = geoip_record['country_code']
-        latitude = float(Decimal(geoip_record['latitude']).quantize(prec))
-        longitude = float(Decimal(geoip_record['longitude']).quantize(prec))
-        timezone = geoip_record['time_zone']
 
-    asn_record = None
-    if address.endswith(".onion"):
-        asn_record = "TOR Tor network"
-    elif ":" in address:
-        asn_record = ASN6.org_by_addr(address)
-    else:
-        asn_record = ASN4.org_by_addr(address)
-    if asn_record:
-        data = asn_record.split(" ", 1)
-        asn = data[0]
-        if len(data) > 1:
-            org = data[1]
+    if not address.endswith(".onion"):
+        try:
+            gcountry = GEOIP_COUNTRY.country(address)
+        except AddressNotFoundError:
+            pass
+        else:
+            country = gcountry.country.iso_code
 
-    return (city, country, latitude, longitude, timezone, asn, org)
+        try:
+            gcity = GEOIP_CITY.city(address)
+        except AddressNotFoundError:
+            pass
+        else:
+            city = gcity.city.name
+            if gcity.location.latitude is not None and \
+                    gcity.location.longitude is not None:
+                lat = float(Decimal(gcity.location.latitude).quantize(prec))
+                lng = float(Decimal(gcity.location.longitude).quantize(prec))
+            timezone = gcity.location.time_zone
+
+    if address.endswith(".onion"):
+        asn = "TOR"
+        org = "Tor network"
+    else:
+        try:
+            asn_record = ASN.asn(address)
+        except AddressNotFoundError:
+            pass
+        else:
+            asn = 'AS{}'.format(asn_record.autonomous_system_number)
+            org = asn_record.autonomous_system_organization
+
+    return (city, country, lat, lng, timezone, asn, org)
 
 
 def init_conf(argv):

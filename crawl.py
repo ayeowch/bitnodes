@@ -31,11 +31,11 @@ Greenlets-based Bitcoin network crawler.
 from gevent import monkey
 monkey.patch_all()
 
+import geoip2.database
 import gevent
 import json
 import logging
 import os
-import pygeoip
 import redis
 import redis.connection
 import requests
@@ -46,6 +46,7 @@ from base64 import b32decode
 from binascii import hexlify, unhexlify
 from collections import Counter
 from ConfigParser import ConfigParser
+from geoip2.errors import AddressNotFoundError
 from ipaddress import ip_address, ip_network
 
 from protocol import (
@@ -63,8 +64,7 @@ REDIS_CONN = None
 CONF = {}
 
 # MaxMind databases
-ASN4 = pygeoip.GeoIP("geoip/GeoIPASNum.dat", pygeoip.MEMORY_CACHE)
-ASN6 = pygeoip.GeoIP("geoip/GeoIPASNumv6.dat", pygeoip.MEMORY_CACHE)
+ASN = geoip2.database.Reader("geoip/GeoLite2-ASN.mmdb")
 
 
 def enumerate_node(redis_pipe, addr_msgs, now):
@@ -363,11 +363,16 @@ def is_excluded(address):
     if ":" in address:
         address_family = socket.AF_INET6
         key = 'exclude_ipv6_networks'
-        asn_record = ASN6.org_by_addr(address)
     else:
         address_family = socket.AF_INET
         key = 'exclude_ipv4_networks'
-        asn_record = ASN4.org_by_addr(address)
+
+    try:
+        asn_record = ASN.asn(address)
+    except AddressNotFoundError:
+        asn = None
+    else:
+        asn = 'AS{}'.format(asn_record.autonomous_system_number)
 
     try:
         addr = int(hexlify(socket.inet_pton(address_family, address)), 16)
@@ -378,10 +383,8 @@ def is_excluded(address):
     if any([(addr & net[1] == net[0]) for net in CONF[key]]):
         return True
 
-    if asn_record:
-        asn = asn_record.split(" ", 1)[0]
-        if asn in CONF['exclude_asns']:
-            return True
+    if asn and asn in CONF['exclude_asns']:
+        return True
 
     return False
 
