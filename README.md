@@ -15,3 +15,5 @@ Bitnodes is currently being developed to estimate the size of the Bitcoin networ
 * [Leaderboard](https://bitnodes.earn.com/nodes/leaderboard/)
 
 See [Provisioning Bitcoin Network Crawler](https://github.com/ayeowch/bitnodes/wiki/Provisioning-Bitcoin-Network-Crawler) for steps on setting up a machine to run Bitnodes. The [Redis Data](https://github.com/ayeowch/bitnodes/wiki/Redis-Data) contains the list of keys and their associated values that are written by the scripts in this project. If you wish to access the data, e.g. network snapshots, collected using this project, see [Bitnodes API v1.0](https://bitnodes.earn.com/api/).
+
+[![CircleCI](https://circleci.com/gh/ayeowch/bitnodes.svg?style=svg)](https://circleci.com/gh/ayeowch/bitnodes)
