@@ -1,0 +1,10 @@
+[flake8]
+ignore = E402
+exclude =
+    .git
+    conf
+    data
+    geoip
+    internal-tests
+    log
+    venv
