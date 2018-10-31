@@ -6,4 +6,4 @@ ipaddress==1.0.22
 PySocks==1.6.8
 pytest==3.7.3
 redis==2.10.6
-requests==2.19.1
+requests==2.20.0
