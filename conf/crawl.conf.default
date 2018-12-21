@@ -16,10 +16,9 @@ db = 0
 seeders =
     dnsseed.bitcoin.dashjr.org
     dnsseed.bluematt.me
-    seed.bitcoin.jonasschnelli.ch
     seed.bitcoin.sipa.be
     seed.bitcoinstats.com
-    seed.btc.petertodd.org
+    seed.bitcoin.sprovoost.nl
     seed.bitnodes.io
 
 # Number of concurrent workers (greenlets)
@@ -50,7 +49,7 @@ services = 0
 relay = 0
 
 # Socket timeout
-socket_timeout = 30
+socket_timeout = 15
 
 # Run cron tasks every given interval
 cron_delay = 10
@@ -59,7 +58,10 @@ cron_delay = 10
 snapshot_delay = 240
 
 # Max. age for peering node to be included in crawl set
-max_age = 86400
+max_age = 28800
+
+# Limit max. peers per node to be included in crawl set
+peers_per_node = 500
 
 # Attempt to establish connection with IPv6 nodes
 ipv6 = True
@@ -101,6 +103,9 @@ exclude_ipv6_networks =
 
 # Exclude IPv4 bogons
 exclude_ipv4_bogons = True
+
+# Exclude IPv6 bogons
+exclude_ipv6_bogons = False
 
 # Attempt to establish connection with .onion nodes
 onion = True

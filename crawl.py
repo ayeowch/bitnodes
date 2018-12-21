@@ -69,16 +69,16 @@ ASN = geoip2.database.Reader("geoip/GeoLite2-ASN.mmdb")
 
 def enumerate_node(redis_pipe, addr_msgs, now):
     """
-    Adds all peering nodes with max. age of 24 hours into the crawl set.
+    Adds all peering nodes with age <= max. age into the crawl set.
     """
     peers = 0
+    excluded = 0
 
     for addr_msg in addr_msgs:
         if 'addr_list' in addr_msg:
             for peer in addr_msg['addr_list']:
                 age = now - peer['timestamp']  # seconds
 
-                # Add peering node with age <= 24 hours into crawl set
                 if age >= 0 and age <= CONF['max_age']:
                     address = peer['ipv4'] or peer['ipv6'] or peer['onion']
                     port = peer['port'] if peer['port'] > 0 else CONF['port']
@@ -86,12 +86,15 @@ def enumerate_node(redis_pipe, addr_msgs, now):
                     if not address:
                         continue
                     if is_excluded(address):
-                        logging.debug("Exclude: %s", address)
+                        logging.debug("Exclude: (%s, %d)", address, port)
+                        excluded += 1
                         continue
                     redis_pipe.sadd('pending', (address, port, services))
                     peers += 1
+                    if peers >= CONF['peers_per_node']:
+                        return (peers, excluded)
 
-    return peers
+    return (peers, excluded)
 
 
 def connect(redis_conn, key):
@@ -166,8 +169,9 @@ def connect(redis_conn, key):
         redis_pipe.setex(height_key, CONF['max_age'],
                          version_msg.get('height', 0))
         now = int(time.time())
-        peers = enumerate_node(redis_pipe, addr_msgs, now)
-        logging.debug("%s Peers: %d", conn.to_addr, peers)
+        (peers, excluded) = enumerate_node(redis_pipe, addr_msgs, now)
+        logging.debug("%s Peers: %d (Excluded: %d)",
+                      conn.to_addr, peers, excluded)
         redis_pipe.set(key, "")
         redis_pipe.sadd('up', key)
     conn.close()
@@ -181,6 +185,7 @@ def dump(timestamp, nodes):
     """
     json_data = []
 
+    logging.info('Building JSON data')
     for node in nodes:
         (address, port, services) = node[5:].split("-", 2)
         height_key = "height:{}-{}-{}".format(address, port, services)
@@ -190,6 +195,7 @@ def dump(timestamp, nodes):
             logging.warning("%s missing", height_key)
             height = 0
         json_data.append([address, int(port), int(services), height])
+    logging.info('Built JSON data: %d', len(json_data))
 
     if len(json_data) == 0:
         logging.warning("len(json_data): %d", len(json_data))
@@ -418,21 +424,41 @@ def list_excluded_networks(txt, networks=None):
 
 def update_excluded_networks():
     """
-    Adds bogons into the excluded IPv4 networks.
+    Adds bogons into the excluded IPv4 and IPv6 networks.
     """
-    if not CONF['exclude_ipv4_bogons']:
-        return
-    url = "http://www.team-cymru.org/Services/Bogons/fullbogons-ipv4.txt"
-    try:
-        response = requests.get(url, timeout=15)
-    except requests.exceptions.RequestException as err:
-        logging.warning(err)
-    else:
-        if response.status_code == 200:
-            CONF['exclude_ipv4_networks'] = list_excluded_networks(
-                response.content,
-                networks=CONF['initial_exclude_ipv4_networks'])
-            logging.info("%d", len(CONF['exclude_ipv4_networks']))
+    if CONF['exclude_ipv4_bogons']:
+        urls = [
+            "http://www.team-cymru.org/Services/Bogons/fullbogons-ipv4.txt",
+        ]
+        for url in urls:
+            try:
+                response = requests.get(url, timeout=15)
+            except requests.exceptions.RequestException as err:
+                logging.warning(err)
+            else:
+                if response.status_code == 200:
+                    CONF['exclude_ipv4_networks'] = list_excluded_networks(
+                        response.content,
+                        networks=CONF['exclude_ipv4_networks'])
+                    logging.info("IPv4: %d",
+                                 len(CONF['exclude_ipv4_networks']))
+
+    if CONF['exclude_ipv6_bogons']:
+        urls = [
+            "http://www.team-cymru.org/Services/Bogons/fullbogons-ipv6.txt",
+        ]
+        for url in urls:
+            try:
+                response = requests.get(url, timeout=15)
+            except requests.exceptions.RequestException as err:
+                logging.warning(err)
+            else:
+                if response.status_code == 200:
+                    CONF['exclude_ipv6_networks'] = list_excluded_networks(
+                        response.content,
+                        networks=CONF['exclude_ipv6_networks'])
+                    logging.info("IPv6: %d",
+                                 len(CONF['exclude_ipv6_networks']))
 
 
 def init_conf(argv):
@@ -457,6 +483,7 @@ def init_conf(argv):
     CONF['cron_delay'] = conf.getint('crawl', 'cron_delay')
     CONF['snapshot_delay'] = conf.getint('crawl', 'snapshot_delay')
     CONF['max_age'] = conf.getint('crawl', 'max_age')
+    CONF['peers_per_node'] = conf.getint('crawl', 'peers_per_node')
     CONF['ipv6'] = conf.getboolean('crawl', 'ipv6')
     CONF['ipv6_prefix'] = conf.getint('crawl', 'ipv6_prefix')
     CONF['nodes_per_ipv6_prefix'] = conf.getint('crawl',
@@ -472,8 +499,8 @@ def init_conf(argv):
 
     CONF['exclude_ipv4_bogons'] = conf.getboolean('crawl',
                                                   'exclude_ipv4_bogons')
-
-    CONF['initial_exclude_ipv4_networks'] = CONF['exclude_ipv4_networks']
+    CONF['exclude_ipv6_bogons'] = conf.getboolean('crawl',
+                                                  'exclude_ipv6_bogons')
 
     CONF['onion'] = conf.getboolean('crawl', 'onion')
     CONF['tor_proxy'] = None
