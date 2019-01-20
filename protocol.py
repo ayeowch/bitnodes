@@ -955,7 +955,7 @@ class Connection(object):
 
 
 def main():
-    to_addr = ("136.243.139.96", PORT)
+    to_addr = ("88.99.167.175", PORT)
     to_services = TO_SERVICES
 
     handshake_msgs = []
