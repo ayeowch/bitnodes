@@ -12,9 +12,6 @@ python -u ping.py conf/ping.f9beb4d9.conf slave > log/ping.f9beb4d9.slave.3.out 
 python -u ping.py conf/ping.f9beb4d9.conf slave > log/ping.f9beb4d9.slave.4.out 2>&1 &
 python -u ping.py conf/ping.f9beb4d9.conf slave > log/ping.f9beb4d9.slave.5.out 2>&1 &
 python -u ping.py conf/ping.f9beb4d9.conf slave > log/ping.f9beb4d9.slave.6.out 2>&1 &
-python -u ping.py conf/ping.f9beb4d9.conf slave > log/ping.f9beb4d9.slave.7.out 2>&1 &
-python -u ping.py conf/ping.f9beb4d9.conf slave > log/ping.f9beb4d9.slave.8.out 2>&1 &
-python -u ping.py conf/ping.f9beb4d9.conf slave > log/ping.f9beb4d9.slave.9.out 2>&1 &
 
 python -u resolve.py conf/resolve.f9beb4d9.conf > log/resolve.f9beb4d9.out 2>&1 &
 
