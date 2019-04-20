@@ -650,7 +650,7 @@ class Serializer(object):
 
     def deserialize_tx_in(self, data):
         prev_out_hash = data.read(32)[::-1]  # BE -> LE
-        prev_out_index = struct.unpack("<I", data.read(4))[0]
+        prev_out_index = unpack("<I", data.read(4))
         script_length = self.deserialize_int(data)
         script = data.read(script_length)
         sequence = unpack("<I", data.read(4))
