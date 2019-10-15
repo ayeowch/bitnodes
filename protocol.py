@@ -671,7 +671,7 @@ class Serializer(object):
         return ''.join(payload)
 
     def deserialize_tx_out(self, data):
-        value = struct.unpack("<q", data.read(8))[0]
+        value = unpack("<q", data.read(8))
         script_length = self.deserialize_int(data)
         script = data.read(script_length)
         return {
