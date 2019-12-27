@@ -4,6 +4,6 @@ USER_AGENT="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_5) AppleWebKit/537.36 (K
 
 cd $DIR
 
-wget --user-agent="$USER_AGENT" http://geolite.maxmind.com/download/geoip/database/GeoLite2-City.tar.gz && tar --strip-components=1 -zxf GeoLite2-City.tar.gz && rm GeoLite2-City.tar.gz
-wget --user-agent="$USER_AGENT" http://geolite.maxmind.com/download/geoip/database/GeoLite2-Country.tar.gz && tar --strip-components=1 -zxf GeoLite2-Country.tar.gz && rm GeoLite2-Country.tar.gz
-wget --user-agent="$USER_AGENT" http://geolite.maxmind.com/download/geoip/database/GeoLite2-ASN.tar.gz && tar --strip-components=1 -zxf GeoLite2-ASN.tar.gz && rm GeoLite2-ASN.tar.gz
+wget --user-agent="$USER_AGENT" "https://download.maxmind.com/app/geoip_download_by_token?edition_id=GeoLite2-City&suffix=tar.gz&license_key=$MAXMIND_LICENSE_KEY" -O GeoLite2-City.tar.gz && tar --strip-components=1 -zxf GeoLite2-City.tar.gz && rm GeoLite2-City.tar.gz
+wget --user-agent="$USER_AGENT" "https://download.maxmind.com/app/geoip_download_by_token?edition_id=GeoLite2-Country&suffix=tar.gz&license_key=$MAXMIND_LICENSE_KEY" -O GeoLite2-Country.tar.gz && tar --strip-components=1 -zxf GeoLite2-Country.tar.gz && rm GeoLite2-Country.tar.gz
+wget --user-agent="$USER_AGENT" "https://download.maxmind.com/app/geoip_download_by_token?edition_id=GeoLite2-ASN&suffix=tar.gz&license_key=$MAXMIND_LICENSE_KEY" -O GeoLite2-ASN.tar.gz && tar --strip-components=1 -zxf GeoLite2-ASN.tar.gz && rm GeoLite2-ASN.tar.gz
