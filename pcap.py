@@ -121,9 +121,13 @@ class Cache(object):
                     src = (stream_id[0], stream_id[1])
                     dst = (stream_id[2], stream_id[3])
                     node = src
+                    is_tor = False
                     if src == CONF['tor_proxy']:
+                        # dst port will be used to restore .onion node.
                         node = dst
-                    self.cache_message(node, self.stream.timestamp, msg)
+                        is_tor = True
+                    self.cache_message(
+                        node, self.stream.timestamp, msg, is_tor=is_tor)
         self.redis_pipe.execute()
         self.cache_rtt()
 
@@ -161,15 +165,15 @@ class Cache(object):
                         (tcp_pkt.seq, (timestamp, tcp_pkt)))
         logging.info("Streams: %d", len(self.streams))
 
-    def cache_message(self, node, timestamp, msg):
+    def cache_message(self, node, timestamp, msg, is_tor=False):
         """
         Caches inv/pong message from the specified node.
         """
         if msg['command'] not in ["inv", "pong"]:
             return
 
-        if node[0] == "127.0.0.1":
-            # Restore .onion node
+        # Restore .onion node using port info from node
+        if is_tor:
             onion_node = REDIS_CONN.get("onion:{}".format(node[1]))
             if onion_node:
                 node = eval(onion_node)
