@@ -40,7 +40,7 @@ protocol_version = 70015
 # crawler. This is so that users will not confuse your crawler with another
 # instance that is already running and generating data for the project.
 # -----------------------------------------------------------------------------
-user_agent = /bitnodes.earn.com:0.1/
+user_agent = /bitnodes.io:0.1/
 
 # Services to use for outgoing network address message
 services = 0
@@ -136,7 +136,7 @@ onion_nodes =
     xdnigz4qn5dbbw2t.onion
     zy3kdqowmrb7xm7h.onion
 
-# Include reachable nodes from https://bitnodes.earn.com/#join-the-network
+# Include reachable nodes from https://bitnodes.io/#join-the-network
 include_checked = False
 
 # Relative path to directory containing timestamp-prefixed JSON crawl files
