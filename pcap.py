@@ -163,7 +163,7 @@ class Cache(object):
                     timestamp = int(timestamp * 1000)  # in ms
                     self.streams[stream_id].put(
                         (tcp_pkt.seq, (timestamp, tcp_pkt)))
-        logging.info("Streams: %d", len(self.streams))
+        logging.debug("Streams: %d", len(self.streams))
 
     def cache_message(self, node, timestamp, msg, is_tor=False):
         """
@@ -241,7 +241,7 @@ def cron():
         try:
             oldest = min(glob.iglob("{}/*.pcap".format(CONF['pcap_dir'])))
         except ValueError as err:
-            logging.warning(err)
+            logging.debug(err)
             continue
         latest = max(glob.iglob("{}/*.pcap".format(CONF['pcap_dir'])))
         if oldest == latest:
@@ -251,10 +251,10 @@ def cron():
         try:
             os.rename(tmp, dump)  # Mark file as being read
         except OSError as err:
-            logging.warning(err)
+            logging.debug(err)
             continue
 
-        logging.info("Loading: %s", dump)
+        logging.debug("Loading: %s", dump)
 
         start = time.time()
         cache = Cache(filepath=dump)
@@ -263,7 +263,7 @@ def cron():
         elapsed = end - start
 
         logging.info("Dump: %s (%d messages)", dump, cache.count)
-        logging.info("Elapsed: %d", elapsed)
+        logging.debug("Elapsed: %d", elapsed)
 
         os.remove(dump)
 
