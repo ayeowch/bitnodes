@@ -739,7 +739,11 @@ class Serializer(object):
 
     def deserialize_string(self, data):
         length = self.deserialize_int(data)
-        return data.read(length)
+        try:
+            str = data.read(length)
+        except OverflowError as err:
+            raise ReadError(err)
+        return str
 
     def serialize_int(self, length):
         if length < 0xFD:
