@@ -34,6 +34,7 @@ import glob
 import hashlib
 import logging
 import os
+import random
 import socket
 import sys
 import time
@@ -122,7 +123,7 @@ class Cache(object):
                     dst = (stream_id[2], stream_id[3])
                     node = src
                     is_tor = False
-                    if src == CONF['tor_proxy']:
+                    if src in CONF['tor_proxies']:
                         # dst port will be used to restore .onion node.
                         node = dst
                         is_tor = True
@@ -254,16 +255,17 @@ def cron():
             logging.debug(err)
             continue
 
-        logging.debug("Loading: %s", dump)
-
-        start = time.time()
-        cache = Cache(filepath=dump)
-        cache.cache_messages()
-        end = time.time()
-        elapsed = end - start
-
-        logging.info("Dump: %s (%d messages)", dump, cache.count)
-        logging.debug("Elapsed: %d", elapsed)
+        if 0 in random.sample(range(0, 100), CONF['sampling_rate']):
+            logging.debug("Loading: %s", dump)
+            start = time.time()
+            cache = Cache(filepath=dump)
+            cache.cache_messages()
+            end = time.time()
+            elapsed = end - start
+            logging.info("Dump: %s (%d messages)", dump, cache.count)
+            logging.debug("Elapsed: %d", elapsed)
+        else:
+            logging.debug("Dropped: %s", tmp)
 
         os.remove(dump)
 
@@ -282,12 +284,15 @@ def init_conf(argv):
     CONF['rtt_count'] = conf.getint('pcap', 'rtt_count')
     CONF['inv_count'] = conf.getint('pcap', 'inv_count')
 
-    tor_proxy = conf.get('pcap', 'tor_proxy').split(":")
-    CONF['tor_proxy'] = (tor_proxy[0], int(tor_proxy[1]))
+    tor_proxies = conf.get('pcap', 'tor_proxies').strip().split("\n")
+    CONF['tor_proxies'] = [
+        (p.split(":")[0], int(p.split(":")[1])) for p in tor_proxies]
 
     CONF['pcap_dir'] = conf.get('pcap', 'pcap_dir')
     if not os.path.exists(CONF['pcap_dir']):
         os.makedirs(CONF['pcap_dir'])
+
+    CONF['sampling_rate'] = conf.getint('pcap', 'sampling_rate')
 
 
 def main(argv):

@@ -111,7 +111,8 @@ exclude_ipv6_bogons = False
 onion = True
 
 # Tor proxy is required to connect to .onion address
-tor_proxy = 127.0.0.1:9050
+tor_proxies =
+    127.0.0.1:9050
 
 # List of initial .onion nodes
 onion_nodes =

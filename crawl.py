@@ -36,6 +36,7 @@ import gevent
 import json
 import logging
 import os
+import random
 import redis
 import redis.connection
 import requests
@@ -119,7 +120,7 @@ def connect(redis_conn, key):
 
     proxy = None
     if address.endswith(".onion"):
-        proxy = CONF['tor_proxy']
+        proxy = random.choice(CONF['tor_proxies'])
 
     conn = Connection((address, int(port)),
                       (CONF['source_address'], 0),
@@ -503,10 +504,11 @@ def init_conf(argv):
                                                   'exclude_ipv6_bogons')
 
     CONF['onion'] = conf.getboolean('crawl', 'onion')
-    CONF['tor_proxy'] = None
+    CONF['tor_proxies'] = []
     if CONF['onion']:
-        tor_proxy = conf.get('crawl', 'tor_proxy').split(":")
-        CONF['tor_proxy'] = (tor_proxy[0], int(tor_proxy[1]))
+        tor_proxies = conf.get('crawl', 'tor_proxies').strip().split("\n")
+        CONF['tor_proxies'] = [
+            (p.split(":")[0], int(p.split(":")[1])) for p in tor_proxies]
     CONF['onion_nodes'] = conf.get('crawl', 'onion_nodes').strip().split("\n")
 
     CONF['include_checked'] = conf.getboolean('crawl', 'include_checked')
