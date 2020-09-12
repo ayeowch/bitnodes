@@ -22,7 +22,11 @@ rtt_count = 36
 inv_count = 1000
 
 # Tor proxy
-tor_proxy = 127.0.0.1:9050
+tor_proxies =
+    127.0.0.1:9050
 
 # Relative path to directory containing pcap files
 pcap_dir = data/pcap/f9beb4d9
+
+# Sampling rate of pcap files
+sampling_rate = 100

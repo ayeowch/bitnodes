@@ -212,7 +212,7 @@ def task():
 
     proxy = None
     if address.endswith(".onion"):
-        proxy = CONF['tor_proxy']
+        proxy = random.choice(CONF['tor_proxies'])
 
     handshake_msgs = []
     conn = Connection(node,
@@ -398,10 +398,11 @@ def init_conf(argv):
                                                 'nodes_per_ipv6_prefix')
 
     CONF['onion'] = conf.getboolean('ping', 'onion')
-    CONF['tor_proxy'] = None
+    CONF['tor_proxies'] = []
     if CONF['onion']:
-        tor_proxy = conf.get('ping', 'tor_proxy').split(":")
-        CONF['tor_proxy'] = (tor_proxy[0], int(tor_proxy[1]))
+        tor_proxies = conf.get('ping', 'tor_proxies').strip().split("\n")
+        CONF['tor_proxies'] = [
+            (p.split(":")[0], int(p.split(":")[1])) for p in tor_proxies]
 
     CONF['crawl_dir'] = conf.get('ping', 'crawl_dir')
     if not os.path.exists(CONF['crawl_dir']):
