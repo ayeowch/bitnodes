@@ -21,7 +21,7 @@ rtt_count = 36
 # Number of messages for the same inv to cache from each pcap file
 inv_count = 1000
 
-# Tor proxy
+# Tor proxy (must match the list in ping.conf)
 tor_proxies =
     127.0.0.1:9050
 
