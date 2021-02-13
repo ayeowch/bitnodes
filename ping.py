@@ -46,7 +46,7 @@ import time
 from binascii import hexlify, unhexlify
 from ConfigParser import ConfigParser
 
-from protocol import ProtocolError, ConnectionError, Connection
+from protocol import ONION_V3_LEN, ProtocolError, ConnectionError, Connection
 from utils import new_redis_conn, get_keys, ip_to_network
 
 redis.connection.socket = gevent.socket
@@ -156,7 +156,7 @@ class Keepalive(object):
         """
         Sends an addr message containing a subset of the reachable nodes.
         """
-        nodes = REDIS_CONN.srandmember('opendata', 10)
+        nodes = REDIS_CONN.srandmember('opendata', 3)
         nodes = [eval(node) for node in nodes]
         addr_list = []
         timestamp = int(self.last_ping)  # Timestamp less than 10 minutes old
@@ -168,6 +168,8 @@ class Keepalive(object):
             if address == self.node[0]:
                 continue
             if not services & 1 == 1:  # Skip if not NODE_NETWORK
+                continue
+            if address.endswith('.onion') and len(address) == ONION_V3_LEN:
                 continue
             addr_list.append((timestamp, services, address, port))
         if len(addr_list) == 0:
@@ -214,7 +216,7 @@ def task():
     if address.endswith(".onion"):
         proxy = random.choice(CONF['tor_proxies'])
 
-    handshake_msgs = []
+    version_msg = {}
     conn = Connection(node,
                       (CONF['source_address'], 0),
                       magic_number=CONF['magic_number'],
@@ -229,12 +231,12 @@ def task():
     try:
         logging.debug("Connecting to %s", conn.to_addr)
         conn.open()
-        handshake_msgs = conn.handshake()
+        version_msg = conn.handshake()
     except (ProtocolError, ConnectionError, socket.error) as err:
         logging.debug("Closing %s (%s)", node, err)
         conn.close()
 
-    if len(handshake_msgs) == 0:
+    if not version_msg:
         if cidr_key:
             nodes = REDIS_CONN.decr(cidr_key)
             logging.info("-CIDR %s: %d", cidr, nodes)
@@ -247,7 +249,7 @@ def task():
         logging.info("Local port %s: %d", conn.to_addr, local_port)
         REDIS_CONN.set('onion:{}'.format(local_port), conn.to_addr)
 
-    Keepalive(conn=conn, version_msg=handshake_msgs[0]).keepalive()
+    Keepalive(conn=conn, version_msg=version_msg).keepalive()
     conn.close()
     if cidr_key:
         nodes = REDIS_CONN.decr(cidr_key)

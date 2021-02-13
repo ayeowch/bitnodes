@@ -43,7 +43,6 @@ import requests
 import socket
 import sys
 import time
-from base64 import b32decode
 from binascii import hexlify, unhexlify
 from collections import Counter
 from ConfigParser import ConfigParser
@@ -51,7 +50,7 @@ from geoip2.errors import AddressNotFoundError
 from ipaddress import ip_address, ip_network
 
 from protocol import (
-    ONION_PREFIX,
+    ONION_V3_LEN,
     TO_SERVICES,
     Connection,
     ConnectionError,
@@ -78,6 +77,9 @@ def enumerate_node(redis_pipe, addr_msgs, now):
     for addr_msg in addr_msgs:
         if 'addr_list' in addr_msg:
             for peer in addr_msg['addr_list']:
+                if peer['onion'] and len(peer['onion']) == ONION_V3_LEN:
+                    logging.debug("onion v3 node: %s", peer)
+
                 age = now - peer['timestamp']  # seconds
 
                 if age >= 0 and age <= CONF['max_age']:
@@ -107,7 +109,7 @@ def connect(redis_conn, key):
     4) Receive addr message containing list of peering nodes
     Stores state and height for node in Redis.
     """
-    handshake_msgs = []
+    version_msg = {}
     addr_msgs = []
 
     redis_conn.set(key, "")  # Set Redis key for a new node
@@ -136,12 +138,12 @@ def connect(redis_conn, key):
     try:
         logging.debug("Connecting to %s", conn.to_addr)
         conn.open()
-        handshake_msgs = conn.handshake()
+        version_msg = conn.handshake()
     except (ProtocolError, ConnectionError, socket.error) as err:
         logging.debug("%s: %s", conn.to_addr, err)
 
     redis_pipe = redis_conn.pipeline()
-    if len(handshake_msgs) > 0:
+    if version_msg:
         try:
             conn.getaddr(block=False)
         except (ProtocolError, ConnectionError, socket.error) as err:
@@ -152,7 +154,7 @@ def connect(redis_conn, key):
                 addr_wait += 1
                 gevent.sleep(0.3)
                 try:
-                    msgs = conn.get_messages(commands=['addr'])
+                    msgs = conn.get_messages(commands=['addr', 'addrv2'])
                 except (ProtocolError, ConnectionError, socket.error) as err:
                     logging.debug("%s: %s", conn.to_addr, err)
                     break
@@ -160,7 +162,6 @@ def connect(redis_conn, key):
                     addr_msgs = msgs
                     break
 
-        version_msg = handshake_msgs[0]
         from_services = version_msg.get('services', 0)
         if from_services != services:
             logging.debug("%s Expected %d, got %d for services", conn.to_addr,
@@ -363,8 +364,9 @@ def is_excluded(address):
     Returns True if address is found in exclusion list, False if otherwise.
     """
     if address.endswith(".onion"):
-        address = onion_to_ipv6(address)
-    elif ip_address(unicode(address)).is_private:
+        return False
+
+    if ip_address(unicode(address)).is_private:
         return True
 
     if ":" in address:
@@ -394,14 +396,6 @@ def is_excluded(address):
         return True
 
     return False
-
-
-def onion_to_ipv6(address):
-    """
-    Returns IPv6 equivalent of an .onion address.
-    """
-    ipv6_bytes = ONION_PREFIX + b32decode(address[:-6], True)
-    return socket.inet_ntop(socket.AF_INET6, ipv6_bytes)
 
 
 def list_excluded_networks(txt, networks=None):

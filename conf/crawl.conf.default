@@ -16,9 +16,13 @@ db = 0
 seeders =
     dnsseed.bitcoin.dashjr.org
     dnsseed.bluematt.me
+    dnsseed.emzy.de
+    seed.bitcoin.jonasschnelli.ch
     seed.bitcoin.sipa.be
-    seed.bitcoinstats.com
     seed.bitcoin.sprovoost.nl
+    seed.bitcoin.wiz.biz
+    seed.bitcoinstats.com
+    seed.btc.petertodd.org
     seed.bitnodes.io
 
 # Number of concurrent workers (greenlets)
@@ -31,7 +35,7 @@ debug = False
 source_address = 0.0.0.0
 
 # Protocol version to use for outgoing version message
-protocol_version = 70015
+protocol_version = 70016
 
 # User agent (BIP 0014) to use for outgoing version message
 # -----------------------------------------------------------------------------
@@ -40,7 +44,7 @@ protocol_version = 70015
 # crawler. This is so that users will not confuse your crawler with another
 # instance that is already running and generating data for the project.
 # -----------------------------------------------------------------------------
-user_agent = /bitnodes.io:0.1/
+user_agent = /bitnodes.io:0.2/
 
 # Services to use for outgoing network address message
 services = 0
