@@ -369,19 +369,22 @@ def is_excluded(address):
     if ip_address(unicode(address)).is_private:
         return True
 
-    if ":" in address:
-        address_family = socket.AF_INET6
-        key = 'exclude_ipv6_networks'
-    else:
-        address_family = socket.AF_INET
-        key = 'exclude_ipv4_networks'
-
     try:
         asn_record = ASN.asn(address)
     except AddressNotFoundError:
         asn = None
     else:
         asn = 'AS{}'.format(asn_record.autonomous_system_number)
+
+    if CONF['include_asns'] and asn not in CONF['include_asns']:
+        return True
+
+    if ":" in address:
+        address_family = socket.AF_INET6
+        key = 'exclude_ipv6_networks'
+    else:
+        address_family = socket.AF_INET
+        key = 'exclude_ipv4_networks'
 
     try:
         addr = int(hexlify(socket.inet_pton(address_family, address)), 16)
@@ -392,7 +395,7 @@ def is_excluded(address):
     if any([(addr & net[1] == net[0]) for net in CONF[key]]):
         return True
 
-    if asn and asn in CONF['exclude_asns']:
+    if CONF['exclude_asns'] and asn in CONF['exclude_asns']:
         return True
 
     return False
@@ -484,8 +487,16 @@ def init_conf(argv):
     CONF['nodes_per_ipv6_prefix'] = conf.getint('crawl',
                                                 'nodes_per_ipv6_prefix')
 
-    CONF['exclude_asns'] = conf.get('crawl',
-                                    'exclude_asns').strip().split("\n")
+    # include_* takes precedence over exclude_* if set
+    CONF['include_asns'] = None
+    include_asns = conf.get('crawl', 'include_asns').strip()
+    if include_asns:
+        CONF['include_asns'] = set(include_asns.split("\n"))
+
+    CONF['exclude_asns'] = None
+    exclude_asns = conf.get('crawl', 'exclude_asns').strip()
+    if exclude_asns:
+        CONF['exclude_asns'] = set(exclude_asns.split("\n"))
 
     CONF['exclude_ipv4_networks'] = list_excluded_networks(
         conf.get('crawl', 'exclude_ipv4_networks'))
