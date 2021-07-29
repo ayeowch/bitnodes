@@ -17,7 +17,6 @@ seeders =
     dnsseed.bitcoin.dashjr.org
     dnsseed.bluematt.me
     dnsseed.emzy.de
-    seed.bitcoin.jonasschnelli.ch
     seed.bitcoin.sipa.be
     seed.bitcoin.sprovoost.nl
     seed.bitcoin.wiz.biz
@@ -73,6 +72,9 @@ ipv6 = True
 # Limit max. nodes per IPv6 network prefix
 ipv6_prefix = 64
 nodes_per_ipv6_prefix = 1
+
+# List of included ASNs
+include_asns =
 
 # List of excluded ASNs
 exclude_asns =
