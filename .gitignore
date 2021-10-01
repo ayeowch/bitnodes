@@ -3,6 +3,7 @@
 *.out
 *.pyc
 .DS_Store
+.maxmind_license_key
 /.idea/
 /.pytest_cache/
 /data/

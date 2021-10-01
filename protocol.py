@@ -449,7 +449,7 @@ class Serializer(object):
 
         msg['nonce'] = unpack("<Q", data.read(8))
 
-        msg['user_agent'] = self.deserialize_string(data)
+        msg['user_agent'] = self.deserialize_string(data)[1]
 
         msg['height'] = unpack("<i", data.read(4))
 
@@ -790,8 +790,7 @@ class Serializer(object):
     def deserialize_tx_in(self, data):
         prev_out_hash = data.read(32)[::-1]  # BE -> LE
         prev_out_index = unpack("<I", data.read(4))
-        script_length = self.deserialize_int(data)
-        script = data.read(script_length)
+        script_length, script = self.deserialize_string(data)
         sequence = unpack("<I", data.read(4))
         return {
             'prev_out_hash': hexlify(prev_out_hash),
@@ -863,7 +862,7 @@ class Serializer(object):
         items = []
         count = self.deserialize_int(data)
         for _ in xrange(count):
-            items.append(self.deserialize_string(data))
+            items.append(self.deserialize_string(data)[1])
         return items
 
     def serialize_string(self, data):
@@ -882,7 +881,7 @@ class Serializer(object):
             str = data.read(length)
         except OverflowError as err:
             raise ReadError(err)
-        return str
+        return (length, str)
 
     def serialize_int(self, length):
         if length < 0xFD:
