@@ -410,7 +410,7 @@ def list_excluded_networks(txt, networks=None):
         networks = set()
     lines = txt.strip().split("\n")
     for line in lines:
-        line = line.split('#')[0].strip()
+        line = line.split('#')[0].split(';')[0].strip()
         try:
             network = ip_network(unicode(line))
         except ValueError:
@@ -422,11 +422,16 @@ def list_excluded_networks(txt, networks=None):
 
 def update_excluded_networks():
     """
-    Adds bogons into the excluded IPv4 and IPv6 networks.
+    Updates excluded networks with current bogons.
     """
+    CONF['exclude_ipv4_networks'] = CONF['default_exclude_ipv4_networks']
+    CONF['exclude_ipv6_networks'] = CONF['default_exclude_ipv6_networks']
+
     if CONF['exclude_ipv4_bogons']:
         urls = [
             "http://www.team-cymru.org/Services/Bogons/fullbogons-ipv4.txt",
+            "http://www.spamhaus.org/drop/drop.txt",
+            "https://www.spamhaus.org/drop/edrop.txt",
         ]
         for url in urls:
             try:
@@ -498,10 +503,13 @@ def init_conf(argv):
     if exclude_asns:
         CONF['exclude_asns'] = set(exclude_asns.split("\n"))
 
-    CONF['exclude_ipv4_networks'] = list_excluded_networks(
+    CONF['default_exclude_ipv4_networks'] = list_excluded_networks(
         conf.get('crawl', 'exclude_ipv4_networks'))
-    CONF['exclude_ipv6_networks'] = list_excluded_networks(
+    CONF['default_exclude_ipv6_networks'] = list_excluded_networks(
         conf.get('crawl', 'exclude_ipv6_networks'))
+
+    CONF['exclude_ipv4_networks'] = CONF['default_exclude_ipv4_networks']
+    CONF['exclude_ipv6_networks'] = CONF['default_exclude_ipv6_networks']
 
     CONF['exclude_ipv4_bogons'] = conf.getboolean('crawl',
                                                   'exclude_ipv4_bogons')
@@ -561,8 +569,8 @@ def main(argv):
             redis_pipe.delete(key)
         redis_pipe.delete('pending')
         redis_pipe.execute()
-        set_pending()
         update_excluded_networks()
+        set_pending()
         REDIS_CONN.set('crawl:master:state', "running")
 
     # Spawn workers (greenlets) including one worker reserved for cron tasks
