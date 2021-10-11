@@ -34,12 +34,10 @@ import logging
 import operator
 import os
 import random
-import requests
 import sys
 import time
 from collections import defaultdict
 from ConfigParser import ConfigParser
-from ipaddress import ip_address, ip_network
 
 from utils import new_redis_conn
 
@@ -58,16 +56,12 @@ class Seeder(object):
         self.nodes = []
         self.addresses = defaultdict(list)
         self.now = 0
-        self.blocklist = set()
-        self.blocklist_timestamp = 0
 
     def export_nodes(self, dump):
         """
         Exports nodes to generate A and AAAA records from the latest snapshot.
         """
         self.now = int(time.time())
-        if self.now - self.blocklist_timestamp > 3600:
-            self.update_blocklist()
         if dump != self.dump:
             try:
                 self.nodes = json.loads(open(dump, "r").read(),
@@ -157,7 +151,6 @@ class Seeder(object):
         2) Uptime must be equal or greater than the configured min. age
         3) Max. one node per ASN
         4) Uses default port
-        5) Not listed in blocklist
         """
         consensus_height = self.get_consensus_height()
         min_age = self.get_min_age()
@@ -169,10 +162,7 @@ class Seeder(object):
             services = node[5]
             height = node[6]
             asn = node[13]
-            if (port != CONF['port'] or
-                    asn is None or
-                    age < min_age or
-                    self.is_blocked(address)):
+            if port != CONF['port'] or asn is None or age < min_age:
                 continue
             if consensus_height and abs(consensus_height - height) > 2:
                 continue
@@ -204,49 +194,6 @@ class Seeder(object):
             min_age = oldest - (0.01 * oldest)  # Max. 1% newer than oldest
         logging.info("Min. age: %d", min_age)
         return min_age
-
-    def is_blocked(self, address):
-        """
-        Returns True if address is found in blocklist, False if otherwise.
-        """
-        if address.endswith(".onion") or ":" in address:
-            return False
-        for network in self.blocklist:
-            if ip_address(address) in network:
-                logging.debug("Blocked: %s", address)
-                return True
-        return False
-
-    def update_blocklist(self):
-        """
-        Fetches the latest DROP (don't route or peer) list from Spamhaus:
-        http://www.spamhaus.org/faq/section/DROP%20FAQ
-        """
-        urls = [
-            "http://www.spamhaus.org/drop/drop.txt",
-            "http://www.spamhaus.org/drop/edrop.txt",
-        ]
-        self.blocklist.clear()
-        for url in urls:
-            try:
-                response = requests.get(url, timeout=15)
-            except requests.exceptions.RequestException as err:
-                logging.warning(err)
-                continue
-            if response.status_code == 200:
-                for line in response.content.strip().split("\n"):
-                    if line.startswith(";"):
-                        continue
-                    network = line.split(";")[0].strip()
-                    try:
-                        self.blocklist.add(ip_network(unicode(network)))
-                    except ValueError:
-                        continue
-            else:
-                logging.warning("HTTP%d: %s (%s)",
-                                response.status_code, url, response.content)
-        logging.debug("Blocklist entries: %d", len(self.blocklist))
-        self.blocklist_timestamp = self.now
 
 
 def cron():
