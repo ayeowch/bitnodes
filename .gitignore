@@ -9,6 +9,4 @@
 /data/
 /internal-tests/
 /test-reports/
-geoip/*.mmdb
-geoip/*.txt
 rsync.sh
