@@ -51,7 +51,6 @@ from protocol import (
 )
 from utils import new_redis_conn
 
-REDIS_CONN = None
 CONF = {}
 
 
@@ -82,9 +81,10 @@ class Cache(object):
     """
     Implements caching mechanic to cache messages from pcap file in Redis.
     """
-    def __init__(self, filepath):
+    def __init__(self, filepath, redis_conn=None):
         self.filepath = filepath
-        self.redis_pipe = REDIS_CONN.pipeline()
+        self.redis_conn = redis_conn
+        self.redis_pipe = redis_conn.pipeline()
         self.serializer = Serializer(magic_number=CONF['magic_number'])
         self.streams = defaultdict(PriorityQueue)
         self.stream = Stream()
@@ -175,7 +175,7 @@ class Cache(object):
 
         # Restore .onion node using port info from node
         if is_tor:
-            onion_node = REDIS_CONN.get("onion:{}".format(node[1]))
+            onion_node = self.redis_conn.get("onion:{}".format(node[1]))
             if onion_node:
                 node = eval(onion_node)
 
@@ -191,16 +191,21 @@ class Cache(object):
                 if inv['type'] == 2:
                     # Redis key for reference (first seen) block inv
                     rkey = "r{}".format(key)
-                    rkey_ms = REDIS_CONN.get(rkey)
+                    rkey_ms = self.redis_conn.get(rkey)
                     if rkey_ms is None:
-                        REDIS_CONN.set(rkey, timestamp)
+                        self.redis_conn.set(rkey, timestamp)
                         self.redis_pipe.set("lastblockhash", inv['hash'])
                     elif (timestamp - int(rkey_ms)) / 1000 > CONF['ttl']:
                         # Ignore block inv first seen more than 3 hours ago
                         logging.debug("Skip: %s (%d)", key, timestamp)
                         continue
                 invs += 1
-                self.redis_pipe.zadd(key, timestamp, self.node_hash(node))
+                # ZADD <key> LT <score> <member>
+                # LT: Only update existing elements if the new score is less
+                # than the current score. This flag doesn't prevent adding new
+                # elements.
+                self.redis_pipe.execute_command(
+                    'ZADD', key, 'LT', timestamp, self.node_hash(node))
                 self.redis_pipe.expire(key, CONF['ttl'])
             self.count += invs
         elif msg['command'] == "pong":
@@ -221,7 +226,7 @@ class Cache(object):
         Calculates round-trip time (RTT) values and caches them in Redis.
         """
         for key in self.ping_keys:
-            timestamps = REDIS_CONN.lrange(key, 0, 1)
+            timestamps = self.redis_conn.lrange(key, 0, 1)
             if len(timestamps) > 1:
                 rtt_key = "rtt:{}".format(':'.join(key.split(":")[1:-1]))
                 rtt = int(timestamps[1]) - int(timestamps[0])  # pong - ping
@@ -236,6 +241,8 @@ def cron():
     """
     Periodically fetches oldest pcap file to extract messages from.
     """
+    redis_conn = new_redis_conn(db=CONF['db'])
+
     while True:
         time.sleep(0.1)
 
@@ -258,7 +265,7 @@ def cron():
         if 0 in random.sample(range(0, 100), CONF['sampling_rate']):
             logging.debug("Loading: %s", dump)
             start = time.time()
-            cache = Cache(filepath=dump)
+            cache = Cache(filepath=dump, redis_conn=redis_conn)
             cache.cache_messages()
             end = time.time()
             elapsed = end - start
@@ -270,12 +277,12 @@ def cron():
         os.remove(dump)
 
 
-def init_conf(argv):
+def init_conf(config):
     """
     Populates CONF with key-value pairs from configuration file.
     """
     conf = ConfigParser()
-    conf.read(argv[1])
+    conf.read(config)
     CONF['logfile'] = conf.get('pcap', 'logfile')
     CONF['magic_number'] = unhexlify(conf.get('pcap', 'magic_number'))
     CONF['db'] = conf.getint('pcap', 'db')
@@ -301,7 +308,7 @@ def main(argv):
         return 1
 
     # Initialize global conf
-    init_conf(argv)
+    init_conf(argv[1])
 
     # Initialize logger
     loglevel = logging.INFO
@@ -315,9 +322,6 @@ def main(argv):
                         filename=CONF['logfile'],
                         filemode='a')
     print("Log: {}, press CTRL+C to terminate..".format(CONF['logfile']))
-
-    global REDIS_CONN
-    REDIS_CONN = new_redis_conn(db=CONF['db'])
 
     cron()
 
