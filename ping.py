@@ -46,7 +46,7 @@ import time
 from binascii import hexlify, unhexlify
 from ConfigParser import ConfigParser
 
-from protocol import ONION_V3_LEN, ProtocolError, ConnectionError, Connection
+from protocol import ProtocolError, ConnectionError, Connection
 from utils import new_redis_conn, get_keys, ip_to_network
 
 redis.connection.socket = gevent.socket
@@ -65,14 +65,10 @@ class Keepalive(object):
         self.version_msg = version_msg
         self.last_ping = int(time.time())
         self.keepalive_time = 60
-        self.last_bestblockhash = None
 
     def keepalive(self):
         """
-        Periodically sends the following messages:
-        1) ping message
-        2) inv message for the consensus block
-        3) addr message containing a subset of the reachable nodes
+        Periodically sends ping message.
         Open connections are tracked in open set with the associated data
         stored in opendata set in Redis.
         """
@@ -91,19 +87,6 @@ class Keepalive(object):
                     logging.info("ping: Closing %s (%s)", self.node, err)
                     break
 
-                try:
-                    self.send_bestblockhash()
-                except socket.error as err:
-                    logging.info(
-                        "send_bestblockhash: Closing %s (%s)", self.node, err)
-                    break
-
-                try:
-                    self.send_addr()
-                except socket.error as err:
-                    logging.info("send_addr: Closing %s (%s)", self.node, err)
-                    break
-
             # Sink received messages to flush them off socket buffer
             try:
                 self.conn.get_messages()
@@ -112,7 +95,7 @@ class Keepalive(object):
             except (ProtocolError, ConnectionError, socket.error) as err:
                 logging.info("get_messages: Closing %s (%s)", self.node, err)
                 break
-            gevent.sleep(0.3)
+            gevent.sleep(0.1)
 
         REDIS_CONN.srem('opendata', data)
 
@@ -137,48 +120,6 @@ class Keepalive(object):
             self.keepalive_time = int(REDIS_CONN.get('elapsed'))
         except TypeError:
             pass
-
-    def send_bestblockhash(self):
-        """
-        Sends an inv message for the consensus block.
-        """
-        bestblockhash = REDIS_CONN.get('bestblockhash')
-        if self.last_bestblockhash == bestblockhash:
-            return
-        try:
-            self.conn.inv(inventory=[(2, bestblockhash)])
-        except socket.error:
-            raise
-        logging.debug("%s (%s)", self.node, bestblockhash)
-        self.last_bestblockhash = bestblockhash
-
-    def send_addr(self):
-        """
-        Sends an addr message containing a subset of the reachable nodes.
-        """
-        nodes = REDIS_CONN.srandmember('opendata', 3)
-        nodes = [eval(node) for node in nodes]
-        addr_list = []
-        timestamp = int(self.last_ping)  # Timestamp less than 10 minutes old
-        for node in nodes:
-            # address, port, version, user_agent, timestamp, services
-            address = node[0]
-            port = node[1]
-            services = node[-1]
-            if address == self.node[0]:
-                continue
-            if not services & 1 == 1:  # Skip if not NODE_NETWORK
-                continue
-            if address.endswith('.onion') and len(address) == ONION_V3_LEN:
-                continue
-            addr_list.append((timestamp, services, address, port))
-        if len(addr_list) == 0:
-            return
-        try:
-            self.conn.addr(addr_list=addr_list)
-        except socket.error:
-            raise
-        logging.debug("%s (%s)", self.node, addr_list)
 
 
 def task():
@@ -246,7 +187,7 @@ def task():
     if address.endswith(".onion"):
         # Map local port to .onion node
         local_port = conn.socket.getsockname()[1]
-        logging.info("Local port %s: %d", conn.to_addr, local_port)
+        logging.debug("Local port %s: %d", conn.to_addr, local_port)
         REDIS_CONN.set('onion:{}'.format(local_port), conn.to_addr)
 
     Keepalive(conn=conn, version_msg=version_msg).keepalive()
@@ -266,7 +207,6 @@ def cron(pool):
     1) Checks for a new snapshot
     2) Loads new reachable nodes into the reachable set in Redis
     3) Signals listener to get reachable nodes from opendata set
-    4) Sets bestblockhash in Redis
 
     [Master/Slave]
     1) Spawns workers to establish and maintain connection with reachable nodes
@@ -297,8 +237,6 @@ def cron(pool):
 
             connections = REDIS_CONN.scard('open')
             logging.info("Connections: %d", connections)
-
-            set_bestblockhash()
 
         for _ in xrange(min(REDIS_CONN.scard('reachable'), pool.free_count())):
             pool.spawn(task)
@@ -349,31 +287,6 @@ def set_reachable(nodes):
         if not REDIS_CONN.sismember('open', (address, port)):
             REDIS_CONN.sadd('reachable', (address, port, services, height))
     return REDIS_CONN.scard('reachable')
-
-
-def set_bestblockhash():
-    """
-    Sets bestblockhash in Redis using the value of lastblockhash which has
-    been validated by at least 50 percent of the reachable nodes.
-    """
-    lastblockhash = REDIS_CONN.get('lastblockhash')
-    if lastblockhash is None:
-        return
-
-    bestblockhash = REDIS_CONN.get('bestblockhash')
-    if bestblockhash == lastblockhash:
-        return
-
-    try:
-        reachable_nodes = eval(REDIS_CONN.lindex("nodes", 0))[-1]
-    except TypeError:
-        logging.warning("nodes missing")
-        return
-
-    nodes = REDIS_CONN.zcard('inv:2:{}'.format(lastblockhash))
-    if nodes >= reachable_nodes / 2.0:
-        REDIS_CONN.set('bestblockhash', lastblockhash)
-        logging.info("bestblockhash: %s", lastblockhash)
 
 
 def init_conf(argv):
