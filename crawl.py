@@ -162,14 +162,24 @@ def connect(redis_conn, key):
                     addr_msgs = msgs
                     break
 
+        version = version_msg.get('version', "")
+        user_agent = version_msg.get('user_agent', "")
         from_services = version_msg.get('services', 0)
+        height = version_msg.get('height', 0)
+
         if from_services != services:
             logging.debug("%s Expected %d, got %d for services", conn.to_addr,
                           services, from_services)
             key = "node:{}-{}-{}".format(address, port, from_services)
+
         height_key = "height:{}-{}-{}".format(address, port, from_services)
-        redis_pipe.setex(height_key, CONF['max_age'],
-                         version_msg.get('height', 0))
+        redis_pipe.setex(height_key, CONF['max_age'], height)
+
+        version_key = "version:{}-{}".format(address, port)
+        redis_pipe.setex(version_key,
+                         CONF['max_age'],
+                         (version, user_agent, from_services))
+
         now = int(time.time())
         (peers, excluded) = enumerate_node(redis_pipe, addr_msgs, now)
         logging.debug("%s Peers: %d (Excluded: %d)",
