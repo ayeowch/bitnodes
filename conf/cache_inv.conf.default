@@ -1,7 +1,7 @@
-[pcap]
+[cache_inv]
 
 # Logfile
-logfile = log/pcap.f9beb4d9.log
+logfile = log/cache_inv.f9beb4d9.log
 
 # Network magic number
 magic_number = f9beb4d9
@@ -27,6 +27,12 @@ tor_proxies =
 
 # Relative path to directory containing pcap files
 pcap_dir = data/pcap/f9beb4d9
+
+# File extension for pcap files to process
+pcap_suffix = pcap
+
+# Set to True to keep all processed pcap files
+persist_pcap = False
 
 # Sampling rate of pcap files
 sampling_rate = 100
