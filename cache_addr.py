@@ -86,7 +86,12 @@ class AddrManager(object):
             key = self.onion_key
 
         if key:
-            self.redis_pipe.zadd(key, t_bucket, node)
+            # ZADD <key> GT <score> <member>
+            # GT: Only update existing elements if the new score is greater
+            # than the current score. This flag doesn't prevent adding new
+            # elements.
+            self.redis_pipe.execute_command(
+                'ZADD', key, 'GT', t_bucket, node)
 
     def cleanup(self):
         """
