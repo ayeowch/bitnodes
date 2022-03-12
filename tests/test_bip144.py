@@ -2,26 +2,20 @@
 # -*- coding: utf-8 -*-
 import os
 from binascii import hexlify, unhexlify
-from collections import defaultdict
-from Queue import PriorityQueue
 
-from pcap import Stream, Cache
-from protocol import Serializer
+from pcap import Cache
 
 
 class Reader(Cache):
-    def __init__(self, filepath):
-        self.filepath = filepath
-        self.serializer = Serializer(magic_number=unhexlify('f9beb4d9'))
-        self.streams = defaultdict(PriorityQueue)
-        self.stream = Stream()
+    def __init__(self, *args, **kwargs):
+        super(Reader, self).__init__(*args, **kwargs)
 
 
 def test_bip144():
     filepath = os.path.join(
         os.path.dirname(os.path.realpath(__file__)), 'data', 'bip144.pcap')
 
-    reader = Reader(filepath=filepath)
+    reader = Reader(filepath, magic_number=unhexlify('f9beb4d9'))
     reader.extract_streams()
     msgs = []
 

@@ -16,7 +16,7 @@ Bitnodes estimates the relative size of the Bitcoin peer-to-peer network by find
 
 * [Leaderboard](https://bitnodes.io/nodes/leaderboard/)
 
-* [Node Status](https://bitnodes.io/dashboard/bitcoind/)
+* [Client Status](https://bitnodes.io/dashboard/bitcoind/)
 
 * [What is a Bitcoin node?](https://bitnodes.io/bitcoin-node/)
 

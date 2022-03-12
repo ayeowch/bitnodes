@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# pcap.py - Saves messages from pcap files in Redis.
+# pcap.py - Base class to save messages from pcap files in Redis.
 #
 # Copyright (c) Addy Yeow Chin Heng <ayeowch@gmail.com>
 #
@@ -25,22 +25,16 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 """
-Saves messages from pcap files in Redis.
+Base class to save messages from pcap files in Redis.
 """
 
-import bisect
 import dpkt
 import glob
-import hashlib
 import logging
 import os
-import random
 import socket
-import sys
 import time
-from binascii import unhexlify
 from collections import defaultdict
-from ConfigParser import ConfigParser
 from Queue import PriorityQueue
 
 from protocol import (
@@ -49,9 +43,6 @@ from protocol import (
     ProtocolError,
     Serializer,
 )
-from utils import new_redis_conn
-
-CONF = {}
 
 
 class Stream(object):
@@ -79,58 +70,28 @@ class Stream(object):
 
 class Cache(object):
     """
-    Implements caching mechanic to cache messages from pcap file in Redis.
+    Base caching mechanic to cache messages from pcap file in Redis.
     """
-    def __init__(self, filepath, redis_conn=None):
+    def __init__(
+            self,
+            filepath,
+            magic_number=None,
+            tor_proxies=None,
+            redis_conn=None):
+        self.start_t = time.time()
         self.filepath = filepath
+        self.tor_proxies = tor_proxies or []
         self.redis_conn = redis_conn
-        self.redis_pipe = redis_conn.pipeline()
-        self.serializer = Serializer(magic_number=CONF['magic_number'])
+        if redis_conn:
+            self.redis_pipe = redis_conn.pipeline()
+        else:
+            self.redis_pipe = None
+        self.serializer = Serializer(magic_number=magic_number)
         self.streams = defaultdict(PriorityQueue)
         self.stream = Stream()
-        self.count = 0
-        self.ping_keys = set()  # ping:ADDRESS-PORT:NONCE
-        self.invs = defaultdict(list)
 
-    def cache_messages(self):
-        """
-        Reconstructs messages from TCP streams and caches them in Redis.
-        """
-        try:
-            self.extract_streams()
-        except dpkt.dpkt.NeedData:
-            logging.warning("Need data: %s", self.filepath)
-        for stream_id, self.stream.segments in self.streams.iteritems():
-            data = self.stream.data()
-            _data = data.next()
-            while True:
-                try:
-                    (msg, _data) = self.serializer.deserialize_msg(_data)
-                except (HeaderTooShortError, PayloadTooShortError) as err:
-                    logging.debug("%s: %s", stream_id, err)
-                    try:
-                        _data += data.next()
-                    except StopIteration:
-                        break
-                except ProtocolError as err:
-                    logging.debug("%s: %s", stream_id, err)
-                    try:
-                        _data = data.next()
-                    except StopIteration:
-                        break
-                else:
-                    src = (stream_id[0], stream_id[1])
-                    dst = (stream_id[2], stream_id[3])
-                    node = src
-                    is_tor = False
-                    if src in CONF['tor_proxies']:
-                        # dst port will be used to restore .onion node.
-                        node = dst
-                        is_tor = True
-                    self.cache_message(
-                        node, self.stream.timestamp, msg, is_tor=is_tor)
-        self.redis_pipe.execute()
-        self.cache_rtt()
+    def __del__(self):
+        logging.debug("Elapsed: %d", time.time() - self.start_t)
 
     def extract_streams(self):
         """
@@ -166,167 +127,76 @@ class Cache(object):
                         (tcp_pkt.seq, (timestamp, tcp_pkt)))
         logging.debug("Streams: %d", len(self.streams))
 
+    def cache_messages(self):
+        """
+        Reconstructs messages from TCP streams and caches them in Redis.
+        """
+        try:
+            self.extract_streams()
+        except dpkt.dpkt.NeedData:
+            logging.warning("Need data: %s", self.filepath)
+        for stream_id, self.stream.segments in self.streams.iteritems():
+            data = self.stream.data()
+            _data = data.next()
+            while True:
+                try:
+                    (msg, _data) = self.serializer.deserialize_msg(_data)
+                except (HeaderTooShortError, PayloadTooShortError) as err:
+                    logging.debug("%s: %s", stream_id, err)
+                    try:
+                        _data += data.next()
+                    except StopIteration:
+                        break
+                except ProtocolError as err:
+                    logging.debug("%s: %s", stream_id, err)
+                    try:
+                        _data = data.next()
+                    except StopIteration:
+                        break
+                else:
+                    src = (stream_id[0], stream_id[1])
+                    dst = (stream_id[2], stream_id[3])
+                    node = src
+                    is_tor = False
+                    if src in self.tor_proxies:
+                        # dst port will be used to restore .onion node.
+                        node = dst
+                        is_tor = True
+                    self.cache_message(
+                        node, self.stream.timestamp, msg, is_tor=is_tor)
+
     def cache_message(self, node, timestamp, msg, is_tor=False):
         """
-        Caches inv/pong message from the specified node.
+        Subclass to implement method to cache message from the specified node.
         """
-        if msg['command'] not in ["inv", "pong"]:
-            return
-
-        # Restore .onion node using port info from node
-        if is_tor:
-            onion_node = self.redis_conn.get("onion:{}".format(node[1]))
-            if onion_node:
-                node = eval(onion_node)
-
-        if msg['command'] == "inv":
-            invs = 0
-            for inv in msg['inventory']:
-                key = "inv:{}:{}".format(inv['type'], inv['hash'])
-                if (len(self.invs[key]) >= CONF['inv_count'] and
-                        timestamp > self.invs[key][0]):
-                    logging.debug("Skip: %s (%d)", key, timestamp)
-                    continue
-                bisect.insort(self.invs[key], timestamp)
-                if inv['type'] == 2:
-                    # Redis key for reference (first seen) block inv
-                    rkey = "r{}".format(key)
-                    rkey_ms = self.redis_conn.get(rkey)
-                    if rkey_ms is None:
-                        self.redis_conn.set(rkey, timestamp)
-                        self.redis_pipe.set("lastblockhash", inv['hash'])
-                    elif (timestamp - int(rkey_ms)) / 1000 > CONF['ttl']:
-                        # Ignore block inv first seen more than 3 hours ago
-                        logging.debug("Skip: %s (%d)", key, timestamp)
-                        continue
-                invs += 1
-                # ZADD <key> LT <score> <member>
-                # LT: Only update existing elements if the new score is less
-                # than the current score. This flag doesn't prevent adding new
-                # elements.
-                self.redis_pipe.execute_command(
-                    'ZADD', key, 'LT', timestamp, self.node_hash(node))
-                self.redis_pipe.expire(key, CONF['ttl'])
-            self.count += invs
-        elif msg['command'] == "pong":
-            key = "ping:{}-{}:{}".format(node[0], node[1], msg['nonce'])
-            self.redis_pipe.rpushx(key, timestamp)
-            self.ping_keys.add(key)
-            self.count += 1
-
-    def node_hash(self, node):
-        """
-        Encodes a tuple of address and port in shorten hash for storage in
-        Redis.
-        """
-        return hashlib.sha256('%s-%d' % node).hexdigest()[:8]
-
-    def cache_rtt(self):
-        """
-        Calculates round-trip time (RTT) values and caches them in Redis.
-        """
-        for key in self.ping_keys:
-            timestamps = self.redis_conn.lrange(key, 0, 1)
-            if len(timestamps) > 1:
-                rtt_key = "rtt:{}".format(':'.join(key.split(":")[1:-1]))
-                rtt = int(timestamps[1]) - int(timestamps[0])  # pong - ping
-                logging.debug("%s: %d", rtt_key, rtt)
-                self.redis_pipe.lpush(rtt_key, rtt)
-                self.redis_pipe.ltrim(rtt_key, 0, CONF['rtt_count'] - 1)
-                self.redis_pipe.expire(rtt_key, CONF['ttl'])
-        self.redis_pipe.execute()
+        raise NotImplementedError()
 
 
-def cron():
+def get_pcap_file(pcap_dir, pcap_suffix):
     """
-    Periodically fetches oldest pcap file to extract messages from.
+    Returns the oldest available pcap file for processing.
     """
-    redis_conn = new_redis_conn(db=CONF['db'])
+    try:
+        oldest = min(glob.iglob("{}/*.{}".format(pcap_dir, pcap_suffix)))
+    except ValueError as err:
+        logging.error(err)
+        return None
 
-    while True:
-        time.sleep(0.1)
+    try:
+        latest = max(glob.iglob("{}/*.{}".format(pcap_dir, pcap_suffix)))
+    except ValueError as err:
+        logging.error(err)
+        return None
 
-        try:
-            oldest = min(glob.iglob("{}/*.pcap".format(CONF['pcap_dir'])))
-        except ValueError as err:
-            logging.debug(err)
-            continue
-        latest = max(glob.iglob("{}/*.pcap".format(CONF['pcap_dir'])))
-        if oldest == latest:
-            continue
-        tmp = oldest
-        dump = tmp.replace(".pcap", ".pcap_")
-        try:
-            os.rename(tmp, dump)  # Mark file as being read
-        except OSError as err:
-            logging.debug(err)
-            continue
+    if oldest == latest:
+        return None
 
-        if 0 in random.sample(range(0, 100), CONF['sampling_rate']):
-            logging.debug("Loading: %s", dump)
-            start = time.time()
-            cache = Cache(filepath=dump, redis_conn=redis_conn)
-            cache.cache_messages()
-            end = time.time()
-            elapsed = end - start
-            logging.info("Dump: %s (%d messages)", dump, cache.count)
-            logging.debug("Elapsed: %d", elapsed)
-        else:
-            logging.debug("Dropped: %s", tmp)
+    tmp = oldest
+    dump = tmp.replace(".{}".format(pcap_suffix), ".{}_".format(pcap_suffix))
+    try:
+        os.rename(tmp, dump)  # Mark file as being read
+    except OSError as err:
+        logging.error(err)
+        return None
 
-        os.remove(dump)
-
-
-def init_conf(config):
-    """
-    Populates CONF with key-value pairs from configuration file.
-    """
-    conf = ConfigParser()
-    conf.read(config)
-    CONF['logfile'] = conf.get('pcap', 'logfile')
-    CONF['magic_number'] = unhexlify(conf.get('pcap', 'magic_number'))
-    CONF['db'] = conf.getint('pcap', 'db')
-    CONF['debug'] = conf.getboolean('pcap', 'debug')
-    CONF['ttl'] = conf.getint('pcap', 'ttl')
-    CONF['rtt_count'] = conf.getint('pcap', 'rtt_count')
-    CONF['inv_count'] = conf.getint('pcap', 'inv_count')
-
-    tor_proxies = conf.get('pcap', 'tor_proxies').strip().split("\n")
-    CONF['tor_proxies'] = [
-        (p.split(":")[0], int(p.split(":")[1])) for p in tor_proxies]
-
-    CONF['pcap_dir'] = conf.get('pcap', 'pcap_dir')
-    if not os.path.exists(CONF['pcap_dir']):
-        os.makedirs(CONF['pcap_dir'])
-
-    CONF['sampling_rate'] = conf.getint('pcap', 'sampling_rate')
-
-
-def main(argv):
-    if len(argv) < 2 or not os.path.exists(argv[1]):
-        print("Usage: pcap.py [config]")
-        return 1
-
-    # Initialize global conf
-    init_conf(argv[1])
-
-    # Initialize logger
-    loglevel = logging.INFO
-    if CONF['debug']:
-        loglevel = logging.DEBUG
-
-    logformat = ("[%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s "
-                 "(%(funcName)s) %(message)s")
-    logging.basicConfig(level=loglevel,
-                        format=logformat,
-                        filename=CONF['logfile'],
-                        filemode='a')
-    print("Log: {}, press CTRL+C to terminate..".format(CONF['logfile']))
-
-    cron()
-
-    return 0
-
-
-if __name__ == '__main__':
-    sys.exit(main(sys.argv))
+    return dump
