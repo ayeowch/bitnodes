@@ -209,7 +209,7 @@ def task():
         return
 
     proxy = None
-    if address.endswith(".onion"):
+    if address.endswith(".onion") and CONF['onion']:
         proxy = random.choice(CONF['tor_proxies'])
 
     version_msg = {}

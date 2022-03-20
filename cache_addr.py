@@ -35,6 +35,7 @@ import sys
 import time
 from binascii import unhexlify
 from ConfigParser import ConfigParser
+from ipaddress import ip_address
 
 from pcap import Cache, get_pcap_file
 from protocol import (
@@ -59,6 +60,18 @@ class AddrManager(object):
         self.ipv6_key = 'addr:ipv6'
         self.onion_key = 'addr:onion'
         self.now = int(time.time())
+
+    def is_excluded(self, address):
+        """
+        Returns True to exclude private address.
+        """
+        if address.endswith(".onion"):
+            return False
+
+        if ip_address(unicode(address)).is_private:
+            return True
+
+        return False
 
     def add(self, addr):
         """
@@ -85,7 +98,7 @@ class AddrManager(object):
             node = (addr['onion'], port)
             key = self.onion_key
 
-        if key:
+        if key and not self.is_excluded(node[0]):
             # ZADD <key> GT <score> <member>
             # GT: Only update existing elements if the new score is greater
             # than the current score. This flag doesn't prevent adding new
