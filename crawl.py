@@ -121,7 +121,7 @@ def connect(redis_conn, key):
         height = int(height)
 
     proxy = None
-    if address.endswith(".onion"):
+    if address.endswith(".onion") and CONF['onion']:
         proxy = random.choice(CONF['tor_proxies'])
 
     conn = Connection((address, int(port)),
