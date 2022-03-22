@@ -12,8 +12,14 @@ db = 0
 # Print debug output
 debug = False
 
-# Maximum age for addr entry to cache
+# Maximum age for addr entry (based on its timestamp) to cache
 max_age = 86400
+
+# Addr entry in cache is removed after this expiry age
+expiry_age = 2678400
+
+# Limit max. peers per node to be included in cache
+peers_per_node = 500
 
 # Relative path to directory containing pcap files
 pcap_dir = data/pcap/f9beb4d9

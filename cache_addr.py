@@ -79,6 +79,7 @@ class AddrManager(object):
         """
         network_id = addr['network_id']
         timestamp = addr['timestamp']
+        services = addr['services']
         port = addr['port']
 
         # Timestamp truncated to 30-minute interval
@@ -89,13 +90,13 @@ class AddrManager(object):
 
         key = None
         if network_id == NETWORK_IPV4:
-            node = (addr['ipv4'], port)
+            node = (addr['ipv4'], port, services)
             key = self.ipv4_key
         elif network_id == NETWORK_IPV6:
-            node = (addr['ipv6'], port)
+            node = (addr['ipv6'], port, services)
             key = self.ipv6_key
         elif network_id in (NETWORK_TORV2, NETWORK_TORV3):
-            node = (addr['onion'], port)
+            node = (addr['onion'], port, services)
             key = self.onion_key
 
         if key and not self.is_excluded(node[0]):
@@ -104,14 +105,14 @@ class AddrManager(object):
             # than the current score. This flag doesn't prevent adding new
             # elements.
             self.redis_pipe.execute_command(
-                'ZADD', key, 'GT', t_bucket, node)
+                'ZADD', key, 'GT', t_bucket, "{}-{}-{}".format(*node))
 
     def cleanup(self):
         """
         Removes old addr entries from Redis.
         """
         keys = (self.ipv4_key, self.ipv6_key, self.onion_key)
-        max_score = self.now - CONF['max_age']
+        max_score = self.now - CONF['expiry_age']
         for key in keys:
             removed = self.redis_conn.zremrangebyscore(key, 0, max_score)
             logging.info("Key: %s (%d removed)", key, removed)
@@ -141,8 +142,9 @@ class CacheAddr(Cache):
         if msg['command'] not in ("addr", "addrv2"):
             return
 
-        self.count += len(msg['addr_list'])
-        for addr in msg['addr_list']:
+        addr_list = msg['addr_list'][:CONF['peers_per_node']]
+        self.count += len(addr_list)
+        for addr in addr_list:
             self.addr_manager.add(addr)
 
 
@@ -189,6 +191,8 @@ def init_conf(config):
     CONF['db'] = conf.getint('cache_addr', 'db')
     CONF['debug'] = conf.getboolean('cache_addr', 'debug')
     CONF['max_age'] = conf.getint('cache_addr', 'max_age')
+    CONF['expiry_age'] = conf.getint('cache_addr', 'expiry_age')
+    CONF['peers_per_node'] = conf.getint('cache_addr', 'peers_per_node')
 
     CONF['pcap_dir'] = conf.get('cache_addr', 'pcap_dir')
     if not os.path.exists(CONF['pcap_dir']):
