@@ -83,14 +83,14 @@ class Seeder(object):
         Saves A and AAAA records in DNS zone files.
         """
         default_zone = os.path.basename(CONF['zone_file'])
-        for i in range(0xf + 1):
+        # Default zone followed by services-based zones (max. 100 zones)
+        zone_keys = sorted(set([0] + self.addresses.keys()))[:100]
+        for i in zone_keys:
             if i == 0:
+                # Default zone should include all nodes that have at least
+                # NODE_NETWORK service bit set.
                 zone = default_zone
                 zone_file = CONF['zone_file']
-                wildcard = "".join([
-                    "\n",
-                    "*.{0}.\tIN\tCNAME\t{0}.".format(default_zone),
-                ])
                 addresses = []
                 for services, addrs in self.addresses.iteritems():
                     if services & 1 == 1:  # NODE_NETWORK
@@ -98,7 +98,6 @@ class Seeder(object):
             else:
                 zone = 'x%x.%s' % (i, default_zone)
                 zone_file = CONF['zone_file'].replace(default_zone, zone)
-                wildcard = ""
                 addresses = self.addresses[i]
             logging.debug("Zone file: %s", zone_file)
             serial = str(self.now)
@@ -109,7 +108,6 @@ class Seeder(object):
                 .replace("seed.bitnodes.io.", zone.replace("zone", ""))
             content = "".join([
                 template,
-                wildcard,
                 "\n",
                 self.get_records(addresses),
             ]).strip() + "\n"
