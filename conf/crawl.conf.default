@@ -76,6 +76,9 @@ nodes_per_ipv6_prefix = 1
 # List of included ASNs
 include_asns =
 
+# List of included ASNs from external URL
+include_asns_from_url =
+
 # List of excluded ASNs
 exclude_asns =
 
