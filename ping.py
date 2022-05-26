@@ -70,6 +70,8 @@ class Keepalive(object):
         self.ping_delay = 60
         self.version_delay = CONF['version_delay']
 
+        self.redis_pipe = REDIS_CONN.pipeline()
+
         version = version_msg.get('version', "")
         user_agent = version_msg.get('user_agent', "")
         services = version_msg.get('services', "")
@@ -141,7 +143,7 @@ class Keepalive(object):
         """
         self.last_version = now
 
-        version_key = 'version:{}-{}'.format(self.node[0], self.node[1])
+        version_key = 'version:{}-{}'.format(*self.node)
         version_data = REDIS_CONN.get(version_key)
 
         if version_data is None:
@@ -167,12 +169,26 @@ class Keepalive(object):
         Sinks received messages to flush them off socket buffer.
         """
         try:
-            self.conn.get_messages()
+            msgs = self.conn.get_messages()
         except socket.timeout:
             pass
         except (ProtocolError, ConnectionError, socket.error) as err:
             logging.info("Closing %s (%s)", self.node, err)
             return False
+        else:
+            # Cache block inv messages
+            for msg in msgs:
+                if msg['command'] != "inv":
+                    continue
+                ms = msg['timestamp']
+                for inv in msg['inventory']:
+                    if inv['type'] != 2:
+                        continue
+                    key = "binv:{}".format(inv['hash'])
+                    self.redis_pipe.execute_command(
+                        'ZADD', key, 'LT', ms, "{}-{}".format(*self.node))
+                    self.redis_pipe.expire(key, CONF['inv_ttl'])
+            self.redis_pipe.execute()
 
         return True
 
@@ -363,6 +379,7 @@ def init_conf(argv):
     CONF['socket_timeout'] = conf.getint('ping', 'socket_timeout')
     CONF['cron_delay'] = conf.getint('ping', 'cron_delay')
     CONF['rtt_ttl'] = conf.getint('ping', 'rtt_ttl')
+    CONF['inv_ttl'] = conf.getint('ping', 'inv_ttl')
     CONF['version_delay'] = conf.getint('ping', 'version_delay')
     CONF['ipv6_prefix'] = conf.getint('ping', 'ipv6_prefix')
     CONF['nodes_per_ipv6_prefix'] = conf.getint('ping',

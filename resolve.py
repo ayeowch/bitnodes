@@ -260,7 +260,7 @@ def main(argv):
     while True:
         msg = pubsub.get_message()
         if msg is None:
-            time.sleep(0.001)  # 1 ms artificial intrinsic latency.
+            time.sleep(0.1)  # 100 ms artificial intrinsic latency.
             continue
         # 'snapshot' message is published by ping.py after establishing
         # connection with nodes from a new snapshot.

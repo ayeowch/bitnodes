@@ -49,6 +49,9 @@ nodes_per_ipv6_prefix = 1
 # Redis TTL for cached RTT
 rtt_ttl = 10800
 
+# Redis TTL for cached block inv messages
+inv_ttl = 10800
+
 # Check version every given interval
 version_delay = 86400
 
