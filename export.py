@@ -31,9 +31,11 @@ Exports enumerated data for reachable nodes into a JSON file.
 import json
 import logging
 import os
+import requests
 import sys
 import time
 from binascii import hexlify, unhexlify
+from collections import Counter
 from ConfigParser import ConfigParser
 
 from utils import new_redis_conn
@@ -42,52 +44,108 @@ REDIS_CONN = None
 CONF = {}
 
 
-def get_row(node):
+class Export(object):
     """
-    Returns enumerated row data from Redis for the specified node.
+    Exports nodes into timestamp-prefixed JSON file and sets consensus height
+    using the most common height from these nodes.
     """
-    # address, port, version, user_agent, timestamp, services
-    node = eval(node)
-    address = node[0]
-    port = node[1]
-    services = node[-1]
+    def __init__(self, timestamp, nodes):
+        self.start_t = time.time()
+        self.timestamp = timestamp
+        self.nodes = nodes
+        self.heights = self.get_heights()
 
-    height = REDIS_CONN.get('height:{}-{}-{}'.format(address, port, services))
-    if height is None:
-        height = (0,)
-    else:
-        height = (int(height),)
+    def export_nodes(self):
+        """
+        Merges enumerated data for the nodes and exports them into
+        timestamp-prefixed JSON file and then sets consensus height in Redis
+        using the most common height from these nodes.
+        """
+        rows = []
+        for node in self.nodes:
+            row = self.get_row(node)
+            rows.append(row)
 
-    hostname = REDIS_CONN.hget('resolve:{}'.format(address), 'hostname')
-    hostname = (hostname,)
+        if self.heights:
+            height = Counter(self.heights.values()).most_common(1)[0][0]
+            logging.info("Consensus height: %s", height)
+            REDIS_CONN.set('height', height)
 
-    geoip = REDIS_CONN.hget('resolve:{}'.format(address), 'geoip')
-    if geoip is None:
-        # city, country, latitude, longitude, timezone, asn, org
-        geoip = (None, None, 0.0, 0.0, None, None, None)
-    else:
-        geoip = eval(geoip)
+        dump = os.path.join(
+            CONF['export_dir'], "{}.json".format(self.timestamp))
+        open(dump, 'w').write(json.dumps(rows, encoding="latin-1"))
+        logging.info("Wrote %s", dump)
 
-    return node + height + hostname + geoip
+        logging.info("Elapsed: %d", time.time() - self.start_t)
 
+    def get_row(self, node):
+        """
+        Returns enumerated row data from Redis for the specified node.
+        """
+        # address, port, version, user_agent, timestamp, services
+        node = eval(node)
+        address = node[0]
+        port = node[1]
+        services = node[-1]
 
-def export_nodes(nodes, timestamp):
-    """
-    Merges enumerated data for the specified nodes and exports them into
-    timestamp-prefixed JSON file.
-    """
-    rows = []
-    start = time.time()
-    for node in nodes:
-        row = get_row(node)
-        rows.append(row)
-    end = time.time()
-    elapsed = end - start
-    logging.info("Elapsed: %d", elapsed)
+        n = '{}-{}'.format(address, port)
+        if n in self.heights:
+            # Height from received block inv message in ping.py.
+            height = (self.heights[n],)
+        else:
+            # Height from handshake in crawl.py.
+            height = REDIS_CONN.get(
+                'height:{}-{}-{}'.format(address, port, services))
+            if height is None:
+                height = (0,)
+            else:
+                height = (int(height),)
+            logging.debug("Using handshake height %s: %s", node, height)
 
-    dump = os.path.join(CONF['export_dir'], "{}.json".format(timestamp))
-    open(dump, 'w').write(json.dumps(rows, encoding="latin-1"))
-    logging.info("Wrote %s", dump)
+        hostname = REDIS_CONN.hget('resolve:{}'.format(address), 'hostname')
+        hostname = (hostname,)
+
+        geoip = REDIS_CONN.hget('resolve:{}'.format(address), 'geoip')
+        if geoip is None:
+            # city, country, latitude, longitude, timezone, asn, org
+            geoip = (None, None, 0.0, 0.0, None, None, None)
+        else:
+            geoip = eval(geoip)
+
+        return node + height + hostname + geoip
+
+    def get_heights(self):
+        """
+        Returns the latest heights based on received block inv messages.
+        """
+        heights = {}
+        recent_blocks = []
+        timestamp_ms = self.timestamp * 1000
+
+        try:
+            response = requests.get(CONF['block_heights_url'], timeout=15)
+        except requests.exceptions.RequestException as err:
+            logging.warning(err)
+        else:
+            if response.status_code == 200:
+                recent_blocks = response.json()['blocks']
+
+        for block in recent_blocks:
+            block_height, block_time, block_hash = block
+            if block_time > self.timestamp:
+                continue
+
+            key = "binv:{}".format(block_hash)
+            # [('ADDRESS-PORT', EPOCH_MS),..]
+            nodes = REDIS_CONN.zrangebyscore(
+                key, '-inf', '+inf', withscores=True, score_cast_func=int)
+            for node in nodes:
+                n, t = node
+                if n not in heights and t <= timestamp_ms:
+                    heights[n] = block_height
+
+        logging.info("Heights: %d", len(heights))
+        return heights
 
 
 def init_conf(argv):
@@ -101,6 +159,7 @@ def init_conf(argv):
     CONF['db'] = conf.getint('export', 'db')
     CONF['debug'] = conf.getboolean('export', 'debug')
     CONF['export_dir'] = conf.get('export', 'export_dir')
+    CONF['block_heights_url'] = conf.get('export', 'block_heights_url')
     if not os.path.exists(CONF['export_dir']):
         os.makedirs(CONF['export_dir'])
 
@@ -146,7 +205,8 @@ def main(argv):
             logging.info("Timestamp: %d", timestamp)
             nodes = REDIS_CONN.smembers('opendata')
             logging.info("Nodes: %d", len(nodes))
-            export_nodes(nodes, timestamp)
+            export = Export(timestamp, nodes)
+            export.export_nodes()
             REDIS_CONN.publish(publish_key, timestamp)
 
     return 0
