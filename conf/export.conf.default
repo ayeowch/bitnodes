@@ -14,3 +14,6 @@ debug = False
 
 # Relative path to directory containing timestamp-prefixed JSON export files
 export_dir = data/export/f9beb4d9
+
+# List of recent block heights from external URL
+block_heights_url = https://bitnodes.io/api/v1/bitcoind/getblockheights/

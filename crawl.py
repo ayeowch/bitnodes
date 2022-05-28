@@ -227,7 +227,7 @@ def restart(timestamp):
     Removes keys for all nodes from current crawl.
     Updates included ASNs with current list from external URL.
     Updates excluded networks with current list of bogons.
-    Updates number of reachable nodes and most common height in Redis.
+    Updates number of reachable nodes in Redis.
     """
     redis_pipe = REDIS_CONN.pipeline()
 
@@ -265,7 +265,6 @@ def restart(timestamp):
     REDIS_CONN.lpush('nodes', (timestamp, reachable_nodes))
 
     height = dump(timestamp, nodes)
-    REDIS_CONN.set('height', height)
     logging.info("Height: %d", height)
 
 
