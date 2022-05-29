@@ -156,11 +156,11 @@ from sha3 import sha3_256
 MAGIC_NUMBER = "\xF9\xBE\xB4\xD9"
 PORT = 8333
 MIN_PROTOCOL_VERSION = 70001
-PROTOCOL_VERSION = 70016  # min. protocol version to accept sendaddrv2
+PROTOCOL_VERSION = 70016
 FROM_SERVICES = 0
 TO_SERVICES = 1  # NODE_NETWORK
 USER_AGENT = "/bitnodes.io:0.2/"
-HEIGHT = 668000
+HEIGHT = 738000
 RELAY = 0  # set to 1 to receive all txs
 
 SOCKET_BUFSIZE = 8192
@@ -968,12 +968,22 @@ class Connection(object):
                 self.pong(msg['nonce'])  # respond to ping immediately
             elif msg.get('command') == "version":
                 # respond to version immediately
-                self.sendaddrv2()
-                self.verack()
+                self.version_reply(msg)
             msgs.append(msg)
         if len(msgs) > 0 and commands:
             msgs[:] = [m for m in msgs if m.get('command') in commands]
         return msgs
+
+    def version_reply(self, version):
+        # 70016 is the min. protocol version to accept sendaddrv2
+        if version.get('version', PROTOCOL_VERSION) >= 70016:
+            # [sendaddrv2] + [verack] >>>
+            self.send(
+                self.serializer.serialize_msg(command="sendaddrv2") +
+                self.serializer.serialize_msg(command="verack"))
+        else:
+            # [verack] >>>
+            self.send(self.serializer.serialize_msg(command="verack"))
 
     def set_min_version(self, version):
         self.serializer.protocol_version = min(
@@ -1002,16 +1012,6 @@ class Connection(object):
             self.set_addrv2(sendaddrv2_msg)
 
         return version_msg
-
-    def sendaddrv2(self):
-        # [sendaddrv2] >>>
-        msg = self.serializer.serialize_msg(command="sendaddrv2")
-        self.send(msg)
-
-    def verack(self):
-        # [verack] >>>
-        msg = self.serializer.serialize_msg(command="verack")
-        self.send(msg)
 
     def getaddr(self, block=True):
         # [getaddr] >>>
