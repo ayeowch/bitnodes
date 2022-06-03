@@ -384,9 +384,7 @@ def update_included_asns():
         logging.warning(err)
     else:
         if response.status_code == 200:
-            CONF['include_asns'] = list_included_asns(
-                response.content,
-                include_asns=CONF['include_asns'])
+            CONF['include_asns'] = list_included_asns(response.content)
             logging.info("ASNs: %d", len(CONF['include_asns']))
 
 
