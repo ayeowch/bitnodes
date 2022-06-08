@@ -967,8 +967,9 @@ class Connection(object):
             if msg.get('command') == "ping":
                 self.pong(msg['nonce'])  # respond to ping immediately
             elif msg.get('command') == "version":
-                # respond to version immediately
-                self.version_reply(msg)
+                self.version_reply(msg)  # respond to version immediately
+            elif msg.get('command') == "getheaders":
+                self.headers([])  # respond to getheaders immediately
             msgs.append(msg)
         if len(msgs) > 0 and commands:
             msgs[:] = [m for m in msgs if m.get('command') in commands]
