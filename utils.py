@@ -28,9 +28,42 @@
 Common helper methods.
 """
 
+import logging
 import os
 import redis
+import time
+from geoip2.database import Reader
 from ipaddress import ip_network
+from maxminddb.errors import InvalidDatabaseError
+
+
+class GeoIp(object):
+    """
+    MaxMind databases.
+    """
+    def __init__(self):
+        # Retry on InvalidDatabaseError due to geoip/update.sh updating
+        # *.mmdb that may cause this exception temporarily.
+        for i in range(10):
+            try:
+                self.geoip_city = Reader("geoip/GeoLite2-City.mmdb")
+                self.geoip_country = Reader("geoip/GeoLite2-Country.mmdb")
+                self.geoip_asn = Reader("geoip/GeoLite2-ASN.mmdb")
+            except (InvalidDatabaseError, IOError) as err:
+                logging.warning(err)
+                time.sleep(0.1)
+                continue
+            else:
+                break
+
+    def city(self, address):
+        return self.geoip_city.city(address)
+
+    def country(self, address):
+        return self.geoip_country.country(address)
+
+    def asn(self, address):
+        return self.geoip_asn.asn(address)
 
 
 def new_redis_conn(db=0):

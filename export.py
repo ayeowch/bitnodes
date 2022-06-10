@@ -38,7 +38,7 @@ from binascii import hexlify, unhexlify
 from collections import Counter
 from ConfigParser import ConfigParser
 
-from resolve import raw_geoip
+from resolve import Resolve
 from utils import new_redis_conn
 
 REDIS_CONN = None
@@ -111,7 +111,7 @@ class Export(object):
             # resolve.py may not have seen this node in opendata yet when
             # it last ran, so manually trigger raw geoip now.
             logging.warning("Raw geoip triggered for %s", address)
-            geoip = raw_geoip(address)
+            geoip = Resolve().raw_geoip(address)
         else:
             geoip = eval(geoip)
 
