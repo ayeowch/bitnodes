@@ -116,6 +116,12 @@ exclude_ipv4_bogons = True
 # Exclude IPv6 bogons
 exclude_ipv6_bogons = False
 
+# List of excluded IPv4 networks from external URL
+exclude_ipv4_networks_from_url =
+
+# List of excluded IPv6 networks from external URL
+exclude_ipv6_networks_from_url =
+
 # Attempt to establish connection with .onion nodes
 onion = True
 

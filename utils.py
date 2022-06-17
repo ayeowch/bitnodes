@@ -31,6 +31,7 @@ Common helper methods.
 import logging
 import os
 import redis
+import requests
 import time
 from geoip2.database import Reader
 from ipaddress import ip_network
@@ -96,3 +97,14 @@ def ip_to_network(address, prefix):
     network = ip_network(unicode("{}/{}".format(address, prefix)),
                          strict=False)
     return "{}/{}".format(network.network_address, prefix)
+
+
+def http_get(url, timeout=15):
+    try:
+        response = requests.get(url, timeout=timeout)
+    except requests.exceptions.RequestException as err:
+        logging.warning(err)
+    else:
+        if response.status_code == 200:
+            return response
+    return None

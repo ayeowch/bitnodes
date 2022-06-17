@@ -31,7 +31,6 @@ Exports enumerated data for reachable nodes into a JSON file.
 import json
 import logging
 import os
-import requests
 import sys
 import time
 from binascii import hexlify, unhexlify
@@ -39,7 +38,7 @@ from collections import Counter
 from ConfigParser import ConfigParser
 
 from resolve import Resolve
-from utils import new_redis_conn
+from utils import http_get, new_redis_conn
 
 REDIS_CONN = None
 CONF = {}
@@ -125,13 +124,9 @@ class Export(object):
         recent_blocks = []
         timestamp_ms = self.timestamp * 1000
 
-        try:
-            response = requests.get(CONF['block_heights_url'], timeout=15)
-        except requests.exceptions.RequestException as err:
-            logging.warning(err)
-        else:
-            if response.status_code == 200:
-                recent_blocks = response.json()['blocks']
+        response = http_get(CONF['block_heights_url'])
+        if response is not None:
+            recent_blocks = response.json()['blocks']
 
         for block in recent_blocks:
             block_height, block_time, block_hash = block

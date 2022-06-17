@@ -39,7 +39,6 @@ import os
 import random
 import redis
 import redis.connection
-import requests
 import socket
 import sys
 import time
@@ -56,7 +55,12 @@ from protocol import (
     ConnectionError,
     ProtocolError,
 )
-from utils import new_redis_conn, get_keys, ip_to_network
+from utils import (
+    get_keys,
+    http_get,
+    ip_to_network,
+    new_redis_conn,
+)
 
 redis.connection.socket = gevent.socket
 
@@ -371,6 +375,60 @@ def set_pending():
             REDIS_CONN.sadd('pending', (address, CONF['port'], TO_SERVICES))
 
 
+def is_excluded(address):
+    """
+    Returns True if address is found in exclusion rules, False if otherwise.
+
+    In priority order, the rules are:
+    - Include onion address
+    - Exclude private address
+    - Exclude address without ASN when include_asns/exclude_asns is set
+    - Exclude if address is in exclude_asns
+    - Exclude bad address
+    - Exclude if address is in exclude_ipv4_networks/exclude_ipv6_networks
+    - Exclude if address is not in include_asns
+    - Include address
+    """
+    if address.endswith('.onion'):
+        return False
+
+    if ip_address(unicode(address)).is_private:
+        return True
+
+    asn = None
+    if CONF['include_asns'] or CONF['exclude_asns']:
+        try:
+            asn_record = ASN.asn(address)
+        except AddressNotFoundError:
+            asn = None
+        else:
+            asn = 'AS{}'.format(asn_record.autonomous_system_number)
+        if asn is None:
+            return True
+
+    if CONF['exclude_asns'] and asn in CONF['exclude_asns']:
+        return True
+
+    if ':' in address:
+        address_family = socket.AF_INET6
+        key = 'exclude_ipv6_networks'
+    else:
+        address_family = socket.AF_INET
+        key = 'exclude_ipv4_networks'
+    try:
+        addr = int(hexlify(socket.inet_pton(address_family, address)), 16)
+    except socket.error:
+        logging.warning('Bad address: %s', address)
+        return True
+    if any([(addr & net[1] == net[0]) for net in CONF[key]]):
+        return True
+
+    if CONF['include_asns'] and asn not in CONF['include_asns']:
+        return True
+
+    return False
+
+
 def update_included_asns():
     """
     Updates included ASNs with current list from external URL.
@@ -378,70 +436,72 @@ def update_included_asns():
     if not CONF['include_asns_from_url']:
         return
 
-    try:
-        response = requests.get(CONF['include_asns_from_url'], timeout=15)
-    except requests.exceptions.RequestException as err:
-        logging.warning(err)
-    else:
-        if response.status_code == 200:
-            CONF['include_asns'] = list_included_asns(response.content)
-            logging.info("ASNs: %d", len(CONF['include_asns']))
+    response = http_get(CONF['include_asns_from_url'])
+    if response is not None:
+        CONF['include_asns'] = list_included_asns(response.content)
+        logging.info("ASNs: %d", len(CONF['include_asns']))
 
 
-def list_included_asns(txt, include_asns=None):
+def list_included_asns(txt, asns=None):
     """
     Converts list of ASNs from configuration file into a set.
     """
-    if include_asns is None:
-        include_asns = set()
+    if asns is None:
+        asns = set()
     lines = txt.strip().split("\n")
     for line in lines:
         line = line.strip()
         if line.startswith('AS'):
-            include_asns.add(line)
-    return include_asns
+            asns.add(line)
+    return asns
 
 
-def is_excluded(address):
+def update_excluded_networks():
     """
-    Returns True if address is found in exclusion list, False if otherwise.
+    Updates excluded networks with current bogons and current list from
+    external URL.
     """
-    if address.endswith(".onion"):
-        return False
+    CONF['exclude_ipv4_networks'] = CONF['default_exclude_ipv4_networks']
+    CONF['exclude_ipv6_networks'] = CONF['default_exclude_ipv6_networks']
 
-    if ip_address(unicode(address)).is_private:
-        return True
+    if CONF['exclude_ipv4_bogons']:
+        urls = [
+            'http://www.team-cymru.org/Services/Bogons/fullbogons-ipv4.txt',
+            'http://www.spamhaus.org/drop/drop.txt',
+            'https://www.spamhaus.org/drop/edrop.txt',
+        ]
+        for url in urls:
+            response = http_get(url)
+            if response is not None:
+                CONF['exclude_ipv4_networks'] = list_excluded_networks(
+                    response.content, networks=CONF['exclude_ipv4_networks'])
 
-    try:
-        asn_record = ASN.asn(address)
-    except AddressNotFoundError:
-        asn = None
-    else:
-        asn = 'AS{}'.format(asn_record.autonomous_system_number)
+    if CONF['exclude_ipv6_bogons']:
+        urls = [
+            'http://www.team-cymru.org/Services/Bogons/fullbogons-ipv6.txt',
+        ]
+        for url in urls:
+            response = http_get(url)
+            if response is not None:
+                CONF['exclude_ipv6_networks'] = list_excluded_networks(
+                    response.content, networks=CONF['exclude_ipv6_networks'])
 
-    if CONF['include_asns'] and asn not in CONF['include_asns']:
-        return True
+    if CONF['exclude_ipv4_networks_from_url']:
+        response = http_get(CONF['exclude_ipv4_networks_from_url'])
+        if response is not None:
+            CONF['exclude_ipv4_networks'] = list_excluded_networks(
+                response.content, networks=CONF['exclude_ipv4_networks'])
 
-    if ":" in address:
-        address_family = socket.AF_INET6
-        key = 'exclude_ipv6_networks'
-    else:
-        address_family = socket.AF_INET
-        key = 'exclude_ipv4_networks'
+    if CONF['exclude_ipv6_networks_from_url']:
+        response = http_get(CONF['exclude_ipv6_networks_from_url'])
+        if response is not None:
+            CONF['exclude_ipv6_networks'] = list_excluded_networks(
+                response.content, networks=CONF['exclude_ipv6_networks'])
 
-    try:
-        addr = int(hexlify(socket.inet_pton(address_family, address)), 16)
-    except socket.error:
-        logging.warning("Bad address: %s", address)
-        return True
-
-    if any([(addr & net[1] == net[0]) for net in CONF[key]]):
-        return True
-
-    if CONF['exclude_asns'] and asn in CONF['exclude_asns']:
-        return True
-
-    return False
+    logging.info(
+        'IPv4: %d, IPv6: %d',
+        len(CONF['exclude_ipv4_networks']),
+        len(CONF['exclude_ipv6_networks']))
 
 
 def list_excluded_networks(txt, networks=None):
@@ -461,50 +521,6 @@ def list_excluded_networks(txt, networks=None):
         else:
             networks.add((int(network.network_address), int(network.netmask)))
     return networks
-
-
-def update_excluded_networks():
-    """
-    Updates excluded networks with current bogons.
-    """
-    CONF['exclude_ipv4_networks'] = CONF['default_exclude_ipv4_networks']
-    CONF['exclude_ipv6_networks'] = CONF['default_exclude_ipv6_networks']
-
-    if CONF['exclude_ipv4_bogons']:
-        urls = [
-            "http://www.team-cymru.org/Services/Bogons/fullbogons-ipv4.txt",
-            "http://www.spamhaus.org/drop/drop.txt",
-            "https://www.spamhaus.org/drop/edrop.txt",
-        ]
-        for url in urls:
-            try:
-                response = requests.get(url, timeout=15)
-            except requests.exceptions.RequestException as err:
-                logging.warning(err)
-            else:
-                if response.status_code == 200:
-                    CONF['exclude_ipv4_networks'] = list_excluded_networks(
-                        response.content,
-                        networks=CONF['exclude_ipv4_networks'])
-                    logging.info("IPv4: %d",
-                                 len(CONF['exclude_ipv4_networks']))
-
-    if CONF['exclude_ipv6_bogons']:
-        urls = [
-            "http://www.team-cymru.org/Services/Bogons/fullbogons-ipv6.txt",
-        ]
-        for url in urls:
-            try:
-                response = requests.get(url, timeout=15)
-            except requests.exceptions.RequestException as err:
-                logging.warning(err)
-            else:
-                if response.status_code == 200:
-                    CONF['exclude_ipv6_networks'] = list_excluded_networks(
-                        response.content,
-                        networks=CONF['exclude_ipv6_networks'])
-                    logging.info("IPv6: %d",
-                                 len(CONF['exclude_ipv6_networks']))
 
 
 def init_conf(argv):
@@ -535,7 +551,6 @@ def init_conf(argv):
     CONF['nodes_per_ipv6_prefix'] = conf.getint('crawl',
                                                 'nodes_per_ipv6_prefix')
 
-    # include_* takes precedence over exclude_* if set
     CONF['include_asns'] = None
     include_asns = conf.get('crawl', 'include_asns').strip()
     if include_asns:
@@ -559,6 +574,11 @@ def init_conf(argv):
                                                   'exclude_ipv4_bogons')
     CONF['exclude_ipv6_bogons'] = conf.getboolean('crawl',
                                                   'exclude_ipv6_bogons')
+
+    CONF['exclude_ipv4_networks_from_url'] = conf.get(
+        'crawl', 'exclude_ipv4_networks_from_url')
+    CONF['exclude_ipv6_networks_from_url'] = conf.get(
+        'crawl', 'exclude_ipv6_networks_from_url')
 
     CONF['onion'] = conf.getboolean('crawl', 'onion')
     CONF['tor_proxies'] = []
