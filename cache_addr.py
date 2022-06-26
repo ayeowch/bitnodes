@@ -44,7 +44,7 @@ from protocol import (
     NETWORK_TORV2,
     NETWORK_TORV3,
 )
-from utils import new_redis_conn
+from utils import get_keys, new_redis_conn
 
 CONF = {}
 
@@ -73,7 +73,7 @@ class AddrManager(object):
 
         return False
 
-    def add(self, addr):
+    def add(self, from_node, addr):
         """
         Adds addr entry in Redis.
         """
@@ -90,22 +90,25 @@ class AddrManager(object):
 
         key = None
         if network_id == NETWORK_IPV4:
-            node = (addr['ipv4'], port, services)
+            addr = (addr['ipv4'], port, services)
             key = self.ipv4_key
         elif network_id == NETWORK_IPV6:
-            node = (addr['ipv6'], port, services)
+            addr = (addr['ipv6'], port, services)
             key = self.ipv6_key
         elif network_id in (NETWORK_TORV2, NETWORK_TORV3):
-            node = (addr['onion'], port, services)
+            addr = (addr['onion'], port, services)
             key = self.onion_key
 
-        if key and not self.is_excluded(node[0]):
+        if key and not self.is_excluded(addr[0]):
+            fkey = "{}:{}-{}".format(key, from_node[0], from_node[1])
+            val = "{}-{}-{}".format(*addr)
+
             # ZADD <key> GT <score> <member>
             # GT: Only update existing elements if the new score is greater
             # than the current score. This flag doesn't prevent adding new
             # elements.
-            self.redis_pipe.execute_command(
-                'ZADD', key, 'GT', t_bucket, "{}-{}-{}".format(*node))
+            self.redis_pipe.execute_command('ZADD', key, 'GT', t_bucket, val)
+            self.redis_pipe.execute_command('ZADD', fkey, 'GT', t_bucket, val)
 
     def cleanup(self):
         """
@@ -116,6 +119,9 @@ class AddrManager(object):
         for key in keys:
             removed = self.redis_conn.zremrangebyscore(key, 0, max_score)
             logging.info("Key: %s (%d removed)", key, removed)
+            if removed > 0:
+                for fkey in get_keys(self.redis_conn, '{}:*'.format(key)):
+                    self.redis_pipe.zremrangebyscore(fkey, 0, max_score)
 
 
 class CacheAddr(Cache):
@@ -145,7 +151,7 @@ class CacheAddr(Cache):
         addr_list = msg['addr_list'][:CONF['peers_per_node']]
         self.count += len(addr_list)
         for addr in addr_list:
-            self.addr_manager.add(addr)
+            self.addr_manager.add(node, addr)
 
 
 def cron():
