@@ -49,7 +49,6 @@ from geoip2.errors import AddressNotFoundError
 from ipaddress import ip_address, ip_network
 
 from protocol import (
-    ONION_V3_LEN,
     TO_SERVICES,
     Connection,
     ConnectionError,
@@ -71,37 +70,87 @@ CONF = {}
 ASN = geoip2.database.Reader("geoip/GeoLite2-ASN.mmdb")
 
 
-def enumerate_node(redis_pipe, addr_msgs, now):
+def getaddr(conn):
     """
-    Adds all peering nodes with age <= max. age into the crawl set.
+    Sends getaddr message.
     """
-    peers = 0
-    excluded = 0
+    addr_msgs = []
+    try:
+        conn.getaddr(block=False)
+    except (ProtocolError, ConnectionError, socket.error) as err:
+        logging.debug("%s: %s", conn.to_addr, err)
+    else:
+        addr_wait = 0
+        while addr_wait < CONF['socket_timeout']:
+            addr_wait += 1
+            gevent.sleep(0.3)
+            try:
+                msgs = conn.get_messages(commands=['addr', 'addrv2'])
+            except (ProtocolError, ConnectionError, socket.error) as err:
+                logging.debug("%s: %s", conn.to_addr, err)
+                break
+            if msgs and any([msg['count'] > 1 for msg in msgs]):
+                addr_msgs = msgs
+                break
+    return addr_msgs
+
+
+def get_peers(conn):
+    """
+    Returns included peering nodes with age <= max. age.
+    """
+    now = int(time.time())
+    peers = set()
+    excluded_count = 0
+
+    addr_msgs = getaddr(conn)
 
     for addr_msg in addr_msgs:
-        if 'addr_list' in addr_msg:
-            for peer in addr_msg['addr_list']:
-                if peer['onion'] and len(peer['onion']) == ONION_V3_LEN:
-                    logging.debug("onion v3 node: %s", peer)
+        if 'addr_list' not in addr_msg:
+            continue
 
-                age = now - peer['timestamp']  # seconds
+        for peer in addr_msg['addr_list']:
+            age = now - peer['timestamp']  # seconds
+            if age < 0 or age > CONF['max_age']:
+                continue
+            address = peer['ipv4'] or peer['ipv6'] or peer['onion']
+            port = peer['port'] if peer['port'] > 0 else CONF['port']
+            services = peer['services']
+            if not address:
+                continue
+            if is_excluded(address):
+                logging.debug("Exclude: (%s, %d)", address, port)
+                excluded_count += 1
+                continue
+            peers.add((address, port, services))
 
-                if age >= 0 and age <= CONF['max_age']:
-                    address = peer['ipv4'] or peer['ipv6'] or peer['onion']
-                    port = peer['port'] if peer['port'] > 0 else CONF['port']
-                    services = peer['services']
-                    if not address:
-                        continue
-                    if is_excluded(address):
-                        logging.debug("Exclude: (%s, %d)", address, port)
-                        excluded += 1
-                        continue
-                    redis_pipe.sadd('pending', (address, port, services))
-                    peers += 1
-                    if peers >= CONF['peers_per_node']:
-                        return (peers, excluded)
+    logging.debug("%s Peers: %d (Excluded: %d)",
+                  conn.to_addr, len(peers), excluded_count)
 
-    return (peers, excluded)
+    # Reject peers if hard limit is hit.
+    if len(peers) > 1000:
+        logging.warning("%s peers rejected", conn.to_addr)
+        peers = set()
+    peers = list(peers)[:CONF['peers_per_node']]
+    return peers
+
+
+def get_cached_peers(redis_conn, conn):
+    """
+    Returns cached peering nodes.
+    """
+    key = "peer:{}-{}".format(conn.to_addr[0], conn.to_addr[1])
+    peers = redis_conn.get(key)
+    if peers:
+        peers = eval(peers)
+        logging.debug("%s Peers: %d", conn.to_addr, len(peers))
+        return peers
+
+    peers = get_peers(conn)
+    ttl = CONF['addr_ttl']
+    ttl += random.randint(0, CONF['addr_ttl_var']) / 100.0 * ttl
+    redis_conn.setex(key, int(ttl), peers)
+    return peers
 
 
 def connect(redis_conn, key):
@@ -114,7 +163,6 @@ def connect(redis_conn, key):
     Stores state and height for node in Redis.
     """
     version_msg = {}
-    addr_msgs = []
 
     redis_conn.set(key, "")  # Set Redis key for a new node
 
@@ -148,24 +196,6 @@ def connect(redis_conn, key):
 
     redis_pipe = redis_conn.pipeline()
     if version_msg:
-        try:
-            conn.getaddr(block=False)
-        except (ProtocolError, ConnectionError, socket.error) as err:
-            logging.debug("%s: %s", conn.to_addr, err)
-        else:
-            addr_wait = 0
-            while addr_wait < CONF['socket_timeout']:
-                addr_wait += 1
-                gevent.sleep(0.3)
-                try:
-                    msgs = conn.get_messages(commands=['addr', 'addrv2'])
-                except (ProtocolError, ConnectionError, socket.error) as err:
-                    logging.debug("%s: %s", conn.to_addr, err)
-                    break
-                if msgs and any([msg['count'] > 1 for msg in msgs]):
-                    addr_msgs = msgs
-                    break
-
         version = version_msg.get('version', "")
         user_agent = version_msg.get('user_agent', "")
         from_services = version_msg.get('services', 0)
@@ -184,10 +214,9 @@ def connect(redis_conn, key):
                          CONF['max_age'],
                          (version, user_agent, from_services))
 
-        now = int(time.time())
-        (peers, excluded) = enumerate_node(redis_pipe, addr_msgs, now)
-        logging.debug("%s Peers: %d (Excluded: %d)",
-                      conn.to_addr, peers, excluded)
+        peers = get_cached_peers(redis_conn, conn)
+        for peer in peers:
+            redis_pipe.sadd('pending', peer)
         redis_pipe.set(key, "")
         redis_pipe.sadd('up', key)
     conn.close()
@@ -544,6 +573,8 @@ def init_conf(argv):
     CONF['socket_timeout'] = conf.getint('crawl', 'socket_timeout')
     CONF['cron_delay'] = conf.getint('crawl', 'cron_delay')
     CONF['snapshot_delay'] = conf.getint('crawl', 'snapshot_delay')
+    CONF['addr_ttl'] = conf.getint('crawl', 'addr_ttl')
+    CONF['addr_ttl_var'] = conf.getint('crawl', 'addr_ttl_var')
     CONF['max_age'] = conf.getint('crawl', 'max_age')
     CONF['peers_per_node'] = conf.getint('crawl', 'peers_per_node')
     CONF['ipv6'] = conf.getboolean('crawl', 'ipv6')
