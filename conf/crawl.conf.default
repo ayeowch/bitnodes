@@ -63,6 +63,12 @@ snapshot_delay = 240
 # Max. age for peering node to be included in crawl set
 max_age = 28800
 
+# Redis TTL for cached addr response (resultant TTL should be less than max_age)
+addr_ttl = 7200
+
+# Max. upper bound variance rate for addr_ttl (default: 2 to 6 hours TTL)
+addr_ttl_var = 200
+
 # Limit max. peers per node to be included in crawl set
 peers_per_node = 500
 
