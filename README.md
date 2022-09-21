@@ -4,7 +4,7 @@ Bitnodes estimates the relative size of the Bitcoin peer-to-peer network by find
 
 See [Provisioning Bitcoin Network Crawler](https://github.com/ayeowch/bitnodes/wiki/Provisioning-Bitcoin-Network-Crawler) for steps on setting up a machine to run Bitnodes. The [Redis Data](https://github.com/ayeowch/bitnodes/wiki/Redis-Data) contains the list of keys and their associated values that are written by the scripts in this project. If you wish to access the data, e.g. network snapshots, collected using this project, see [API](https://bitnodes.io/api/).
 
-#### Links
+### Links
 
 * [Home](https://bitnodes.io/)
 
@@ -28,6 +28,33 @@ See [Provisioning Bitcoin Network Crawler](https://github.com/ayeowch/bitnodes/w
 
 * [What is a Bitcoin node?](https://bitnodes.io/what-is-a-bitcoin-node/)
 
-#### CI
+### CI
 
 [![CircleCI](https://circleci.com/gh/ayeowch/bitnodes.svg?style=svg)](https://circleci.com/gh/ayeowch/bitnodes)
+
+### Setup
+
+```
+# Install pyenv dependencies
+sudo apt update && sudo apt install make build-essential libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev wget curl llvm libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev
+
+# Install pyenv
+git clone https://github.com/pyenv/pyenv.git ~/.pyenv
+cd ~/.pyenv && src/configure && make -C src
+
+# Append to ~/.bashrc
+export PYENV_ROOT=$HOME/.pyenv
+export PATH=$PYENV_ROOT/bin:$PATH
+if command -v pyenv 1>/dev/null 2>&1; then
+    eval "$(pyenv init -)"
+fi
+
+# Setup project
+source ~/.bashrc
+pyenv install 3.9.14
+cd && git clone https://github.com/ayeowch/bitnodes.git && cd bitnodes
+~/.pyenv/versions/3.9.14/bin/python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+pytest
+```

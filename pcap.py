@@ -3,7 +3,7 @@
 #
 # pcap.py - Base class to save messages from pcap files in Redis.
 #
-# Copyright (c) Addy Yeow Chin Heng <ayeowch@gmail.com>
+# Copyright (c) Addy Yeow <ayeowch@gmail.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining
 # a copy of this software and associated documentation files (the
@@ -35,14 +35,12 @@ import os
 import socket
 import time
 from collections import defaultdict
-from Queue import PriorityQueue
+from queue import PriorityQueue
 
-from protocol import (
-    HeaderTooShortError,
-    PayloadTooShortError,
-    ProtocolError,
-    Serializer,
-)
+from protocol import HeaderTooShortError
+from protocol import PayloadTooShortError
+from protocol import ProtocolError
+from protocol import Serializer
 
 
 class Stream(object):
@@ -52,7 +50,7 @@ class Stream(object):
     """
     def __init__(self, segments=None):
         self.segments = segments
-        self.timestamp = 0  # in ms
+        self.timestamp = 0  # milliseconds
 
     def data(self):
         """
@@ -61,11 +59,11 @@ class Stream(object):
         """
         seqs = set()
         while not self.segments.empty():
-            (self.timestamp, tcp_pkt) = self.segments.get()[1]
-            if tcp_pkt.seq in seqs:
+            (seq, (self.timestamp, tcp_pkt_data)) = self.segments.get()
+            if seq in seqs:
                 continue
-            yield tcp_pkt.data
-            seqs.add(tcp_pkt.seq)
+            yield tcp_pkt_data
+            seqs.add(seq)
 
 
 class Cache(object):
@@ -91,14 +89,14 @@ class Cache(object):
         self.stream = Stream()
 
     def __del__(self):
-        logging.debug("Elapsed: %d", time.time() - self.start_t)
+        logging.debug(f'Elapsed: {time.time() - self.start_t}')
 
     def extract_streams(self):
         """
         Extracts TCP streams with data from the pcap file. TCP segments in
         each stream are queued according to their sequence number.
         """
-        with open(self.filepath) as pcap_file:
+        with open(self.filepath, 'rb') as pcap_file:
             pcap_reader = dpkt.pcap.Reader(pcap_file)
             for timestamp, buf in pcap_reader:
                 try:
@@ -106,8 +104,8 @@ class Cache(object):
                 except dpkt.dpkt.UnpackError:
                     continue
                 ip_pkt = frame.data
-                if (not isinstance(ip_pkt, dpkt.ip.IP) and
-                        not isinstance(ip_pkt, dpkt.ip6.IP6)):
+                if (not isinstance(ip_pkt, dpkt.ip.IP)
+                        and not isinstance(ip_pkt, dpkt.ip6.IP6)):
                     continue
                 if not isinstance(ip_pkt.data, dpkt.tcp.TCP):
                     continue
@@ -122,10 +120,11 @@ class Cache(object):
                     tcp_pkt.dport
                 )
                 if len(tcp_pkt.data) > 0:
-                    timestamp = int(timestamp * 1000)  # in ms
+                    timestamp = int(timestamp * 1000)  # milliseconds
                     self.streams[stream_id].put(
-                        (tcp_pkt.seq, (timestamp, tcp_pkt)))
-        logging.debug("Streams: %d", len(self.streams))
+                        (tcp_pkt.seq, (timestamp, tcp_pkt.data)))
+
+        logging.debug(f'Streams: {len(self.streams)}')
 
     def cache_messages(self):
         """
@@ -134,23 +133,23 @@ class Cache(object):
         try:
             self.extract_streams()
         except dpkt.dpkt.NeedData:
-            logging.warning("Need data: %s", self.filepath)
-        for stream_id, self.stream.segments in self.streams.iteritems():
+            logging.warning(f'Need data: {self.filepath}')
+        for stream_id, self.stream.segments in self.streams.items():
             data = self.stream.data()
-            _data = data.next()
+            _data = next(data)
             while True:
                 try:
                     (msg, _data) = self.serializer.deserialize_msg(_data)
                 except (HeaderTooShortError, PayloadTooShortError) as err:
-                    logging.debug("%s: %s", stream_id, err)
+                    logging.debug(f'{stream_id}: {err}')
                     try:
-                        _data += data.next()
+                        _data += next(data)
                     except StopIteration:
                         break
                 except ProtocolError as err:
-                    logging.debug("%s: %s", stream_id, err)
+                    logging.debug(f'{stream_id}: {err}')
                     try:
-                        _data = data.next()
+                        _data = next(data)
                     except StopIteration:
                         break
                 else:
@@ -177,13 +176,13 @@ def get_pcap_file(pcap_dir, pcap_suffix):
     Returns the oldest available pcap file for processing.
     """
     try:
-        oldest = min(glob.iglob("{}/*.{}".format(pcap_dir, pcap_suffix)))
+        oldest = min(glob.iglob(f'{pcap_dir}/*.{pcap_suffix}'))
     except ValueError as err:
         logging.error(err)
         return None
 
     try:
-        latest = max(glob.iglob("{}/*.{}".format(pcap_dir, pcap_suffix)))
+        latest = max(glob.iglob(f'{pcap_dir}/*.{pcap_suffix}'))
     except ValueError as err:
         logging.error(err)
         return None
@@ -192,9 +191,9 @@ def get_pcap_file(pcap_dir, pcap_suffix):
         return None
 
     tmp = oldest
-    dump = tmp.replace(".{}".format(pcap_suffix), ".{}_".format(pcap_suffix))
+    dump = tmp.replace(f'.{pcap_suffix}', f'.{pcap_suffix}_')
     try:
-        os.rename(tmp, dump)  # Mark file as being read
+        os.rename(tmp, dump)  # Mark file as being read.
     except OSError as err:
         logging.error(err)
         return None

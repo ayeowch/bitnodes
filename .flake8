@@ -1,5 +1,8 @@
 [flake8]
-ignore = E402
+ignore =
+    E402,
+    W503,
+    W504
 exclude =
     .git
     conf

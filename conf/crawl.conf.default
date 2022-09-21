@@ -14,14 +14,15 @@ db = 0
 
 # List of DNS seeders to get a subset of reachable nodes
 seeders =
-    dnsseed.bitcoin.dashjr.org
-    dnsseed.bluematt.me
-    dnsseed.emzy.de
     seed.bitcoin.sipa.be
-    seed.bitcoin.sprovoost.nl
-    seed.bitcoin.wiz.biz
+    dnsseed.bluematt.me
+    dnsseed.bitcoin.dashjr.org
     seed.bitcoinstats.com
+    seed.bitcoin.jonasschnelli.ch
     seed.btc.petertodd.org
+    seed.bitcoin.sprovoost.nl
+    dnsseed.emzy.de
+    seed.bitcoin.wiz.biz
     seed.bitnodes.io
 
 # Number of concurrent workers (greenlets)
@@ -43,7 +44,7 @@ protocol_version = 70016
 # crawler. This is so that users will not confuse your crawler with another
 # instance that is already running and generating data for the project.
 # -----------------------------------------------------------------------------
-user_agent = /bitnodes.io:0.2/
+user_agent = /bitnodes.io:0.3/
 
 # Services to use for outgoing network address message
 services = 0
@@ -137,26 +138,26 @@ tor_proxies =
 
 # List of initial .onion nodes
 onion_nodes =
-    4crhf372poejlc44.onion
-    5ghqw4wj6hpgfvdg.onion
-    5k4vwyy5stro33fb.onion
-    bitcoinostk4e4re.onion
-    bk5ejfe56xakvtkk.onion
-    btcnet3utgzyz2bf.onion
-    czsbwh4pq4mh3izl.onion
-    e3tn727fywnioxrc.onion
-    evolynhit7shzeet.onion
-    i2r5tbaizb75h26f.onion
-    jxrvw5iqizppbgml.onion
-    kjy2eqzk4zwi5zd3.onion
-    pqosrh6wfaucet32.onion
-    pt2awtcs2ulm75ig.onion
-    szsm43ou7otwwyfv.onion
-    td7tgof3imei3fm6.onion
-    tfu4kqfhsw5slqp2.onion
-    vso3r6cmjoomhhgg.onion
-    xdnigz4qn5dbbw2t.onion
-    zy3kdqowmrb7xm7h.onion
+    sgvi7z7ka6hajteud52trsj3y4yqeeuemeupc2sw5z6iabu2rmlfnkad.onion
+    74ogmpum2ltbjb6eotr42nnq5wmwztdphtr5wcuoj2pqy2cnwor53nqd.onion
+    cv4oeuszkf6llecp4wxcwdzlavtjene3ho6nc7gqr4jj5js3lgijrgid.onion
+    bfbfmkt2k6hdctznsupgxdmavando7c6hfm5vwdampj6npea2trbtcqd.onion
+    hscdnwo6xizoc5qmvikjaxyoj4k7bguam462gkmycrre2bbg6kn6cvid.onion
+    g3zl23vpenyxwzufg7wpbbaku6w6gu2tgjd6f5nxr5xxnuny7773cuqd.onion
+    txr3ob2hsweyago3wgqykfiyj52ywrwucdljvgk5qrbe4ehgh6rvwmad.onion
+    zhea7pvhuzw4cte7pkd7u6lwjyiqczxi7wgvzhfovtjd7qwdc24pleqd.onion
+    hoqlf3tpnq7bsowobivfpninp3eukhftv6kmtol4iworwwvnbdzh35yd.onion
+    4jhkgrmzs32htjbbzuz4ia7xn34pwhqexyz2oi5ctzhjyjb46z3eo6yd.onion
+    md3vskofydgnktvzdfwtntg7mubxb6ye3vmvzrlxkbf5teqrchufy6id.onion
+    7plxio6wsmpwmws6ohvzu7v67vbp35jbgfg77kh4ylc3jlh52cqhopyd.onion
+    4vf3hfnzgqqgh52p7lvupd3rpucehppnmsz4mrhdagi7zdmgnw25vpyd.onion
+    vzleatncxglazfyw6f6keqi3276f2hewgisopidxh2mx3uxu4iflw2id.onion
+    cd677pxnabnmemocs5u2dbuo2ikla2fikw3xse3wi6xseew7yp3ezgid.onion
+    7wypdiaqh5h2zjw3uqec2tijjw2rnwsnuijeuq3xhyab3kdcy3lvsead.onion
+    dekdeqqhqrh5fule7cfmmkvm6c7bydykm7al66eyamivwv2gkhbowaid.onion
+    qtbxwqvxkx5npondl5i6uiyxkhv3t4x7kaouy23vcdv7svfwx4nt3zyd.onion
+    fliynlju3prz2tstfthsb77culkluqolcysdxwfdwxl2hul5igeqagid.onion
+    fju76rbuztarq7epipydyiip5vstyliadt5tty6avdwimct4uk6zyjyd.onion
 
 # Include reachable nodes from https://bitnodes.io/#join-the-network
 include_checked = False

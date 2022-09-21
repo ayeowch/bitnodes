@@ -3,7 +3,7 @@
 #
 # resolve.py - Resolves hostname and GeoIP data for each reachable node.
 #
-# Copyright (c) Addy Yeow Chin Heng <ayeowch@gmail.com>
+# Copyright (c) Addy Yeow <ayeowch@gmail.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining
 # a copy of this software and associated documentation files (the
@@ -40,17 +40,18 @@ import redis.connection
 import socket
 import sys
 import time
-from binascii import hexlify, unhexlify
+from binascii import hexlify
+from binascii import unhexlify
 from collections import defaultdict
-from ConfigParser import ConfigParser
+from configparser import ConfigParser
 from decimal import Decimal
 from geoip2.errors import AddressNotFoundError
 
-from utils import GeoIp, new_redis_conn
+from utils import GeoIp
+from utils import new_redis_conn
 
 redis.connection.socket = gevent.socket
 
-REDIS_CONN = None
 CONF = {}
 GEO_PREC = Decimal('.0001')
 
@@ -59,8 +60,13 @@ class Resolve(object):
     """
     Implements hostname and GeoIP resolver.
     """
-    def __init__(self, addresses=None):
+    def __init__(self, addresses=None, redis_conn=None):
         self.addresses = addresses
+        self.redis_conn = redis_conn
+        if redis_conn:
+            self.redis_pipe = redis_conn.pipeline()
+        else:
+            self.redis_pipe = None
         self.resolved = defaultdict(dict)
         self.geoip = GeoIp()
 
@@ -73,57 +79,55 @@ class Resolve(object):
 
         idx = 0
         for address in self.addresses:
-            key = 'resolve:{}'.format(address)
+            key = f'resolve:{address}'
 
-            ttl = REDIS_CONN.ttl(key)
+            ttl = self.redis_conn.ttl(key)
             expiring = False
-            if ttl < 0.1 * CONF['ttl']:  # Less than 10% of initial TTL
+            if ttl < 0.1 * CONF['ttl']:  # Less than 10% of initial TTL.
                 expiring = True
 
-            if expiring and idx < 1000 and not address.endswith(".onion"):
+            if expiring and idx < 1000 and not address.endswith('.onion'):
                 self.resolved['hostname'][address] = None
                 idx += 1
 
             self.resolved['geoip'][address] = None
 
-        logging.info("GeoIP: %d", len(self.resolved['geoip']))
+        logging.info(f"GeoIP: {len(self.resolved['geoip'])}", )
         self.resolve_geoip()
 
-        logging.info("Hostname: %d", len(self.resolved['hostname']))
+        logging.info(f"Hostname: {len(self.resolved['hostname'])}")
         self.resolve_hostname()
 
         self.cache_resolved()
 
         end = time.time()
         elapsed = end - start
-        logging.info("Elapsed: %d", elapsed)
+        logging.info(f'Elapsed: {elapsed}')
 
     def cache_resolved(self):
         """
         Caches resolved addresses in Redis.
         """
-        redis_pipe = REDIS_CONN.pipeline()
-
         resolved = 0
-        for address, geoip in self.resolved['geoip'].iteritems():
+        for address, geoip in self.resolved['geoip'].items():
             if geoip[1] or geoip[5]:
-                resolved += 1  # country/asn is set
-            key = 'resolve:{}'.format(address)
-            redis_pipe.hset(key, 'geoip', geoip)
-            logging.debug("%s geoip: %s", key, geoip)
-        logging.info("GeoIP: %d resolved", resolved)
+                resolved += 1  # country/asn is set.
+            key = f'resolve:{address}'
+            self.redis_pipe.hset(key, 'geoip', str(geoip))
+            logging.debug(f'{key} geoip: {geoip}')
+        logging.info(f'GeoIP: {resolved} resolved')
 
         resolved = 0
-        for address, hostname in self.resolved['hostname'].iteritems():
+        for address, hostname in self.resolved['hostname'].items():
             if hostname != address:
                 resolved += 1
-            key = 'resolve:{}'.format(address)
-            redis_pipe.hset(key, 'hostname', hostname)
-            redis_pipe.expire(key, CONF['ttl'])
-            logging.debug("%s hostname: %s", key, hostname)
-        logging.info("Hostname: %d resolved", resolved)
+            key = f'resolve:{address}'
+            self.redis_pipe.hset(key, 'hostname', hostname)
+            self.redis_pipe.expire(key, CONF['ttl'])
+            logging.debug(f'{key} hostname: {hostname}')
+        logging.info(f'Hostname: {resolved} resolved')
 
-        redis_pipe.execute()
+        self.redis_pipe.execute()
 
     def resolve_geoip(self):
         """
@@ -159,7 +163,7 @@ class Resolve(object):
         try:
             hostname = socket.gethostbyaddr(address)[0]
         except (socket.gaierror, socket.herror) as err:
-            logging.debug("%s: %s", address, err)
+            logging.debug(f'{address}: {err}')
         return hostname
 
     def raw_geoip(self, address):
@@ -174,7 +178,7 @@ class Resolve(object):
         asn = None
         org = None
 
-        if not address.endswith(".onion"):
+        if not address.endswith('.onion'):
             try:
                 gcountry = self.geoip.country(address)
             except AddressNotFoundError:
@@ -196,27 +200,65 @@ class Resolve(object):
                         Decimal(gcity.location.longitude).quantize(GEO_PREC))
                 timezone = gcity.location.time_zone
 
-        if address.endswith(".onion"):
-            asn = "TOR"
-            org = "Tor network"
+        if address.endswith('.onion'):
+            asn = 'TOR'
+            org = 'Tor network'
         else:
             try:
                 asn_record = self.geoip.asn(address)
             except AddressNotFoundError:
                 pass
             else:
-                asn = 'AS{}'.format(asn_record.autonomous_system_number)
+                asn = f'AS{asn_record.autonomous_system_number}'
                 org = asn_record.autonomous_system_organization
 
         return (city, country, lat, lng, timezone, asn, org)
 
 
-def init_conf(argv):
+def cron():
+    """
+    Subscribes to 'snapshot' message from ping.py to resolve GeoIP data for
+    addresses in the snapshot.
+    """
+    redis_conn = new_redis_conn(db=CONF['db'])
+
+    magic_number = hexlify(CONF['magic_number']).decode()
+    subscribe_key = f'snapshot:{magic_number}'
+    publish_key = f'resolve:{magic_number}'
+
+    pubsub = redis_conn.pubsub()
+    pubsub.subscribe(subscribe_key)
+
+    while True:
+        msg = pubsub.get_message()
+        if msg is None:
+            time.sleep(0.1)  # 100 ms artificial intrinsic latency.
+            continue
+
+        channel = msg['channel'].decode()
+
+        # 'snapshot' message is published by ping.py after establishing
+        # connection with nodes from a new snapshot.
+        if channel == subscribe_key and msg['type'] == 'message':
+            timestamp = int(msg['data'])
+            logging.info(f'Timestamp: {timestamp}')
+
+            nodes = redis_conn.smembers('opendata')
+            logging.info(f'Nodes: {len(nodes)}')
+
+            addresses = set([eval(node)[0] for node in nodes])
+            resolve = Resolve(addresses=addresses, redis_conn=redis_conn)
+            resolve.resolve_addresses()
+
+            redis_conn.publish(publish_key, timestamp)
+
+
+def init_conf(config):
     """
     Populates CONF with key-value pairs from configuration file.
     """
     conf = ConfigParser()
-    conf.read(argv[1])
+    conf.read(config)
     CONF['logfile'] = conf.get('resolve', 'logfile')
     CONF['magic_number'] = unhexlify(conf.get('resolve', 'magic_number'))
     CONF['db'] = conf.getint('resolve', 'db')
@@ -226,49 +268,26 @@ def init_conf(argv):
 
 def main(argv):
     if len(argv) < 2 or not os.path.exists(argv[1]):
-        print("Usage: resolve.py [config]")
+        print('Usage: resolve.py [config]')
         return 1
 
-    # Initialize global conf
-    init_conf(argv)
+    # Initialize global conf.
+    init_conf(argv[1])
 
-    # Initialize logger
+    # Initialize logger.
     loglevel = logging.INFO
     if CONF['debug']:
         loglevel = logging.DEBUG
 
-    logformat = ("%(asctime)s,%(msecs)05.1f %(levelname)s (%(funcName)s) "
-                 "%(message)s")
+    logformat = ('[%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s '
+                 '(%(funcName)s) %(message)s')
     logging.basicConfig(level=loglevel,
                         format=logformat,
                         filename=CONF['logfile'],
                         filemode='w')
-    print("Log: {}, press CTRL+C to terminate..".format(CONF['logfile']))
+    print(f"Log: {CONF['logfile']}, press CTRL+C to terminate..")
 
-    global REDIS_CONN
-    REDIS_CONN = new_redis_conn(db=CONF['db'])
-
-    subscribe_key = 'snapshot:{}'.format(hexlify(CONF['magic_number']))
-    publish_key = 'resolve:{}'.format(hexlify(CONF['magic_number']))
-
-    pubsub = REDIS_CONN.pubsub()
-    pubsub.subscribe(subscribe_key)
-    while True:
-        msg = pubsub.get_message()
-        if msg is None:
-            time.sleep(0.1)  # 100 ms artificial intrinsic latency.
-            continue
-        # 'snapshot' message is published by ping.py after establishing
-        # connection with nodes from a new snapshot.
-        if msg['channel'] == subscribe_key and msg['type'] == 'message':
-            timestamp = int(msg['data'])
-            logging.info("Timestamp: %d", timestamp)
-            nodes = REDIS_CONN.smembers('opendata')
-            logging.info("Nodes: %d", len(nodes))
-            addresses = set([eval(node)[0] for node in nodes])
-            resolve = Resolve(addresses=addresses)
-            resolve.resolve_addresses()
-            REDIS_CONN.publish(publish_key, timestamp)
+    cron()
 
     return 0
 

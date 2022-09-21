@@ -3,7 +3,7 @@
 #
 # cache_addr.py - Saves addr messages from pcap files in Redis.
 #
-# Copyright (c) Addy Yeow Chin Heng <ayeowch@gmail.com>
+# Copyright (c) Addy Yeow <ayeowch@gmail.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining
 # a copy of this software and associated documentation files (the
@@ -34,17 +34,17 @@ import random
 import sys
 import time
 from binascii import unhexlify
-from ConfigParser import ConfigParser
+from configparser import ConfigParser
 from ipaddress import ip_address
 
-from pcap import Cache, get_pcap_file
-from protocol import (
-    NETWORK_IPV4,
-    NETWORK_IPV6,
-    NETWORK_TORV2,
-    NETWORK_TORV3,
-)
-from utils import get_keys, new_redis_conn
+from pcap import Cache
+from pcap import get_pcap_file
+from protocol import NETWORK_IPV4
+from protocol import NETWORK_IPV6
+from protocol import NETWORK_TORV2
+from protocol import NETWORK_TORV3
+from utils import get_keys
+from utils import new_redis_conn
 
 CONF = {}
 
@@ -60,15 +60,16 @@ class AddrManager(object):
         self.ipv6_key = 'addr:ipv6'
         self.onion_key = 'addr:onion'
         self.now = int(time.time())
+        self.count = 0
 
     def is_excluded(self, address):
         """
         Returns True to exclude private address.
         """
-        if address.endswith(".onion"):
+        if address.endswith('.onion'):
             return False
 
-        if ip_address(unicode(address)).is_private:
+        if ip_address(address).is_private:
             return True
 
         return False
@@ -82,7 +83,7 @@ class AddrManager(object):
         services = addr['services']
         port = addr['port']
 
-        # Timestamp truncated to 30-minute interval
+        # Timestamp truncated to 30-minute interval.
         t_bucket = timestamp - (timestamp % 1800)
         age = self.now - t_bucket
         if age < 0 or age > CONF['max_age']:
@@ -100,8 +101,8 @@ class AddrManager(object):
             key = self.onion_key
 
         if key and not self.is_excluded(addr[0]):
-            fkey = "{}:{}-{}".format(key, from_node[0], from_node[1])
-            val = "{}-{}-{}".format(*addr)
+            fkey = '{}:{}-{}'.format(key, from_node[0], from_node[1])
+            val = '{}-{}-{}'.format(*addr)
 
             # ZADD <key> GT <score> <member>
             # GT: Only update existing elements if the new score is greater
@@ -109,6 +110,7 @@ class AddrManager(object):
             # elements.
             self.redis_pipe.execute_command('ZADD', key, 'GT', t_bucket, val)
             self.redis_pipe.execute_command('ZADD', fkey, 'GT', t_bucket, val)
+            self.count += 1
 
     def cleanup(self):
         """
@@ -118,9 +120,9 @@ class AddrManager(object):
         max_score = self.now - CONF['expiry_age']
         for key in keys:
             removed = self.redis_conn.zremrangebyscore(key, 0, max_score)
-            logging.info("Key: %s (%d removed)", key, removed)
+            logging.info(f'Key: {key} ({removed} removed)')
             if removed > 0:
-                for fkey in get_keys(self.redis_conn, '{}:*'.format(key)):
+                for fkey in get_keys(self.redis_conn, f'{key}:*'):
                     self.redis_pipe.zremrangebyscore(fkey, 0, max_score)
 
 
@@ -145,7 +147,7 @@ class CacheAddr(Cache):
         """
         Caches addr message from the specified node.
         """
-        if msg['command'] not in ("addr", "addrv2"):
+        if msg['command'] not in (b'addr', b'addrv2'):
             return
 
         addr_list = msg['addr_list'][:CONF['peers_per_node']]
@@ -168,7 +170,7 @@ def cron():
         if dump is None:
             continue
 
-        logging.debug("Loading: %s", dump)
+        logging.debug(f'Loading: {dump}')
 
         cache = CacheAddr(
             dump,
@@ -176,7 +178,7 @@ def cron():
             redis_conn=redis_conn)
         cache.cache_messages()
 
-        logging.info("Dump: %s (%d entries)", dump, cache.count)
+        logging.info(f'Dump: {dump} ({cache.count} entries)')
 
         if cache.addr_manager.now - last_cleanup > CONF['max_age']:
             cache.addr_manager.cleanup()
@@ -210,24 +212,24 @@ def init_conf(config):
 
 def main(argv):
     if len(argv) < 2 or not os.path.exists(argv[1]):
-        print("Usage: cache_addr.py [config]")
+        print('Usage: cache_addr.py [config]')
         return 1
 
-    # Initialize global conf
+    # Initialize global conf.
     init_conf(argv[1])
 
-    # Initialize logger
+    # Initialize logger.
     loglevel = logging.INFO
     if CONF['debug']:
         loglevel = logging.DEBUG
 
-    logformat = ("[%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s "
-                 "(%(funcName)s) %(message)s")
+    logformat = ('[%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s '
+                 '(%(funcName)s) %(message)s')
     logging.basicConfig(level=loglevel,
                         format=logformat,
                         filename=CONF['logfile'],
                         filemode='a')
-    print("Log: {}, press CTRL+C to terminate..".format(CONF['logfile']))
+    print(f"Log: {CONF['logfile']}, press CTRL+C to terminate..")
 
     cron()
 
