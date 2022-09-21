@@ -28,7 +28,7 @@ protocol_version = 70016
 # crawler. This is so that users will not confuse your crawler with another
 # instance that is already running and generating data for the project.
 # -----------------------------------------------------------------------------
-user_agent = /bitnodes.io:0.2/
+user_agent = /bitnodes.io:0.3/
 
 # Services to use for outgoing network address message
 services = 0

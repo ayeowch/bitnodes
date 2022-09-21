@@ -3,7 +3,7 @@
 #
 # utils.py - Common helper methods.
 #
-# Copyright (c) Addy Yeow Chin Heng <ayeowch@gmail.com>
+# Copyright (c) Addy Yeow <ayeowch@gmail.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining
 # a copy of this software and associated documentation files (the
@@ -28,6 +28,9 @@
 Common helper methods.
 """
 
+from gevent import monkey
+monkey.patch_all()
+
 import logging
 import os
 import redis
@@ -47,9 +50,9 @@ class GeoIp(object):
         # *.mmdb that may cause this exception temporarily.
         for i in range(10):
             try:
-                self.geoip_city = Reader("geoip/GeoLite2-City.mmdb")
-                self.geoip_country = Reader("geoip/GeoLite2-Country.mmdb")
-                self.geoip_asn = Reader("geoip/GeoLite2-ASN.mmdb")
+                self.geoip_city = Reader('geoip/GeoLite2-City.mmdb')
+                self.geoip_country = Reader('geoip/GeoLite2-Country.mmdb')
+                self.geoip_asn = Reader('geoip/GeoLite2-ASN.mmdb')
             except (InvalidDatabaseError, IOError) as err:
                 logging.warning(err)
                 time.sleep(0.1)
@@ -94,12 +97,14 @@ def ip_to_network(address, prefix):
     """
     Returns CIDR notation to represent the address and its prefix.
     """
-    network = ip_network(unicode("{}/{}".format(address, prefix)),
-                         strict=False)
-    return "{}/{}".format(network.network_address, prefix)
+    network = ip_network(f'{address}/{prefix}', strict=False)
+    return f'{network.network_address}/{prefix}'
 
 
 def http_get(url, timeout=15):
+    """
+    Returns HTTP response on success and None otherwise.
+    """
     try:
         response = requests.get(url, timeout=timeout)
     except requests.exceptions.RequestException as err:
@@ -108,3 +113,13 @@ def http_get(url, timeout=15):
         if response.status_code == 200:
             return response
     return None
+
+
+def http_get_txt(url, timeout=15):
+    """
+    Returns HTTP text on success and empty string otherwise.
+    """
+    response = http_get(url, timeout=timeout)
+    if response is not None:
+        return response.content.decode()
+    return ''

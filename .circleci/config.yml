@@ -1,6 +1,6 @@
 defaults: &defaults
   docker:
-    - image: circleci/python:2.7.15
+    - image: cimg/python:3.10.7
   working_directory: ~/bitnodes
 
 version: 2
@@ -15,8 +15,7 @@ jobs:
       - run:
           name: install dependencies
           command: |
-            pip install virtualenv
-            virtualenv -p python2 venv
+            python -m venv venv
             . venv/bin/activate
             pip install -r requirements.txt
       - save_cache:

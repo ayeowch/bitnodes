@@ -19,9 +19,9 @@ def test_bip144():
     reader.extract_streams()
     msgs = []
 
-    for stream_id, reader.stream.segments in reader.streams.iteritems():
+    for stream_id, reader.stream.segments in reader.streams.items():
         assert stream_id == ('1.1.1.1', 56691, '2.2.2.2', 8333)
-        msg, _ = reader.serializer.deserialize_msg(reader.stream.data().next())
+        msg, _ = reader.serializer.deserialize_msg(next(reader.stream.data()))
         msgs.append(msg)
 
     assert len(msgs) == 1

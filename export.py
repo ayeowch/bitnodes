@@ -3,7 +3,7 @@
 #
 # export.py - Exports enumerated data for reachable nodes into a JSON file.
 #
-# Copyright (c) Addy Yeow Chin Heng <ayeowch@gmail.com>
+# Copyright (c) Addy Yeow <ayeowch@gmail.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining
 # a copy of this software and associated documentation files (the
@@ -33,14 +33,15 @@ import logging
 import os
 import sys
 import time
-from binascii import hexlify, unhexlify
+from binascii import hexlify
+from binascii import unhexlify
 from collections import Counter
-from ConfigParser import ConfigParser
+from configparser import ConfigParser
 
 from resolve import Resolve
-from utils import http_get, new_redis_conn
+from utils import http_get
+from utils import new_redis_conn
 
-REDIS_CONN = None
 CONF = {}
 
 
@@ -49,10 +50,11 @@ class Export(object):
     Exports nodes into timestamp-prefixed JSON file and sets consensus height
     using the most common height from these nodes.
     """
-    def __init__(self, timestamp, nodes):
+    def __init__(self, timestamp=None, nodes=None, redis_conn=None):
         self.start_t = time.time()
         self.timestamp = timestamp
         self.nodes = nodes
+        self.redis_conn = redis_conn
         self.heights = self.get_heights()
 
     def export_nodes(self):
@@ -68,15 +70,20 @@ class Export(object):
 
         if self.heights:
             height = Counter(self.heights.values()).most_common(1)[0][0]
-            logging.info("Consensus height: %s", height)
-            REDIS_CONN.set('height', height)
+            logging.info(f'Consensus height: {height}')
+            self.redis_conn.set('height', height)
 
-        dump = os.path.join(
-            CONF['export_dir'], "{}.json".format(self.timestamp))
-        open(dump, 'w').write(json.dumps(rows, encoding="latin-1"))
-        logging.info("Wrote %s", dump)
+        self.write_json_file(rows)
 
-        logging.info("Elapsed: %d", time.time() - self.start_t)
+        logging.info(f'Elapsed: {time.time() - self.start_t}')
+
+    def write_json_file(self, rows):
+        """
+        Writes rows into timestamp-prefixed JSON file.
+        """
+        json_file = os.path.join(CONF['export_dir'], f'{self.timestamp}.json')
+        open(json_file, 'w').write(json.dumps(rows))
+        logging.info(f'Wrote {json_file}')
 
     def get_row(self, node):
         """
@@ -88,28 +95,29 @@ class Export(object):
         port = node[1]
         services = node[-1]
 
-        n = '{}-{}'.format(address, port)
+        n = f'{address}-{port}'
         if n in self.heights:
             # Height from received block inv message in ping.py.
             height = (self.heights[n],)
         else:
             # Height from handshake in crawl.py.
-            height = REDIS_CONN.get(
-                'height:{}-{}-{}'.format(address, port, services))
+            height = self.redis_conn.get(f'height:{address}-{port}-{services}')
             if height is None:
                 height = (0,)
             else:
                 height = (int(height),)
-            logging.debug("Using handshake height %s: %s", node, height)
+            logging.debug(f'Using handshake height {node}: {height}')
 
-        hostname = REDIS_CONN.hget('resolve:{}'.format(address), 'hostname')
+        hostname = self.redis_conn.hget(f'resolve:{address}', 'hostname')
+        if hostname:
+            hostname = hostname.decode()
         hostname = (hostname,)
 
-        geoip = REDIS_CONN.hget('resolve:{}'.format(address), 'geoip')
+        geoip = self.redis_conn.hget(f'resolve:{address}', 'geoip')
         if geoip is None:
             # resolve.py may not have seen this node in opendata yet when
             # it last ran, so manually trigger raw geoip now.
-            logging.warning("Raw geoip triggered for %s", address)
+            logging.warning(f'Raw geoip triggered for {address}')
             geoip = Resolve().raw_geoip(address)
         else:
             geoip = eval(geoip)
@@ -133,25 +141,64 @@ class Export(object):
             if block_time > self.timestamp:
                 continue
 
-            key = "binv:{}".format(block_hash)
+            key = f'binv:{block_hash}'
             # [('ADDRESS-PORT', EPOCH_MS),..]
-            nodes = REDIS_CONN.zrangebyscore(
+            nodes = self.redis_conn.zrangebyscore(
                 key, '-inf', '+inf', withscores=True, score_cast_func=int)
             for node in nodes:
                 n, t = node
+                n = n.decode()
                 if n not in heights and t <= timestamp_ms:
                     heights[n] = block_height
 
-        logging.info("Heights: %d", len(heights))
+        logging.info(f'Heights: {len(heights)}')
         return heights
 
 
-def init_conf(argv):
+def cron():
+    """
+    Subscribes to 'resolve' message from resolve.py to export GeoIP resolved
+    nodes into a JSON file.
+    """
+    redis_conn = new_redis_conn(db=CONF['db'])
+
+    magic_number = hexlify(CONF['magic_number']).decode()
+    subscribe_key = f'resolve:{magic_number}'
+    publish_key = f'export:{magic_number}'
+
+    pubsub = redis_conn.pubsub()
+    pubsub.subscribe(subscribe_key)
+
+    while True:
+        msg = pubsub.get_message()
+        if msg is None:
+            time.sleep(0.1)  # 100 ms artificial intrinsic latency.
+            continue
+
+        channel = msg['channel'].decode()
+
+        # 'resolve' message is published by resolve.py after resolving hostname
+        # and GeoIP data for all reachable nodes.
+        if channel == subscribe_key and msg['type'] == 'message':
+            timestamp = int(msg['data'])  # From ping.py's 'snapshot' message.
+            logging.info(f'Timestamp: {timestamp}')
+
+            nodes = redis_conn.smembers('opendata')
+            logging.info(f'Nodes: {len(nodes)}')
+
+            export = Export(
+                timestamp=timestamp, nodes=nodes, redis_conn=redis_conn)
+            export.export_nodes()
+
+            redis_conn.publish(publish_key, timestamp)
+
+
+def init_conf(config):
     """
     Populates CONF with key-value pairs from configuration file.
     """
     conf = ConfigParser()
-    conf.read(argv[1])
+    conf.read(config)
     CONF['logfile'] = conf.get('export', 'logfile')
     CONF['magic_number'] = unhexlify(conf.get('export', 'magic_number'))
     CONF['db'] = conf.getint('export', 'db')
@@ -164,48 +211,26 @@ def init_conf(argv):
 
 def main(argv):
     if len(argv) < 2 or not os.path.exists(argv[1]):
-        print("Usage: export.py [config]")
+        print('Usage: export.py [config]')
         return 1
 
-    # Initialize global conf
-    init_conf(argv)
+    # Initialize global conf.
+    init_conf(argv[1])
 
-    # Initialize logger
+    # Initialize logger.
     loglevel = logging.INFO
     if CONF['debug']:
         loglevel = logging.DEBUG
 
-    logformat = ("%(asctime)s,%(msecs)05.1f %(levelname)s (%(funcName)s) "
-                 "%(message)s")
+    logformat = ('[%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s '
+                 '(%(funcName)s) %(message)s')
     logging.basicConfig(level=loglevel,
                         format=logformat,
                         filename=CONF['logfile'],
                         filemode='w')
-    print("Log: {}, press CTRL+C to terminate..".format(CONF['logfile']))
+    print(f"Log: {CONF['logfile']}, press CTRL+C to terminate..")
 
-    global REDIS_CONN
-    REDIS_CONN = new_redis_conn(db=CONF['db'])
-
-    subscribe_key = 'resolve:{}'.format(hexlify(CONF['magic_number']))
-    publish_key = 'export:{}'.format(hexlify(CONF['magic_number']))
-
-    pubsub = REDIS_CONN.pubsub()
-    pubsub.subscribe(subscribe_key)
-    while True:
-        msg = pubsub.get_message()
-        if msg is None:
-            time.sleep(0.1)  # 100 ms artificial intrinsic latency.
-            continue
-        # 'resolve' message is published by resolve.py after resolving hostname
-        # and GeoIP data for all reachable nodes.
-        if msg['channel'] == subscribe_key and msg['type'] == 'message':
-            timestamp = int(msg['data'])  # From ping.py's 'snapshot' message
-            logging.info("Timestamp: %d", timestamp)
-            nodes = REDIS_CONN.smembers('opendata')
-            logging.info("Nodes: %d", len(nodes))
-            export = Export(timestamp, nodes)
-            export.export_nodes()
-            REDIS_CONN.publish(publish_key, timestamp)
+    cron()
 
     return 0
 
