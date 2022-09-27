@@ -107,7 +107,8 @@ def get_peers(conn):
             continue
 
         for peer in addr_msg['addr_list']:
-            age = now - peer['timestamp']  # seconds
+            timestamp = peer['timestamp']
+            age = now - timestamp  # seconds
             if age < 0 or age > CONF['max_age']:
                 continue
             address = peer['ipv4'] or peer['ipv6'] or peer['onion']
@@ -119,7 +120,7 @@ def get_peers(conn):
                 logging.debug(f'Exclude: ({address}, {port})')
                 excluded_count += 1
                 continue
-            peers.add((address, port, services))
+            peers.add((address, port, services, timestamp))
 
     logging.debug(f'{conn.to_addr} '
                   f'Peers: {len(peers)} (Excluded: {excluded_count})')
@@ -141,12 +142,16 @@ def get_cached_peers(conn, redis_conn):
     if peers:
         peers = eval(peers)
         logging.debug(f'{conn.to_addr} Peers: {len(peers)}')
-        return peers
+    else:
+        peers = get_peers(conn)
+        ttl = CONF['addr_ttl']
+        ttl += random.randint(0, CONF['addr_ttl_var']) / 100.0 * ttl
+        redis_conn.setex(key, int(ttl), str(peers))
 
-    peers = get_peers(conn)
-    ttl = CONF['addr_ttl']
-    ttl += random.randint(0, CONF['addr_ttl_var']) / 100.0 * ttl
-    redis_conn.setex(key, int(ttl), str(peers))
+    # Exclude timestamp from the tuples.
+    peers = set([
+        (address, port, services)
+        for (address, port, services, timestamp) in peers])
     return peers
 
 
@@ -652,6 +657,8 @@ def main(argv):
         for key in get_keys(redis_conn, 'node:*'):
             redis_pipe.delete(key)
         for key in get_keys(redis_conn, 'crawl:cidr:*'):
+            redis_pipe.delete(key)
+        for key in get_keys(redis_conn, 'peer:*'):
             redis_pipe.delete(key)
         redis_pipe.delete('pending')
         redis_pipe.execute()
