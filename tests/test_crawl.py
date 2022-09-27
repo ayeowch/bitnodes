@@ -39,7 +39,7 @@ class CrawlTestCase(unittest.TestCase):
     def test_get_cached_peers(self):
         self.redis_conn.get.return_value = b'[]'
         peers = get_cached_peers(self.conn, self.redis_conn)
-        self.assertEqual(peers, [])
+        self.assertEqual(peers, set([]))
 
     @mock.patch('crawl.Connection')
     def test_connect(self, mock_connection):
