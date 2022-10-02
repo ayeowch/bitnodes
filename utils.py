@@ -123,3 +123,22 @@ def http_get_txt(url, timeout=15):
     if response is not None:
         return response.content.decode()
     return ''
+
+
+def conf_list(conf, section, name):
+    """
+    Returns list of items for the specified ConfigParser configuration option.
+    """
+    val = conf.get(section, name).strip()
+    if not val:
+        return None
+
+    items = set()
+
+    lines = val.split('\n')
+    for line in lines:
+        line = line.split('#')[0].split(';')[0].strip()
+        if line:
+            items.add(line)
+
+    return items

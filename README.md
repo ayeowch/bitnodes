@@ -28,6 +28,8 @@ See [Provisioning Bitcoin Network Crawler](https://github.com/ayeowch/bitnodes/w
 
 * [What is a Bitcoin node?](https://bitnodes.io/what-is-a-bitcoin-node/)
 
+* [Addresses List](https://bitnodes.io/nodes/addresses-list/)
+
 ### CI
 
 [![CircleCI](https://circleci.com/gh/ayeowch/bitnodes.svg?style=svg)](https://circleci.com/gh/ayeowch/bitnodes)

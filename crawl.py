@@ -54,6 +54,7 @@ from protocol import Connection
 from protocol import ConnectionError
 from protocol import ProtocolError
 from protocol import TO_SERVICES
+from utils import conf_list
 from utils import get_keys
 from utils import http_get_txt
 from utils import ip_to_network
@@ -145,7 +146,10 @@ def get_cached_peers(conn, redis_conn):
     else:
         peers = get_peers(conn)
         ttl = CONF['addr_ttl']
-        ttl += random.randint(0, CONF['addr_ttl_var']) / 100.0 * ttl
+        if not peers:
+            ttl /= 2  # Shorter TTL for empty peers.
+        else:
+            ttl += random.randint(0, CONF['addr_ttl_var']) / 100.0 * ttl
         redis_conn.setex(key, int(ttl), str(peers))
 
     # Exclude timestamp from the tuples.
@@ -261,8 +265,8 @@ def restart(timestamp, redis_conn):
     Dumps data for the reachable nodes into a JSON file.
     Loads all reachable nodes from Redis into the crawl set.
     Removes keys for all nodes from current crawl.
-    Updates included ASNs with current list from external URL.
-    Updates excluded networks with current list of bogons.
+    Updates included ASNs.
+    Updates excluded networks.
     Updates number of reachable nodes in Redis.
     """
     redis_pipe = redis_conn.pipeline()
@@ -292,9 +296,8 @@ def restart(timestamp, redis_conn):
 
     redis_pipe.execute()
 
-    update_included_asns()
-
-    update_excluded_networks()
+    update_included_asns(redis_conn)
+    update_excluded_networks(redis_conn)
 
     reachable_nodes = len(nodes)
     logging.info(f'Reachable nodes: {reachable_nodes}')
@@ -343,6 +346,10 @@ def task(redis_conn):
             while redis_conn.get('crawl:master:state') != b'running':
                 gevent.sleep(CONF['socket_timeout'])
 
+                # Refresh included ASNs and excluded networks.
+                set_included_asns(redis_conn)
+                set_excluded_networks(redis_conn)
+
         node = redis_conn.spop('pending')  # Pop random node from set.
         if node is None:
             gevent.sleep(1)
@@ -352,6 +359,10 @@ def task(redis_conn):
 
         # Skip IPv6 node.
         if ':' in node[0] and not CONF['ipv6']:
+            continue
+
+        # Skip .onion node.
+        if node[0].endswith('.onion') and not CONF['onion']:
             continue
 
         key = f'node:{node[0]}-{node[1]}-{node[2]}'
@@ -427,8 +438,18 @@ def is_excluded(address):
     if ip_address(address).is_private:
         return True
 
+    include_asns = CONF['current_include_asns']
+    exclude_ipv6_networks = CONF['current_exclude_ipv6_networks']
+    exclude_ipv4_networks = CONF['current_exclude_ipv4_networks']
+
+    if None in ([include_asns, exclude_ipv6_networks, exclude_ipv4_networks]):
+        logging.warning('Rules not ready')
+        return True
+
+    exclude_asns = CONF['exclude_asns']
+
     asn = None
-    if CONF['include_asns'] or CONF['exclude_asns']:
+    if len(include_asns) > 0 or len(exclude_asns) > 0:
         try:
             asn_record = ASN.asn(address)
         except AddressNotFoundError:
@@ -438,39 +459,54 @@ def is_excluded(address):
         if asn is None:
             return True
 
-    if CONF['exclude_asns'] and asn in CONF['exclude_asns']:
+    if len(exclude_asns) > 0 and asn in exclude_asns:
         return True
 
     if ':' in address:
         address_family = socket.AF_INET6
-        key = 'exclude_ipv6_networks'
+        exclude_ip_networks = exclude_ipv6_networks
     else:
         address_family = socket.AF_INET
-        key = 'exclude_ipv4_networks'
+        exclude_ip_networks = exclude_ipv4_networks
     try:
         addr = int(hexlify(socket.inet_pton(address_family, address)), 16)
     except socket.error:
         logging.warning(f'Bad address: {address}')
         return True
-    if any([(addr & net[1] == net[0]) for net in CONF[key]]):
+    if any([(addr & net[1] == net[0]) for net in exclude_ip_networks]):
         return True
 
-    if CONF['include_asns'] and asn not in CONF['include_asns']:
+    if len(include_asns) > 0 and asn not in include_asns:
         return True
 
     return False
 
 
-def update_included_asns():
+def set_included_asns(redis_conn):
     """
-    Updates included ASNs with current list from external URL.
+    Fetches up-to-date included ASNs from Redis.
     """
-    if not CONF['include_asns_from_url']:
-        return
+    asns = redis_conn.get('include-asns')
+    if asns is not None:
+        CONF['current_include_asns'] = eval(asns)
 
-    txt = http_get_txt(CONF['include_asns_from_url'])
-    CONF['include_asns'] = list_included_asns(txt)
-    logging.info(f"ASNs: {len(CONF['include_asns'])}")
+
+def update_included_asns(redis_conn):
+    """
+    Updates included ASNs and stores them Redis.
+    """
+    include_asns = set()
+
+    if CONF['include_asns']:
+        include_asns.update(CONF['include_asns'])
+
+    if CONF['include_asns_from_url']:
+        txt = http_get_txt(CONF['include_asns_from_url'])
+        include_asns.update(list_included_asns(txt))
+
+    logging.info(f'ASNs: {len(include_asns)}')
+    redis_conn.set('include-asns', str(include_asns))
+    set_included_asns(redis_conn)
 
 
 def list_included_asns(txt, asns=None):
@@ -487,47 +523,46 @@ def list_included_asns(txt, asns=None):
     return asns
 
 
-def update_excluded_networks():
+def set_excluded_networks(redis_conn):
     """
-    Updates excluded networks with current bogons and current list from
-    external URL.
+    Fetches up-to-date excluded networks from Redis.
     """
-    CONF['exclude_ipv4_networks'] = CONF['default_exclude_ipv4_networks']
-    CONF['exclude_ipv6_networks'] = CONF['default_exclude_ipv6_networks']
+    exclude_ipv4_networks = redis_conn.get('exclude-ipv4-networks')
+    if exclude_ipv4_networks is not None:
+        CONF['current_exclude_ipv4_networks'] = eval(exclude_ipv4_networks)
 
-    if CONF['exclude_ipv4_bogons']:
-        urls = [
-            'http://www.team-cymru.org/Services/Bogons/fullbogons-ipv4.txt',
-            'http://www.spamhaus.org/drop/drop.txt',
-            'https://www.spamhaus.org/drop/edrop.txt',
-        ]
-        for url in urls:
-            txt = http_get_txt(url)
-            CONF['exclude_ipv4_networks'] = list_excluded_networks(
-                txt, networks=CONF['exclude_ipv4_networks'])
+    exclude_ipv6_networks = redis_conn.get('exclude-ipv6-networks')
+    if exclude_ipv6_networks is not None:
+        CONF['current_exclude_ipv6_networks'] = eval(exclude_ipv6_networks)
 
-    if CONF['exclude_ipv6_bogons']:
-        urls = [
-            'http://www.team-cymru.org/Services/Bogons/fullbogons-ipv6.txt',
-        ]
-        for url in urls:
-            txt = http_get_txt(url)
-            CONF['exclude_ipv6_networks'] = list_excluded_networks(
-                txt, networks=CONF['exclude_ipv6_networks'])
+
+def update_excluded_networks(redis_conn):
+    """
+    Updates excluded networks and stores them in Redis.
+    """
+    v4 = CONF['exclude_ipv4_networks']
+    v6 = CONF['exclude_ipv6_networks']
+
+    if CONF['exclude_ipv4_bogons_from_urls']:
+        for url in CONF['exclude_ipv4_bogons_from_urls']:
+            v4 = list_excluded_networks(http_get_txt(url), networks=v4)
+
+    if CONF['exclude_ipv6_bogons_from_urls']:
+        for url in CONF['exclude_ipv6_bogons_from_urls']:
+            v6 = list_excluded_networks(http_get_txt(url), networks=v6)
 
     if CONF['exclude_ipv4_networks_from_url']:
-        txt = http_get_txt(CONF['exclude_ipv4_networks_from_url'])
-        CONF['exclude_ipv4_networks'] = list_excluded_networks(
-            txt, networks=CONF['exclude_ipv4_networks'])
+        url = CONF['exclude_ipv4_networks_from_url']
+        v4 = list_excluded_networks(http_get_txt(url), networks=v4)
 
     if CONF['exclude_ipv6_networks_from_url']:
-        txt = http_get_txt(CONF['exclude_ipv6_networks_from_url'])
-        CONF['exclude_ipv6_networks'] = list_excluded_networks(
-            txt, networks=CONF['exclude_ipv6_networks'])
+        url = CONF['exclude_ipv6_networks_from_url']
+        v6 = list_excluded_networks(http_get_txt(url), networks=v6)
 
-    logging.info(
-        f"IPv4: {len(CONF['exclude_ipv4_networks'])}, "
-        f"IPv6: {len(CONF['exclude_ipv6_networks'])}")
+    logging.info(f'IPv4: {len(v4)}, IPv6: {len(v6)}')
+    redis_conn.set('exclude-ipv4-networks', str(v4))
+    redis_conn.set('exclude-ipv6-networks', str(v6))
+    set_excluded_networks(redis_conn)
 
 
 def list_excluded_networks(txt, networks=None):
@@ -579,42 +614,36 @@ def init_conf(argv):
     CONF['nodes_per_ipv6_prefix'] = conf.getint('crawl',
                                                 'nodes_per_ipv6_prefix')
 
-    CONF['include_asns'] = None
-    include_asns = conf.get('crawl', 'include_asns').strip()
-    if include_asns:
-        CONF['include_asns'] = set(include_asns.split('\n'))
+    CONF['include_asns'] = conf_list(conf, 'crawl', 'include_asns')
     CONF['include_asns_from_url'] = conf.get('crawl', 'include_asns_from_url')
 
-    CONF['exclude_asns'] = None
-    exclude_asns = conf.get('crawl', 'exclude_asns').strip()
-    if exclude_asns:
-        CONF['exclude_asns'] = set(exclude_asns.split('\n'))
+    CONF['current_include_asns'] = None
 
-    CONF['default_exclude_ipv4_networks'] = list_excluded_networks(
+    CONF['exclude_asns'] = conf_list(conf, 'crawl', 'exclude_asns')
+
+    CONF['exclude_ipv4_networks'] = list_excluded_networks(
         conf.get('crawl', 'exclude_ipv4_networks'))
-    CONF['default_exclude_ipv6_networks'] = list_excluded_networks(
+    CONF['exclude_ipv6_networks'] = list_excluded_networks(
         conf.get('crawl', 'exclude_ipv6_networks'))
 
-    CONF['exclude_ipv4_networks'] = CONF['default_exclude_ipv4_networks']
-    CONF['exclude_ipv6_networks'] = CONF['default_exclude_ipv6_networks']
-
-    CONF['exclude_ipv4_bogons'] = conf.getboolean('crawl',
-                                                  'exclude_ipv4_bogons')
-    CONF['exclude_ipv6_bogons'] = conf.getboolean('crawl',
-                                                  'exclude_ipv6_bogons')
+    CONF['exclude_ipv4_bogons_from_urls'] = conf_list(
+        conf, 'crawl', 'exclude_ipv4_bogons_from_urls')
+    CONF['exclude_ipv6_bogons_from_urls'] = conf_list(
+        conf, 'crawl', 'exclude_ipv6_bogons_from_urls')
 
     CONF['exclude_ipv4_networks_from_url'] = conf.get(
         'crawl', 'exclude_ipv4_networks_from_url')
     CONF['exclude_ipv6_networks_from_url'] = conf.get(
         'crawl', 'exclude_ipv6_networks_from_url')
 
+    CONF['current_exclude_ipv4_networks'] = None
+    CONF['current_exclude_ipv6_networks'] = None
+
     CONF['onion'] = conf.getboolean('crawl', 'onion')
-    CONF['tor_proxies'] = []
-    if CONF['onion']:
-        tor_proxies = conf.get('crawl', 'tor_proxies').strip().split('\n')
-        CONF['tor_proxies'] = [
-            (p.split(':')[0], int(p.split(':')[1])) for p in tor_proxies]
-    CONF['onion_nodes'] = conf.get('crawl', 'onion_nodes').strip().split('\n')
+    CONF['tor_proxies'] = [
+        (p.split(':')[0], int(p.split(':')[1]))
+        for p in conf_list(conf, 'crawl', 'tor_proxies')]
+    CONF['onion_nodes'] = conf_list(conf, 'crawl', 'onion_nodes')
 
     CONF['include_checked'] = conf.getboolean('crawl', 'include_checked')
 
@@ -654,16 +683,20 @@ def main(argv):
         logging.info('Removing all keys')
         redis_pipe = redis_conn.pipeline()
         redis_pipe.delete('up')
-        for key in get_keys(redis_conn, 'node:*'):
-            redis_pipe.delete(key)
-        for key in get_keys(redis_conn, 'crawl:cidr:*'):
-            redis_pipe.delete(key)
-        for key in get_keys(redis_conn, 'peer:*'):
-            redis_pipe.delete(key)
+        patterns = [
+            'node:*',
+            'height:*',
+            'crawl:cidr:*',
+            'version:*',
+            'peer:*',
+        ]
+        for pattern in patterns:
+            for key in get_keys(redis_conn, pattern):
+                redis_pipe.delete(key)
         redis_pipe.delete('pending')
         redis_pipe.execute()
-        update_included_asns()
-        update_excluded_networks()
+        update_included_asns(redis_conn)
+        update_excluded_networks(redis_conn)
         set_pending(redis_conn)
         redis_conn.set('crawl:master:state', 'running')
 
