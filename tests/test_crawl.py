@@ -56,10 +56,14 @@ class CrawlTestCase(unittest.TestCase):
             '/bitnodes.io:0.3/')
 
     def test_update_excluded_networks(self):
-        assert len(CONF['default_exclude_ipv4_networks']) == 22
-        assert len(CONF['default_exclude_ipv6_networks']) == 0
+        def mock_redis_conn_get(*args, **kwargs):
+            return b'set()'
+        self.redis_conn.get.side_effect = mock_redis_conn_get
 
-        update_excluded_networks()
+        assert CONF['current_exclude_ipv4_networks'] is None
+        assert CONF['current_exclude_ipv4_networks'] is None
 
-        assert len(CONF['exclude_ipv4_networks']) > 0
-        assert len(CONF['exclude_ipv6_networks']) == 0
+        update_excluded_networks(self.redis_conn)
+
+        assert len(CONF['current_exclude_ipv4_networks']) == 0
+        assert len(CONF['current_exclude_ipv6_networks']) == 0

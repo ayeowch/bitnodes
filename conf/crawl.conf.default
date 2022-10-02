@@ -118,10 +118,13 @@ exclude_ipv4_networks =
 exclude_ipv6_networks =
 
 # Exclude IPv4 bogons
-exclude_ipv4_bogons = True
+exclude_ipv4_bogons_from_urls =
+    http://www.team-cymru.org/Services/Bogons/fullbogons-ipv4.txt
+    http://www.spamhaus.org/drop/drop.txt
+    https://www.spamhaus.org/drop/edrop.txt
 
 # Exclude IPv6 bogons
-exclude_ipv6_bogons = False
+exclude_ipv6_bogons_from_urls =
 
 # List of excluded IPv4 networks from external URL
 exclude_ipv4_networks_from_url =
