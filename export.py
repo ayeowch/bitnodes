@@ -66,6 +66,9 @@ class Export(object):
         rows = []
         for node in self.nodes:
             row = self.get_row(node)
+            if row[-2] is None:
+                logging.warning(f'Skipping {row[0]} due to missing ASN')
+                continue
             rows.append(row)
 
         if self.heights:
