@@ -150,7 +150,7 @@ def get_cached_peers(conn, redis_conn):
             ttl /= 2  # Shorter TTL for empty peers.
         else:
             ttl += random.randint(0, CONF['addr_ttl_var']) / 100.0 * ttl
-        redis_conn.setex(key, int(ttl), str(peers))
+        redis_conn.set(key, str(peers), ex=int(ttl))
 
     # Exclude timestamp from the tuples.
     peers = set([
@@ -194,7 +194,7 @@ def connect(key, redis_conn):
                       height=height,
                       relay=CONF['relay'])
     try:
-        logging.debug(f'Connecting to {conn.to_addr}')
+        logging.debug(f'Connecting to {conn.to_addr} ({services})')
         conn.open()
         version_msg = conn.handshake()
     except (ProtocolError, ConnectionError, socket.error) as err:
@@ -213,13 +213,15 @@ def connect(key, redis_conn):
                           f'got {from_services} for services')
             key = f'node:{address}-{port}-{from_services}'
 
-        height_key = f'height:{address}-{port}-{from_services}'
-        redis_pipe.setex(height_key, CONF['max_age'], height)
+        redis_pipe.set(
+            f'height:{address}-{port}-{from_services}',
+            height,
+            ex=CONF['max_age'])
 
-        version_key = f'version:{address}-{port}'
-        redis_pipe.setex(version_key,
-                         CONF['max_age'],
-                         str((version, user_agent, from_services)))
+        redis_pipe.set(
+            f'version:{address}-{port}',
+            str((version, user_agent, from_services)),
+            ex=CONF['max_age'])
 
         peers = get_cached_peers(conn, redis_conn)
         for peer in peers:
@@ -386,14 +388,14 @@ def set_pending(redis_conn):
     seeders and hardcoded list of .onion nodes to bootstrap the crawler.
     """
     for seeder in CONF['seeders']:
-        nodes = []
+        nodes = set()
 
         try:
             ipv4_nodes = socket.getaddrinfo(seeder, None, socket.AF_INET)
         except socket.gaierror as err:
             logging.warning(err)
         else:
-            nodes.extend(ipv4_nodes)
+            nodes.update([node[-1][0] for node in ipv4_nodes])
 
         if CONF['ipv6']:
             try:
@@ -401,21 +403,18 @@ def set_pending(redis_conn):
             except socket.gaierror as err:
                 logging.warning(err)
             else:
-                nodes.extend(ipv6_nodes)
+                nodes.update([node[-1][0] for node in ipv6_nodes])
 
         for node in nodes:
-            address = node[-1][0]
-            if is_excluded(address):
-                logging.debug(f'Exclude: {address}')
+            if is_excluded(node):
+                logging.debug(f'Exclude: {node}')
                 continue
-            logging.debug(f'{seeder}: {address}')
-            redis_conn.sadd(
-                'pending', str((address, CONF['port'], TO_SERVICES)))
+            logging.debug(f'{seeder}: {node}')
+            redis_conn.sadd('pending', str((node, CONF['port'], TO_SERVICES)))
 
     if CONF['onion']:
-        for address in CONF['onion_nodes']:
-            redis_conn.sadd(
-                'pending', str((address, CONF['port'], TO_SERVICES)))
+        for node in CONF['onion_nodes']:
+            redis_conn.sadd('pending', str((node, CONF['port'], TO_SERVICES)))
 
 
 def is_excluded(address):
