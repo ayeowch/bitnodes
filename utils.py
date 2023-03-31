@@ -131,7 +131,7 @@ def conf_list(conf, section, name):
     """
     val = conf.get(section, name).strip()
     if not val:
-        return None
+        return []
 
     items = set()
 
