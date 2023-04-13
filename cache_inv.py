@@ -81,13 +81,16 @@ class CacheInv(Cache):
         if msg['command'] == b'inv':
             invs = 0
             for inv in msg['inventory']:
-                key = f"inv:{inv['type']}:{inv['hash'].decode()}"
-                if (len(self.invs[key]) >= CONF['inv_count'] and
+                type = inv['type']
+                if type not in (1, 2):
+                    continue
+                key = f"inv:{type}:{inv['hash'].decode()}"
+                if (len(self.invs[key]) >= CONF[f'inv_{type}_count'] and
                         timestamp > self.invs[key][0]):
                     logging.debug(f'Skip: {key} ({timestamp})')
                     continue
                 bisect.insort(self.invs[key], timestamp)
-                if inv['type'] == 2:
+                if type == 2:
                     # Redis key for reference (first seen) block inv.
                     rkey = f'r{key}'
                     rkey_ms = self.redis_conn.get(rkey)
@@ -180,7 +183,8 @@ def init_conf(config):
     CONF['debug'] = conf.getboolean('cache_inv', 'debug')
     CONF['ttl'] = conf.getint('cache_inv', 'ttl')
     CONF['rtt_count'] = conf.getint('cache_inv', 'rtt_count')
-    CONF['inv_count'] = conf.getint('cache_inv', 'inv_count')
+    CONF['inv_1_count'] = conf.getint('cache_inv', 'inv_1_count')
+    CONF['inv_2_count'] = conf.getint('cache_inv', 'inv_2_count')
 
     tor_proxies = conf.get('cache_inv', 'tor_proxies').strip().split('\n')
     CONF['tor_proxies'] = [
