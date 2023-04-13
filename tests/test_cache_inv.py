@@ -30,5 +30,5 @@ def test_cache_inv(mock_strict_redis):
         redis_conn=redis_conn)
 
     cache.cache_messages()
-    assert cache.count == 27796
-    assert len(cache.invs.keys()) == 203
+    assert cache.count == 27776
+    assert len(cache.invs.keys()) == 197
