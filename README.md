@@ -24,7 +24,7 @@ See [Provisioning Bitcoin Network Crawler](https://github.com/ayeowch/bitnodes/w
 
 * [Client Status](https://bitnodes.io/dashboard/bitcoind/)
 
-* [Combined Estimation](https://bitnodes.io/nodes/all/)
+* [Global Nodes](https://bitnodes.io/nodes/all/)
 
 * [Check Your Node](https://bitnodes.io/#join-the-network)
 
