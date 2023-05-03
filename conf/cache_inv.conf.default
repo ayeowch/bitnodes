@@ -24,6 +24,12 @@ inv_1_count = 1000
 # Number of messages for the same block inv to cache from each pcap file
 inv_2_count = 5000
 
+# Sampling rate of tx invs from each pcap file
+inv_1_sampling_rate = 100
+
+# Sampling rate of block invs from each pcap file
+inv_2_sampling_rate = 100
+
 # Tor proxy (must match the list in ping.conf)
 tor_proxies =
     127.0.0.1:9050
@@ -38,4 +44,4 @@ pcap_suffix = pcap
 persist_pcap = False
 
 # Sampling rate of pcap files
-sampling_rate = 100
+pcap_sampling_rate = 100

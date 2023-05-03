@@ -52,9 +52,11 @@ class CacheInv(Cache):
     """
     def __init__(self, *args, **kwargs):
         super(CacheInv, self).__init__(*args, **kwargs)
-        self.count = 0
         self.ping_keys = set()  # ping:ADDRESS-PORT:NONCE
-        self.invs = defaultdict(list)
+        self.invs = {
+            1: defaultdict(list),  # Transaction invs.
+            2: defaultdict(list),  # Block invs.
+        }
 
     def cache_messages(self):
         """
@@ -79,17 +81,15 @@ class CacheInv(Cache):
                 node = eval(onion_node)
 
         if msg['command'] == b'inv':
-            invs = 0
             for inv in msg['inventory']:
                 type = inv['type']
                 if type not in (1, 2):
                     continue
                 key = f"inv:{type}:{inv['hash'].decode()}"
-                if (len(self.invs[key]) >= CONF[f'inv_{type}_count'] and
-                        timestamp > self.invs[key][0]):
+                if not self.is_accepted_inv(key, type, timestamp):
                     logging.debug(f'Skip: {key} ({timestamp})')
                     continue
-                bisect.insort(self.invs[key], timestamp)
+                bisect.insort(self.invs[type][key], timestamp)
                 if type == 2:
                     # Redis key for reference (first seen) block inv.
                     rkey = f'r{key}'
@@ -102,7 +102,6 @@ class CacheInv(Cache):
                         # Ignore block inv first seen more than 3 hours ago
                         logging.debug(f'Skip: {key} ({timestamp})')
                         continue
-                invs += 1
                 # ZADD <key> LT <score> <member>
                 # LT: Only update existing elements if the new score is less
                 # than the current score. This flag doesn't prevent adding new
@@ -110,12 +109,26 @@ class CacheInv(Cache):
                 self.redis_pipe.execute_command(
                     'ZADD', key, 'LT', timestamp, self.node_hash(node))
                 self.redis_pipe.expire(key, CONF['ttl'])
-            self.count += invs
         elif msg['command'] == b'pong':
             key = f"ping:{node[0]}-{node[1]}:{msg['nonce']}"
             self.redis_pipe.rpushx(key, timestamp)
             self.ping_keys.add(key)
-            self.count += 1
+
+    def is_accepted_inv(self, key, type, timestamp):
+        """
+        Accepts inv key based on the set rules.
+        """
+        # Deterministically accepts inv key at the specified sampling rate.
+        if hash(key) % 100 >= CONF[f'inv_{type}_sampling_rate']:
+            return False
+
+        # Skip inv key if there are already enough timestamps associated to it
+        # unless if the timestamp is older than the earliest stored timestamp.
+        if (len(self.invs[type][key]) >= CONF[f'inv_{type}_count'] and
+                timestamp > self.invs[type][key][0]):
+            return False
+
+        return True
 
     def node_hash(self, node):
         """
@@ -153,7 +166,7 @@ def cron():
         if dump is None:
             continue
 
-        if 0 in random.sample(range(0, 100), CONF['sampling_rate']):
+        if random.randint(1, 100) <= CONF['pcap_sampling_rate']:
             logging.debug(f'Loading: {dump}')
 
             cache = CacheInv(
@@ -163,7 +176,9 @@ def cron():
                 redis_conn=redis_conn)
             cache.cache_messages()
 
-            logging.info(f'Dump: {dump} ({cache.count} entries)')
+            logging.info(
+                f'Dump: {dump} '
+                f'(tx={len(cache.invs[1])} block={len(cache.invs[2])})')
         else:
             logging.debug(f'Dropped: {dump}')
 
@@ -185,6 +200,10 @@ def init_conf(config):
     CONF['rtt_count'] = conf.getint('cache_inv', 'rtt_count')
     CONF['inv_1_count'] = conf.getint('cache_inv', 'inv_1_count')
     CONF['inv_2_count'] = conf.getint('cache_inv', 'inv_2_count')
+    CONF['inv_1_sampling_rate'] = conf.getint(
+        'cache_inv', 'inv_1_sampling_rate')
+    CONF['inv_2_sampling_rate'] = conf.getint(
+        'cache_inv', 'inv_2_sampling_rate')
 
     tor_proxies = conf.get('cache_inv', 'tor_proxies').strip().split('\n')
     CONF['tor_proxies'] = [
@@ -196,7 +215,7 @@ def init_conf(config):
     CONF['pcap_suffix'] = conf.get('cache_inv', 'pcap_suffix')
 
     CONF['persist_pcap'] = conf.getboolean('cache_inv', 'persist_pcap')
-    CONF['sampling_rate'] = conf.getint('cache_inv', 'sampling_rate')
+    CONF['pcap_sampling_rate'] = conf.getint('cache_inv', 'pcap_sampling_rate')
 
 
 def main(argv):
