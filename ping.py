@@ -230,8 +230,10 @@ def task(redis_conn):
             logging.info(f'-CIDR {cidr}: {nodes}')
         return
 
+    relay = CONF['relay']
     proxy = None
     if address.endswith('.onion') and CONF['onion']:
+        relay = CONF['onion_relay']
         proxy = random.choice(CONF['tor_proxies'])
 
     version_msg = {}
@@ -245,7 +247,7 @@ def task(redis_conn):
                       from_services=CONF['services'],
                       user_agent=CONF['user_agent'],
                       height=height,
-                      relay=CONF['relay'])
+                      relay=relay)
     try:
         logging.debug(f'Connecting to {conn.to_addr}')
         conn.open()
@@ -402,6 +404,7 @@ def init_conf(argv):
         tor_proxies = conf.get('ping', 'tor_proxies').strip().split('\n')
         CONF['tor_proxies'] = [
             (p.split(':')[0], int(p.split(':')[1])) for p in tor_proxies]
+    CONF['onion_relay'] = conf.getint('ping', 'onion_relay')
 
     CONF['crawl_dir'] = conf.get('ping', 'crawl_dir')
     if not os.path.exists(CONF['crawl_dir']):

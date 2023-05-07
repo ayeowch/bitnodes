@@ -58,6 +58,9 @@ version_delay = 86400
 # Attempt to establish connection with .onion nodes
 onion = True
 
+# Set to 1 to receive all txs from .onion nodes
+onion_relay = 1
+
 # Tor proxy is required to connect to .onion address
 tor_proxies =
     127.0.0.1:9050
