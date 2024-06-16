@@ -16,6 +16,8 @@
 /usr/bin/nice -n 19 python -u ping.py conf/ping.f9beb4d9.conf slave > log/ping.f9beb4d9.slave.8.out 2>&1 &
 /usr/bin/nice -n 19 python -u ping.py conf/ping.f9beb4d9.conf slave > log/ping.f9beb4d9.slave.9.out 2>&1 &
 /usr/bin/nice -n 19 python -u ping.py conf/ping.f9beb4d9.conf slave > log/ping.f9beb4d9.slave.10.out 2>&1 &
+/usr/bin/nice -n 19 python -u ping.py conf/ping.f9beb4d9.conf slave > log/ping.f9beb4d9.slave.11.out 2>&1 &
+/usr/bin/nice -n 19 python -u ping.py conf/ping.f9beb4d9.conf slave > log/ping.f9beb4d9.slave.12.out 2>&1 &
 
 /usr/bin/nice -n 19 python -u resolve.py conf/resolve.f9beb4d9.conf > log/resolve.f9beb4d9.out 2>&1 &
 
