@@ -1,6 +1,6 @@
 defaults: &defaults
   docker:
-    - image: cimg/python:3.10.7
+    - image: cimg/python:3.12.4
   working_directory: ~/bitnodes
 
 version: 2
@@ -11,7 +11,7 @@ jobs:
       - checkout
       - restore_cache:
           keys:
-          - dependencies-{{ checksum "requirements.txt" }}
+            - dependencies-{{ checksum "requirements.txt" }}
       - run:
           name: install dependencies
           command: |
@@ -29,7 +29,7 @@ jobs:
       - checkout
       - restore_cache:
           keys:
-          - dependencies-{{ checksum "requirements.txt" }}
+            - dependencies-{{ checksum "requirements.txt" }}
       - run:
           name: run tests
           command: |

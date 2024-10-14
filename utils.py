@@ -29,6 +29,7 @@ Common helper methods.
 """
 
 from gevent import monkey
+
 monkey.patch_all()
 
 import logging
@@ -45,14 +46,15 @@ class GeoIp(object):
     """
     MaxMind databases.
     """
+
     def __init__(self):
         # Retry on InvalidDatabaseError due to geoip/update.sh updating
         # *.mmdb that may cause this exception temporarily.
         for i in range(10):
             try:
-                self.geoip_city = Reader('geoip/GeoLite2-City.mmdb')
-                self.geoip_country = Reader('geoip/GeoLite2-Country.mmdb')
-                self.geoip_asn = Reader('geoip/GeoLite2-ASN.mmdb')
+                self.geoip_city = Reader("geoip/GeoLite2-City.mmdb")
+                self.geoip_country = Reader("geoip/GeoLite2-Country.mmdb")
+                self.geoip_asn = Reader("geoip/GeoLite2-ASN.mmdb")
             except (InvalidDatabaseError, IOError) as err:
                 logging.warning(err)
                 time.sleep(0.1)
@@ -74,8 +76,8 @@ def new_redis_conn(db=0):
     """
     Returns new instance of Redis connection with the right db selected.
     """
-    socket = os.environ.get('REDIS_SOCKET', None)
-    password = os.environ.get('REDIS_PASSWORD', None)
+    socket = os.environ.get("REDIS_SOCKET", None)
+    password = os.environ.get("REDIS_PASSWORD", None)
     return redis.StrictRedis(db=db, password=password, unix_socket_path=socket)
 
 
@@ -97,8 +99,8 @@ def ip_to_network(address, prefix):
     """
     Returns CIDR notation to represent the address and its prefix.
     """
-    network = ip_network(f'{address}/{prefix}', strict=False)
-    return f'{network.network_address}/{prefix}'
+    network = ip_network(f"{address}/{prefix}", strict=False)
+    return f"{network.network_address}/{prefix}"
 
 
 def http_get(url, timeout=15):
@@ -122,7 +124,7 @@ def http_get_txt(url, timeout=15):
     response = http_get(url, timeout=timeout)
     if response is not None:
         return response.content.decode()
-    return ''
+    return ""
 
 
 def conf_list(conf, section, name):
@@ -135,9 +137,9 @@ def conf_list(conf, section, name):
 
     items = set()
 
-    lines = val.split('\n')
+    lines = val.split("\n")
     for line in lines:
-        line = line.split('#')[0].split(';')[0].strip()
+        line = line.split("#")[0].split(";")[0].strip()
         if line:
             items.add(line)
 

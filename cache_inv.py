@@ -35,12 +35,12 @@ import os
 import random
 import sys
 import time
-from binascii import unhexlify
 from collections import defaultdict
 from configparser import ConfigParser
 
-from pcap import Cache
-from pcap import get_pcap_file
+from binascii import unhexlify
+
+from pcap import Cache, get_pcap_file
 from utils import new_redis_conn
 
 CONF = {}
@@ -50,6 +50,7 @@ class CacheInv(Cache):
     """
     Implements caching mechanic to cache messages from pcap file in Redis.
     """
+
     def __init__(self, *args, **kwargs):
         super(CacheInv, self).__init__(*args, **kwargs)
         self.ping_keys = set()  # ping:ADDRESS-PORT:NONCE
@@ -71,45 +72,45 @@ class CacheInv(Cache):
         """
         Caches inv/pong message from the specified node.
         """
-        if msg['command'] not in (b'inv', b'pong'):
+        if msg["command"] not in (b"inv", b"pong"):
             return
 
         # Restore .onion node using port info from node.
         if is_tor:
-            onion_node = self.redis_conn.get(f'onion:{node[1]}')
+            onion_node = self.redis_conn.get(f"onion:{node[1]}")
             if onion_node:
                 node = eval(onion_node)
 
-        if msg['command'] == b'inv':
-            for inv in msg['inventory']:
-                type = inv['type']
+        if msg["command"] == b"inv":
+            for inv in msg["inventory"]:
+                type = inv["type"]
                 if type not in (1, 2):
                     continue
                 key = f"inv:{type}:{inv['hash'].decode()}"
                 if not self.is_accepted_inv(key, type, timestamp):
-                    logging.debug(f'Skip: {key} ({timestamp})')
+                    logging.debug(f"Skip: {key} ({timestamp})")
                     continue
                 bisect.insort(self.invs[type][key], timestamp)
                 if type == 2:
                     # Redis key for reference (first seen) block inv.
-                    rkey = f'r{key}'
+                    rkey = f"r{key}"
                     rkey_ms = self.redis_conn.get(rkey)
                     if rkey_ms is None:
                         self.redis_conn.set(rkey, timestamp)
-                        self.redis_pipe.set(
-                            'lastblockhash', inv['hash'].decode())
-                    elif (timestamp - int(rkey_ms)) / 1000 > CONF['ttl']:
+                        self.redis_pipe.set("lastblockhash", inv["hash"].decode())
+                    elif (timestamp - int(rkey_ms)) / 1000 > CONF["ttl"]:
                         # Ignore block inv first seen more than 3 hours ago
-                        logging.debug(f'Skip: {key} ({timestamp})')
+                        logging.debug(f"Skip: {key} ({timestamp})")
                         continue
                 # ZADD <key> LT <score> <member>
                 # LT: Only update existing elements if the new score is less
                 # than the current score. This flag doesn't prevent adding new
                 # elements.
                 self.redis_pipe.execute_command(
-                    'ZADD', key, 'LT', timestamp, self.node_hash(node))
-                self.redis_pipe.expire(key, CONF['ttl'])
-        elif msg['command'] == b'pong':
+                    "ZADD", key, "LT", timestamp, self.node_hash(node)
+                )
+                self.redis_pipe.expire(key, CONF["ttl"])
+        elif msg["command"] == b"pong":
             key = f"ping:{node[0]}-{node[1]}:{msg['nonce']}"
             self.redis_pipe.rpushx(key, timestamp)
             self.ping_keys.add(key)
@@ -119,13 +120,15 @@ class CacheInv(Cache):
         Accepts inv key based on the set rules.
         """
         # Deterministically accepts inv key at the specified sampling rate.
-        if hash(key) % 100 >= CONF[f'inv_{type}_sampling_rate']:
+        if hash(key) % 100 >= CONF[f"inv_{type}_sampling_rate"]:
             return False
 
         # Skip inv key if there are already enough timestamps associated to it
         # unless if the timestamp is older than the earliest stored timestamp.
-        if (len(self.invs[type][key]) >= CONF[f'inv_{type}_count'] and
-                timestamp > self.invs[type][key][0]):
+        if (
+            len(self.invs[type][key]) >= CONF[f"inv_{type}_count"]
+            and timestamp > self.invs[type][key][0]
+        ):
             return False
 
         return True
@@ -135,7 +138,7 @@ class CacheInv(Cache):
         Encodes a tuple of address and port in shorten hash for storage in
         Redis.
         """
-        return hashlib.sha256(f'{node[0]}-{node[1]}'.encode()).hexdigest()[:8]
+        return hashlib.sha256(f"{node[0]}-{node[1]}".encode()).hexdigest()[:8]
 
     def cache_rtt(self):
         """
@@ -144,45 +147,46 @@ class CacheInv(Cache):
         for key in self.ping_keys:
             timestamps = self.redis_conn.lrange(key, 0, 1)
             if len(timestamps) > 1:
-                node = ':'.join(key.split(':')[1:-1])
-                rtt_key = f'rtt:{node}'
+                node = ":".join(key.split(":")[1:-1])
+                rtt_key = f"rtt:{node}"
                 rtt = int(timestamps[1]) - int(timestamps[0])  # pong - ping
-                logging.debug(f'{rtt_key}: {rtt}')
+                logging.debug(f"{rtt_key}: {rtt}")
                 self.redis_pipe.lpush(rtt_key, rtt)
-                self.redis_pipe.ltrim(rtt_key, 0, CONF['rtt_count'] - 1)
-                self.redis_pipe.expire(rtt_key, CONF['ttl'])
+                self.redis_pipe.ltrim(rtt_key, 0, CONF["rtt_count"] - 1)
+                self.redis_pipe.expire(rtt_key, CONF["ttl"])
 
 
 def cron():
     """
     Periodically fetches oldest pcap file to extract messages from.
     """
-    redis_conn = new_redis_conn(db=CONF['db'])
+    redis_conn = new_redis_conn(db=CONF["db"])
 
     while True:
         time.sleep(random.randint(1, 50) / 100.0)  # 10 to 500ms
 
-        dump = get_pcap_file(CONF['pcap_dir'], CONF['pcap_suffix'])
+        dump = get_pcap_file(CONF["pcap_dir"], CONF["pcap_suffix"])
         if dump is None:
             continue
 
-        if random.randint(1, 100) <= CONF['pcap_sampling_rate']:
-            logging.debug(f'Loading: {dump}')
+        if random.randint(1, 100) <= CONF["pcap_sampling_rate"]:
+            logging.debug(f"Loading: {dump}")
 
             cache = CacheInv(
                 dump,
-                magic_number=CONF['magic_number'],
-                tor_proxies=CONF['tor_proxies'],
-                redis_conn=redis_conn)
+                magic_number=CONF["magic_number"],
+                tor_proxies=CONF["tor_proxies"],
+                redis_conn=redis_conn,
+            )
             cache.cache_messages()
 
             logging.info(
-                f'Dump: {dump} '
-                f'(tx={len(cache.invs[1])} block={len(cache.invs[2])})')
+                f"Dump: {dump} " f"(tx={len(cache.invs[1])} block={len(cache.invs[2])})"
+            )
         else:
-            logging.debug(f'Dropped: {dump}')
+            logging.debug(f"Dropped: {dump}")
 
-        if not CONF['persist_pcap']:
+        if not CONF["persist_pcap"]:
             os.remove(dump)
 
 
@@ -192,35 +196,32 @@ def init_conf(config):
     """
     conf = ConfigParser()
     conf.read(config)
-    CONF['logfile'] = conf.get('cache_inv', 'logfile')
-    CONF['magic_number'] = unhexlify(conf.get('cache_inv', 'magic_number'))
-    CONF['db'] = conf.getint('cache_inv', 'db')
-    CONF['debug'] = conf.getboolean('cache_inv', 'debug')
-    CONF['ttl'] = conf.getint('cache_inv', 'ttl')
-    CONF['rtt_count'] = conf.getint('cache_inv', 'rtt_count')
-    CONF['inv_1_count'] = conf.getint('cache_inv', 'inv_1_count')
-    CONF['inv_2_count'] = conf.getint('cache_inv', 'inv_2_count')
-    CONF['inv_1_sampling_rate'] = conf.getint(
-        'cache_inv', 'inv_1_sampling_rate')
-    CONF['inv_2_sampling_rate'] = conf.getint(
-        'cache_inv', 'inv_2_sampling_rate')
+    CONF["logfile"] = conf.get("cache_inv", "logfile")
+    CONF["magic_number"] = unhexlify(conf.get("cache_inv", "magic_number"))
+    CONF["db"] = conf.getint("cache_inv", "db")
+    CONF["debug"] = conf.getboolean("cache_inv", "debug")
+    CONF["ttl"] = conf.getint("cache_inv", "ttl")
+    CONF["rtt_count"] = conf.getint("cache_inv", "rtt_count")
+    CONF["inv_1_count"] = conf.getint("cache_inv", "inv_1_count")
+    CONF["inv_2_count"] = conf.getint("cache_inv", "inv_2_count")
+    CONF["inv_1_sampling_rate"] = conf.getint("cache_inv", "inv_1_sampling_rate")
+    CONF["inv_2_sampling_rate"] = conf.getint("cache_inv", "inv_2_sampling_rate")
 
-    tor_proxies = conf.get('cache_inv', 'tor_proxies').strip().split('\n')
-    CONF['tor_proxies'] = [
-        (p.split(':')[0], int(p.split(':')[1])) for p in tor_proxies]
+    tor_proxies = conf.get("cache_inv", "tor_proxies").strip().split("\n")
+    CONF["tor_proxies"] = [(p.split(":")[0], int(p.split(":")[1])) for p in tor_proxies]
 
-    CONF['pcap_dir'] = conf.get('cache_inv', 'pcap_dir')
-    if not os.path.exists(CONF['pcap_dir']):
-        os.makedirs(CONF['pcap_dir'])
-    CONF['pcap_suffix'] = conf.get('cache_inv', 'pcap_suffix')
+    CONF["pcap_dir"] = conf.get("cache_inv", "pcap_dir")
+    if not os.path.exists(CONF["pcap_dir"]):
+        os.makedirs(CONF["pcap_dir"])
+    CONF["pcap_suffix"] = conf.get("cache_inv", "pcap_suffix")
 
-    CONF['persist_pcap'] = conf.getboolean('cache_inv', 'persist_pcap')
-    CONF['pcap_sampling_rate'] = conf.getint('cache_inv', 'pcap_sampling_rate')
+    CONF["persist_pcap"] = conf.getboolean("cache_inv", "persist_pcap")
+    CONF["pcap_sampling_rate"] = conf.getint("cache_inv", "pcap_sampling_rate")
 
 
 def main(argv):
     if len(argv) < 2 or not os.path.exists(argv[1]):
-        print('Usage: cache_inv.py [config]')
+        print("Usage: cache_inv.py [config]")
         return 1
 
     # Initialize global conf.
@@ -228,15 +229,16 @@ def main(argv):
 
     # Initialize logger.
     loglevel = logging.INFO
-    if CONF['debug']:
+    if CONF["debug"]:
         loglevel = logging.DEBUG
 
-    logformat = ('[%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s '
-                 '(%(funcName)s) %(message)s')
-    logging.basicConfig(level=loglevel,
-                        format=logformat,
-                        filename=CONF['logfile'],
-                        filemode='a')
+    logformat = (
+        "[%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s "
+        "(%(funcName)s) %(message)s"
+    )
+    logging.basicConfig(
+        level=loglevel, format=logformat, filename=CONF["logfile"], filemode="a"
+    )
     print(f"Log: {CONF['logfile']}, press CTRL+C to terminate..")
 
     cron()
@@ -244,5 +246,5 @@ def main(argv):
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main(sys.argv))

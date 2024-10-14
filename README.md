@@ -54,9 +54,9 @@ echo 'eval "$(pyenv init -)"' >> ~/.profile
 
 # Setup project
 source ~/.bashrc
-pyenv install 3.11.2
+pyenv install 3.12.4
 cd && git clone https://github.com/ayeowch/bitnodes.git && cd bitnodes
-~/.pyenv/versions/3.11.2/bin/python -m venv venv
+~/.pyenv/versions/3.12.4/bin/python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 pytest

@@ -50,6 +50,7 @@ class Seeder(object):
     records into DNS zone files. A separate DNS server software is expected to
     consume and serve the zone files to the public.
     """
+
     def __init__(self, redis_conn=None):
         self.redis_conn = redis_conn
         self.dump = None
@@ -64,12 +65,12 @@ class Seeder(object):
         self.now = int(time.time())
         if dump != self.dump:
             try:
-                self.nodes = json.loads(open(dump, 'r').read())
+                self.nodes = json.loads(open(dump, "r").read())
             except ValueError:
-                logging.warning('Write pending')
+                logging.warning("Write pending")
                 return
             if len(self.nodes) == 0:
-                logging.warning(f'len(self.nodes): {len(self.nodes)}')
+                logging.warning(f"len(self.nodes): {len(self.nodes)}")
                 return
             self.addresses = defaultdict(list)
             for address, services in self.filter_nodes():
@@ -81,22 +82,21 @@ class Seeder(object):
         """
         Saves A and AAAA records in DNS zone files.
         """
-        zone_dir = os.path.dirname(CONF['zone_file'])
-        default_zone = os.path.basename(CONF['zone_file'])
+        zone_dir = os.path.dirname(CONF["zone_file"])
+        default_zone = os.path.basename(CONF["zone_file"])
         # Default zone followed by services-based zones (max. 100 zones)
         zone_keys = sorted(set([0] + list(self.addresses.keys())))[:100]
         for i in zone_keys:
             if i == 0:
                 # Default zone should include all nodes that have at least
                 # NODE_NETWORK service bit set.
-                zone_file = CONF['zone_file']
+                zone_file = CONF["zone_file"]
                 addresses = []
                 for services, addrs in self.addresses.items():
                     if services & 1 == 1:  # NODE_NETWORK
                         addresses.extend(addrs)
             else:
-                zone_file = os.path.join(
-                    zone_dir, 'x%x.%s' % (i, default_zone))
+                zone_file = os.path.join(zone_dir, "x%x.%s" % (i, default_zone))
                 addresses = self.addresses[i]
             records = self.get_records(addresses)
             self.save_zone_file(zone_file, records)
@@ -105,21 +105,28 @@ class Seeder(object):
         """
         Saves filtered addresses in formatted records in the DNS zone file.
         """
-        logging.debug(f'Zone file: {zone_file}')
+        logging.debug(f"Zone file: {zone_file}")
         serial = str(self.now)
-        logging.debug(f'Serial: {serial}')
-        origin = os.path.basename(zone_file).replace('zone', '')
-        logging.debug(f'Origin: {origin}')
-        template = open(CONF['template'], 'r') \
-            .read() \
-            .replace('1501826735', serial) \
-            .replace('seed.bitnodes.io.', origin)
-        content = ''.join([
-            template,
-            '\n',
-            records,
-        ]).strip() + '\n'
-        open(zone_file, 'w').write(content)
+        logging.debug(f"Serial: {serial}")
+        origin = os.path.basename(zone_file).replace("zone", "")
+        logging.debug(f"Origin: {origin}")
+        template = (
+            open(CONF["template"], "r")
+            .read()
+            .replace("1501826735", serial)
+            .replace("seed.bitnodes.io.", origin)
+        )
+        content = (
+            "".join(
+                [
+                    template,
+                    "\n",
+                    records,
+                ]
+            ).strip()
+            + "\n"
+        )
+        open(zone_file, "w").write(content)
 
     def get_records(self, addresses):
         """
@@ -129,25 +136,29 @@ class Seeder(object):
         aaaa_records = []
         txt_records = []
         for address in addresses:
-            if address.endswith('.onion'):
-                txt_records.append(f'@\tIN\tTXT\t{address}')
-            elif ':' in address:
-                aaaa_records.append(f'@\tIN\tAAAA\t{address}')
+            if address.endswith(".onion"):
+                txt_records.append(f"@\tIN\tTXT\t{address}")
+            elif ":" in address:
+                aaaa_records.append(f"@\tIN\tAAAA\t{address}")
             else:
-                a_records.append(f'@\tIN\tA\t{address}')
-        logging.debug(f'A records: {len(a_records)}', )
-        logging.debug(f'AAAA records: {len(aaaa_records)}')
-        logging.debug(f'TXT records: {len(txt_records)}')
+                a_records.append(f"@\tIN\tA\t{address}")
+        logging.debug(
+            f"A records: {len(a_records)}",
+        )
+        logging.debug(f"AAAA records: {len(aaaa_records)}")
+        logging.debug(f"TXT records: {len(txt_records)}")
         random.shuffle(a_records)
         random.shuffle(aaaa_records)
         random.shuffle(txt_records)
-        records = ''.join([
-            '\n'.join(a_records[:CONF['a_records']]),
-            '\n',
-            '\n'.join(aaaa_records[:CONF['aaaa_records']]),
-            '\n',
-            '\n'.join(txt_records[:CONF['txt_records']]),
-        ])
+        records = "".join(
+            [
+                "\n".join(a_records[: CONF["a_records"]]),
+                "\n",
+                "\n".join(aaaa_records[: CONF["aaaa_records"]]),
+                "\n",
+                "\n".join(txt_records[: CONF["txt_records"]]),
+            ]
+        )
         return records
 
     def filter_nodes(self):
@@ -168,11 +179,11 @@ class Seeder(object):
             services = node[5]
             height = node[6]
             asn = node[13]
-            if port != CONF['port'] or asn is None or age < min_age:
+            if port != CONF["port"] or asn is None or age < min_age:
                 continue
             if consensus_height and abs(consensus_height - height) > 2:
                 continue
-            if asn in asns and not address.endswith('.onion'):
+            if asn in asns and not address.endswith(".onion"):
                 continue
             yield address, services
             asns.add(asn)
@@ -181,10 +192,10 @@ class Seeder(object):
         """
         Returns the most common height from Redis.
         """
-        height = self.redis_conn.get('height')
+        height = self.redis_conn.get("height")
         if height:
             height = int(height)
-        logging.info(f'Consensus height: {height}')
+        logging.info(f"Consensus height: {height}")
         return height
 
     def get_min_age(self):
@@ -193,12 +204,12 @@ class Seeder(object):
         the configured value, use a fallback value of max. 1 percent away from
         the uptime of the oldest node.
         """
-        min_age = CONF['min_age']
+        min_age = CONF["min_age"]
         oldest = self.now - min(self.nodes, key=operator.itemgetter(4))[4]
-        logging.info(f'Longest uptime: {oldest}')
+        logging.info(f"Longest uptime: {oldest}")
         if oldest < min_age:
             min_age = oldest - (0.01 * oldest)  # Max. 1% newer than oldest
-        logging.info(f'Min. age: {min_age}')
+        logging.info(f"Min. age: {min_age}")
         return min_age
 
 
@@ -206,7 +217,7 @@ def cron():
     """
     Periodically fetches latest snapshot to sample nodes for DNS zone files.
     """
-    redis_conn = new_redis_conn(db=CONF['db'])
+    redis_conn = new_redis_conn(db=CONF["db"])
     seeder = Seeder(redis_conn=redis_conn)
     while True:
         time.sleep(5)
@@ -215,7 +226,7 @@ def cron():
         except ValueError as err:
             logging.warning(err)
             continue
-        logging.info(f'Dump: {dump}')
+        logging.info(f"Dump: {dump}")
         seeder.export_nodes(dump)
 
 
@@ -225,25 +236,25 @@ def init_conf(config):
     """
     conf = ConfigParser()
     conf.read(config)
-    CONF['logfile'] = conf.get('seeder', 'logfile')
-    CONF['port'] = conf.getint('seeder', 'port')
-    CONF['db'] = conf.getint('seeder', 'db')
-    CONF['debug'] = conf.getboolean('seeder', 'debug')
-    CONF['export_dir'] = conf.get('seeder', 'export_dir')
-    CONF['min_age'] = conf.getint('seeder', 'min_age')
-    CONF['zone_file'] = conf.get('seeder', 'zone_file')
-    CONF['template'] = conf.get('seeder', 'template')
-    CONF['a_records'] = conf.getint('seeder', 'a_records')
-    CONF['aaaa_records'] = conf.getint('seeder', 'aaaa_records')
-    CONF['txt_records'] = conf.getint('seeder', 'txt_records')
-    zone_dir = os.path.dirname(CONF['zone_file'])
+    CONF["logfile"] = conf.get("seeder", "logfile")
+    CONF["port"] = conf.getint("seeder", "port")
+    CONF["db"] = conf.getint("seeder", "db")
+    CONF["debug"] = conf.getboolean("seeder", "debug")
+    CONF["export_dir"] = conf.get("seeder", "export_dir")
+    CONF["min_age"] = conf.getint("seeder", "min_age")
+    CONF["zone_file"] = conf.get("seeder", "zone_file")
+    CONF["template"] = conf.get("seeder", "template")
+    CONF["a_records"] = conf.getint("seeder", "a_records")
+    CONF["aaaa_records"] = conf.getint("seeder", "aaaa_records")
+    CONF["txt_records"] = conf.getint("seeder", "txt_records")
+    zone_dir = os.path.dirname(CONF["zone_file"])
     if not os.path.exists(zone_dir):
         os.makedirs(zone_dir)
 
 
 def main(argv):
     if len(argv) < 2 or not os.path.exists(argv[1]):
-        print('Usage: seeder.py [config]')
+        print("Usage: seeder.py [config]")
         return 1
 
     # Initialize global conf.
@@ -251,15 +262,16 @@ def main(argv):
 
     # Initialize logger.
     loglevel = logging.INFO
-    if CONF['debug']:
+    if CONF["debug"]:
         loglevel = logging.DEBUG
 
-    logformat = ('[%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s '
-                 '(%(funcName)s) %(message)s')
-    logging.basicConfig(level=loglevel,
-                        format=logformat,
-                        filename=CONF['logfile'],
-                        filemode='w')
+    logformat = (
+        "[%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s "
+        "(%(funcName)s) %(message)s"
+    )
+    logging.basicConfig(
+        level=loglevel, format=logformat, filename=CONF["logfile"], filemode="w"
+    )
     print(f"Log: {CONF['logfile']}, press CTRL+C to terminate..")
 
     cron()
@@ -267,5 +279,5 @@ def main(argv):
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main(sys.argv))

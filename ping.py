@@ -29,6 +29,7 @@ Greenlets-based Bitcoin network pinger.
 """
 
 from gevent import monkey
+
 monkey.patch_all()
 
 import gevent
@@ -38,7 +39,6 @@ import json
 import logging
 import os
 import random
-import redis
 import redis.connection
 import socket
 import sys
@@ -63,6 +63,7 @@ class Keepalive(object):
     """
     Implements keepalive mechanic to keep the specified connection with a node.
     """
+
     def __init__(self, conn=None, version_msg=None, redis_conn=None):
         self.conn = conn
         self.node = conn.to_addr
@@ -72,23 +73,19 @@ class Keepalive(object):
         self.last_version = self.start_time
 
         self.ping_delay = 60
-        self.version_delay = CONF['version_delay']
+        self.version_delay = CONF["version_delay"]
 
         self.redis_conn = redis_conn
         self.redis_pipe = redis_conn.pipeline()
 
-        version = version_msg.get('version', '')
-        user_agent = version_msg.get('user_agent', '')
-        services = version_msg.get('services', '')
+        version = version_msg.get("version", "")
+        user_agent = version_msg.get("user_agent", "")
+        services = version_msg.get("services", "")
 
         # Open connections are tracked in open set with the associated data
         # stored in opendata set in Redis.
-        self.data = self.node + (
-            version,
-            user_agent,
-            self.start_time,
-            services)
-        self.redis_conn.sadd('opendata', str(self.data))
+        self.data = self.node + (version, user_agent, self.start_time, services)
+        self.redis_conn.sadd("opendata", str(self.data))
 
     def keepalive(self):
         """
@@ -113,7 +110,7 @@ class Keepalive(object):
         self.close()
 
     def close(self):
-        self.redis_conn.srem('opendata', str(self.data))
+        self.redis_conn.srem("opendata", str(self.data))
         self.conn.close()
 
     def ping(self, now):
@@ -127,16 +124,16 @@ class Keepalive(object):
         try:
             self.conn.ping(nonce=nonce)
         except socket.error as err:
-            logging.info(f'Closing {self.node} ({err})')
+            logging.info(f"Closing {self.node} ({err})")
             return False
-        logging.debug(f'{self.node} ({nonce})')
+        logging.debug(f"{self.node} ({nonce})")
 
-        key = f'ping:{self.node[0]}-{self.node[1]}:{nonce}'
+        key = f"ping:{self.node[0]}-{self.node[1]}:{nonce}"
         self.redis_conn.lpush(key, int(self.last_ping * 1000))  # milliseconds
-        self.redis_conn.expire(key, CONF['rtt_ttl'])
+        self.redis_conn.expire(key, CONF["rtt_ttl"])
 
         try:
-            self.ping_delay = int(self.redis_conn.get('elapsed'))
+            self.ping_delay = int(self.redis_conn.get("elapsed"))
         except TypeError:
             pass
 
@@ -148,7 +145,7 @@ class Keepalive(object):
         """
         self.last_version = now
 
-        version_key = f'version:{self.node[0]}-{self.node[1]}'
+        version_key = f"version:{self.node[0]}-{self.node[1]}"
         version_data = self.redis_conn.get(version_key)
 
         if version_data is None:
@@ -156,15 +153,11 @@ class Keepalive(object):
 
         version, user_agent, services = eval(version_data)
         if all([version, user_agent, services]):
-            data = self.node + (
-                version,
-                user_agent,
-                self.start_time,
-                services)
+            data = self.node + (version, user_agent, self.start_time, services)
 
             if self.data != data:
-                self.redis_conn.srem('opendata', str(self.data))
-                self.redis_conn.sadd('opendata', str(data))
+                self.redis_conn.srem("opendata", str(self.data))
+                self.redis_conn.sadd("opendata", str(data))
                 self.data = data
 
         return True
@@ -178,22 +171,22 @@ class Keepalive(object):
         except socket.timeout:
             pass
         except (ProtocolError, ConnectionError, socket.error) as err:
-            logging.info(f'Closing {self.node} ({err})')
+            logging.info(f"Closing {self.node} ({err})")
             return False
         else:
             # Cache block inv messages
             for msg in msgs:
-                if msg['command'] != b'inv':
+                if msg["command"] != b"inv":
                     continue
-                ms = msg['timestamp']
-                for inv in msg['inventory']:
-                    if inv['type'] != 2:
+                ms = msg["timestamp"]
+                for inv in msg["inventory"]:
+                    if inv["type"] != 2:
                         continue
                     key = f"binv:{inv['hash'].decode()}"
                     self.redis_pipe.execute_command(
-                        'ZADD', key, 'LT', ms,
-                        f'{self.node[0]}-{self.node[1]}')
-                    self.redis_pipe.expire(key, CONF['inv_ttl'])
+                        "ZADD", key, "LT", ms, f"{self.node[0]}-{self.node[1]}"
+                    )
+                    self.redis_pipe.expire(key, CONF["inv_ttl"])
             self.redis_pipe.execute()
 
         return True
@@ -204,7 +197,7 @@ def task(redis_conn):
     Assigned to a worker to retrieve (pop) a node from the reachable set and
     attempt to establish and maintain connection with the node.
     """
-    node = redis_conn.spop('reachable')
+    node = redis_conn.spop("reachable")
     if node is None:
         return
     (address, port, services, height) = eval(node)
@@ -212,72 +205,71 @@ def task(redis_conn):
 
     # Check if prefix has hit its limit
     cidr_key = None
-    if ':' in address and CONF['ipv6_prefix'] < 128:
-        cidr = ip_to_network(address, CONF['ipv6_prefix'])
-        cidr_key = f'ping:cidr:{cidr}'
+    if ":" in address and CONF["ipv6_prefix"] < 128:
+        cidr = ip_to_network(address, CONF["ipv6_prefix"])
+        cidr_key = f"ping:cidr:{cidr}"
         nodes = redis_conn.incr(cidr_key)
-        logging.info(f'+CIDR {cidr}: {nodes}')
-        if nodes > CONF['nodes_per_ipv6_prefix']:
-            logging.info(f'CIDR limit reached: {cidr}')
+        logging.info(f"+CIDR {cidr}: {nodes}")
+        if nodes > CONF["nodes_per_ipv6_prefix"]:
+            logging.info(f"CIDR limit reached: {cidr}")
             nodes = redis_conn.decr(cidr_key)
-            logging.info(f'-CIDR {cidr}: {nodes}')
+            logging.info(f"-CIDR {cidr}: {nodes}")
             return
 
-    if redis_conn.sadd('open', str(node)) == 0:
-        logging.info(f'Connection exists: {node}')
+    if redis_conn.sadd("open", str(node)) == 0:
+        logging.info(f"Connection exists: {node}")
         if cidr_key:
             nodes = redis_conn.decr(cidr_key)
-            logging.info(f'-CIDR {cidr}: {nodes}')
+            logging.info(f"-CIDR {cidr}: {nodes}")
         return
 
-    relay = CONF['relay']
+    relay = CONF["relay"]
     proxy = None
-    if address.endswith('.onion') and CONF['onion']:
-        relay = CONF['onion_relay']
-        proxy = random.choice(CONF['tor_proxies'])
+    if address.endswith(".onion") and CONF["onion"]:
+        relay = CONF["onion_relay"]
+        proxy = random.choice(CONF["tor_proxies"])
 
     version_msg = {}
-    conn = Connection(node,
-                      (CONF['source_address'], 0),
-                      magic_number=CONF['magic_number'],
-                      socket_timeout=CONF['socket_timeout'],
-                      proxy=proxy,
-                      protocol_version=CONF['protocol_version'],
-                      to_services=services,
-                      from_services=CONF['services'],
-                      user_agent=CONF['user_agent'],
-                      height=height,
-                      relay=relay)
+    conn = Connection(
+        node,
+        (CONF["source_address"], 0),
+        magic_number=CONF["magic_number"],
+        socket_timeout=CONF["socket_timeout"],
+        proxy=proxy,
+        protocol_version=CONF["protocol_version"],
+        to_services=services,
+        from_services=CONF["services"],
+        user_agent=CONF["user_agent"],
+        height=height,
+        relay=relay,
+    )
     try:
-        logging.debug(f'Connecting to {conn.to_addr}')
+        logging.debug(f"Connecting to {conn.to_addr}")
         conn.open()
         version_msg = conn.handshake()
     except (ProtocolError, ConnectionError, socket.error) as err:
-        logging.debug(f'Closing {node} ({err})')
+        logging.debug(f"Closing {node} ({err})")
         conn.close()
 
     if not version_msg:
         if cidr_key:
             nodes = redis_conn.decr(cidr_key)
-            logging.info(f'-CIDR {cidr}: {nodes}')
-        redis_conn.srem('open', str(node))
+            logging.info(f"-CIDR {cidr}: {nodes}")
+        redis_conn.srem("open", str(node))
         return
 
-    if address.endswith('.onion'):
+    if address.endswith(".onion"):
         # Map local port to .onion node.
         local_port = conn.socket.getsockname()[1]
-        logging.debug(f'Local port {conn.to_addr}: {local_port}')
-        redis_conn.set(f'onion:{local_port}', str(conn.to_addr))
+        logging.debug(f"Local port {conn.to_addr}: {local_port}")
+        redis_conn.set(f"onion:{local_port}", str(conn.to_addr))
 
-    Keepalive(
-        conn=conn,
-        version_msg=version_msg,
-        redis_conn=redis_conn).keepalive()
+    Keepalive(conn=conn, version_msg=version_msg, redis_conn=redis_conn).keepalive()
 
     if cidr_key:
         nodes = redis_conn.decr(cidr_key)
-        logging.info(f'-CIDR {cidr}: {nodes}')
-    redis_conn.srem('open', str(node))
+        logging.info(f"-CIDR {cidr}: {nodes}")
+    redis_conn.srem("open", str(node))
 
 
 def cron(pool, redis_conn):
@@ -293,12 +285,12 @@ def cron(pool, redis_conn):
     [Master/Slave]
     1) Spawns workers to establish and maintain connection with reachable nodes
     """
-    magic_number = hexlify(CONF['magic_number']).decode()
-    publish_key = f'snapshot:{magic_number}'
+    magic_number = hexlify(CONF["magic_number"]).decode()
+    publish_key = f"snapshot:{magic_number}"
     snapshot = None
 
     while True:
-        if CONF['master']:
+        if CONF["master"]:
             new_snapshot = get_snapshot()
 
             if new_snapshot != snapshot:
@@ -306,28 +298,28 @@ def cron(pool, redis_conn):
                 if len(nodes) == 0:
                     continue
 
-                logging.info(f'New snapshot: {new_snapshot}')
+                logging.info(f"New snapshot: {new_snapshot}")
                 snapshot = new_snapshot
 
-                logging.info(f'Nodes: {len(nodes)}')
+                logging.info(f"Nodes: {len(nodes)}")
 
                 reachable_nodes = set_reachable(nodes, redis_conn)
-                logging.info(f'New reachable nodes: {reachable_nodes}')
+                logging.info(f"New reachable nodes: {reachable_nodes}")
 
                 # Allow connections to stabilize before publishing snapshot.
-                gevent.sleep(CONF['socket_timeout'])
+                gevent.sleep(CONF["socket_timeout"])
                 redis_conn.publish(publish_key, int(time.time()))
 
-            connections = redis_conn.scard('open')
-            logging.info(f'Connections: {connections}')
+            connections = redis_conn.scard("open")
+            logging.info(f"Connections: {connections}")
 
-        for _ in range(min(redis_conn.scard('reachable'), pool.free_count())):
+        for _ in range(min(redis_conn.scard("reachable"), pool.free_count())):
             pool.spawn(task, redis_conn)
 
-        workers = CONF['workers'] - pool.free_count()
-        logging.info(f'Workers: {workers}')
+        workers = CONF["workers"] - pool.free_count()
+        logging.info(f"Workers: {workers}")
 
-        gevent.sleep(CONF['cron_delay'])
+        gevent.sleep(CONF["cron_delay"])
 
 
 def get_snapshot():
@@ -348,7 +340,7 @@ def get_nodes(path):
     Returns all reachable nodes from a JSON file.
     """
     nodes = []
-    text = open(path, 'r').read()
+    text = open(path, "r").read()
     try:
         nodes = json.loads(text)
     except ValueError as err:
@@ -367,10 +359,9 @@ def set_reachable(nodes, redis_conn):
         port = node[1]
         services = node[2]
         height = node[3]
-        if not redis_conn.sismember('open', str((address, port))):
-            redis_conn.sadd(
-                'reachable', str((address, port, services, height)))
-    return redis_conn.scard('reachable')
+        if not redis_conn.sismember("open", str((address, port))):
+            redis_conn.sadd("reachable", str((address, port, services, height)))
+    return redis_conn.scard("reachable")
 
 
 def init_conf(argv):
@@ -379,44 +370,44 @@ def init_conf(argv):
     """
     conf = ConfigParser()
     conf.read(argv[1])
-    CONF['logfile'] = conf.get('ping', 'logfile')
-    CONF['magic_number'] = unhexlify(conf.get('ping', 'magic_number'))
-    CONF['db'] = conf.getint('ping', 'db')
-    CONF['workers'] = conf.getint('ping', 'workers')
-    CONF['debug'] = conf.getboolean('ping', 'debug')
-    CONF['source_address'] = conf.get('ping', 'source_address')
-    CONF['protocol_version'] = conf.getint('ping', 'protocol_version')
-    CONF['user_agent'] = conf.get('ping', 'user_agent')
-    CONF['services'] = conf.getint('ping', 'services')
-    CONF['relay'] = conf.getint('ping', 'relay')
-    CONF['socket_timeout'] = conf.getint('ping', 'socket_timeout')
-    CONF['cron_delay'] = conf.getint('ping', 'cron_delay')
-    CONF['rtt_ttl'] = conf.getint('ping', 'rtt_ttl')
-    CONF['inv_ttl'] = conf.getint('ping', 'inv_ttl')
-    CONF['version_delay'] = conf.getint('ping', 'version_delay')
-    CONF['ipv6_prefix'] = conf.getint('ping', 'ipv6_prefix')
-    CONF['nodes_per_ipv6_prefix'] = conf.getint('ping',
-                                                'nodes_per_ipv6_prefix')
+    CONF["logfile"] = conf.get("ping", "logfile")
+    CONF["magic_number"] = unhexlify(conf.get("ping", "magic_number"))
+    CONF["db"] = conf.getint("ping", "db")
+    CONF["workers"] = conf.getint("ping", "workers")
+    CONF["debug"] = conf.getboolean("ping", "debug")
+    CONF["source_address"] = conf.get("ping", "source_address")
+    CONF["protocol_version"] = conf.getint("ping", "protocol_version")
+    CONF["user_agent"] = conf.get("ping", "user_agent")
+    CONF["services"] = conf.getint("ping", "services")
+    CONF["relay"] = conf.getint("ping", "relay")
+    CONF["socket_timeout"] = conf.getint("ping", "socket_timeout")
+    CONF["cron_delay"] = conf.getint("ping", "cron_delay")
+    CONF["rtt_ttl"] = conf.getint("ping", "rtt_ttl")
+    CONF["inv_ttl"] = conf.getint("ping", "inv_ttl")
+    CONF["version_delay"] = conf.getint("ping", "version_delay")
+    CONF["ipv6_prefix"] = conf.getint("ping", "ipv6_prefix")
+    CONF["nodes_per_ipv6_prefix"] = conf.getint("ping", "nodes_per_ipv6_prefix")
 
-    CONF['onion'] = conf.getboolean('ping', 'onion')
-    CONF['tor_proxies'] = []
-    if CONF['onion']:
-        tor_proxies = conf.get('ping', 'tor_proxies').strip().split('\n')
-        CONF['tor_proxies'] = [
-            (p.split(':')[0], int(p.split(':')[1])) for p in tor_proxies]
-    CONF['onion_relay'] = conf.getint('ping', 'onion_relay')
+    CONF["onion"] = conf.getboolean("ping", "onion")
+    CONF["tor_proxies"] = []
+    if CONF["onion"]:
+        tor_proxies = conf.get("ping", "tor_proxies").strip().split("\n")
+        CONF["tor_proxies"] = [
+            (p.split(":")[0], int(p.split(":")[1])) for p in tor_proxies
+        ]
+    CONF["onion_relay"] = conf.getint("ping", "onion_relay")
 
-    CONF['crawl_dir'] = conf.get('ping', 'crawl_dir')
-    if not os.path.exists(CONF['crawl_dir']):
-        os.makedirs(CONF['crawl_dir'])
+    CONF["crawl_dir"] = conf.get("ping", "crawl_dir")
+    if not os.path.exists(CONF["crawl_dir"]):
+        os.makedirs(CONF["crawl_dir"])
 
     # Set to True for master process
-    CONF['master'] = argv[2] == 'master'
+    CONF["master"] = argv[2] == "master"
 
 
 def main(argv):
     if len(argv) < 3 or not os.path.exists(argv[1]):
-        print('Usage: ping.py [config] [master|slave]')
+        print("Usage: ping.py [config] [master|slave]")
         return 1
 
     # Initialize global conf.
@@ -424,36 +415,37 @@ def main(argv):
 
     # Initialize logger.
     loglevel = logging.INFO
-    if CONF['debug']:
+    if CONF["debug"]:
         loglevel = logging.DEBUG
 
-    logformat = ('[%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s '
-                 '(%(funcName)s) %(message)s')
-    logging.basicConfig(level=loglevel,
-                        format=logformat,
-                        filename=CONF['logfile'],
-                        filemode='a')
+    logformat = (
+        "[%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s "
+        "(%(funcName)s) %(message)s"
+    )
+    logging.basicConfig(
+        level=loglevel, format=logformat, filename=CONF["logfile"], filemode="a"
+    )
     print(f"Log: {CONF['logfile']}, press CTRL+C to terminate..")
 
-    redis_conn = new_redis_conn(db=CONF['db'])
+    redis_conn = new_redis_conn(db=CONF["db"])
 
-    if CONF['master']:
+    if CONF["master"]:
         redis_pipe = redis_conn.pipeline()
-        logging.info('Removing all keys')
-        redis_pipe.delete('reachable')
-        redis_pipe.delete('open')
-        redis_pipe.delete('opendata')
-        for key in get_keys(redis_conn, 'ping:cidr:*'):
+        logging.info("Removing all keys")
+        redis_pipe.delete("reachable")
+        redis_pipe.delete("open")
+        redis_pipe.delete("opendata")
+        for key in get_keys(redis_conn, "ping:cidr:*"):
             redis_pipe.delete(key)
         redis_pipe.execute()
 
     # Initialize a pool of workers (greenlets).
-    pool = gevent.pool.Pool(CONF['workers'])
+    pool = gevent.pool.Pool(CONF["workers"])
     pool.spawn(cron, pool, redis_conn)
     pool.join()
 
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main(sys.argv))
