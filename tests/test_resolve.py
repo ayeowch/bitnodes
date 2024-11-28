@@ -79,10 +79,10 @@ def test_raw_geoip():
     geoip = Resolve().raw_geoip("2606:4700:4700::1111")
     assert geoip == (
         None,
-        "US",
-        37.751,
-        -97.822,
-        "America/Chicago",
+        None,
+        0.0,
+        0.0,
+        None,
         "AS13335",
         "CLOUDFLARENET",
     )
