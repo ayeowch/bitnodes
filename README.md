@@ -30,7 +30,7 @@ See [Provisioning Bitcoin Network Crawler](https://github.com/ayeowch/bitnodes/w
 
 * [What is a Bitcoin node?](https://bitnodes.io/what-is-a-bitcoin-node/)
 
-* [Addresses List](https://bitnodes.io/nodes/addresses-list/)
+* [Addresses List](https://bitnodes.io/nodes/addresses/)
 
 ### CI
 
