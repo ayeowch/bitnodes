@@ -1,8 +1,8 @@
 PySocks==1.7.1
-black==24.4.2
+black==24.10.0
 dpkt==1.9.8
-flake8==7.1.0
-geoip2==4.8.0
-gevent==24.2.1
-pytest==8.2.2
-redis==5.0.6
+flake8==7.1.1
+geoip2==4.8.1
+gevent==24.11.1
+pytest==8.3.3
+redis==5.2.0
