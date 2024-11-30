@@ -39,6 +39,7 @@ import time
 from collections import defaultdict
 from configparser import ConfigParser
 
+from protocol import ONION_SUFFIX
 from utils import new_redis_conn
 
 CONF = {}
@@ -136,7 +137,7 @@ class Seeder(object):
         aaaa_records = []
         txt_records = []
         for address in addresses:
-            if address.endswith(".onion"):
+            if address.endswith(ONION_SUFFIX):
                 txt_records.append(f"@\tIN\tTXT\t{address}")
             elif ":" in address:
                 aaaa_records.append(f"@\tIN\tAAAA\t{address}")
@@ -183,7 +184,7 @@ class Seeder(object):
                 continue
             if consensus_height and abs(consensus_height - height) > 2:
                 continue
-            if asn in asns and not address.endswith(".onion"):
+            if asn in asns and not address.endswith(ONION_SUFFIX):
                 continue
             yield address, services
             asns.add(asn)

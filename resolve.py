@@ -32,23 +32,23 @@ from gevent import monkey
 
 monkey.patch_all()
 
-import gevent
-import gevent.pool
 import logging
 import os
-import redis.connection
 import socket
 import sys
 import time
-from binascii import hexlify
-from binascii import unhexlify
 from collections import defaultdict
 from configparser import ConfigParser
 from decimal import Decimal
+
+import gevent
+import gevent.pool
+import redis.connection
+from binascii import hexlify, unhexlify
 from geoip2.errors import AddressNotFoundError
 
-from utils import GeoIp
-from utils import new_redis_conn
+from protocol import ONION_SUFFIX
+from utils import GeoIp, new_redis_conn
 
 redis.connection.socket = gevent.socket
 
@@ -87,7 +87,7 @@ class Resolve(object):
             if ttl < 0.1 * CONF["ttl"]:  # Less than 10% of initial TTL.
                 expiring = True
 
-            if expiring and idx < 1000 and not address.endswith(".onion"):
+            if expiring and idx < 1000 and not address.endswith(ONION_SUFFIX):
                 self.resolved["hostname"][address] = None
                 idx += 1
 
@@ -181,7 +181,7 @@ class Resolve(object):
         asn = None
         org = None
 
-        if not address.endswith(".onion"):
+        if not address.endswith(ONION_SUFFIX):
             try:
                 gcountry = self.geoip.country(address)
             except AddressNotFoundError:
@@ -203,7 +203,7 @@ class Resolve(object):
                     lng = float(Decimal(gcity.location.longitude).quantize(GEO_PREC))
                 timezone = gcity.location.time_zone
 
-        if address.endswith(".onion"):
+        if address.endswith(ONION_SUFFIX):
             asn = "TOR"
             org = "Tor network"
         else:

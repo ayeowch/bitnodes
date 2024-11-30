@@ -32,27 +32,23 @@ from gevent import monkey
 
 monkey.patch_all()
 
-import gevent
-import gevent.pool
 import glob
 import json
 import logging
 import os
 import random
-import redis.connection
 import socket
 import sys
 import time
-from binascii import hexlify
-from binascii import unhexlify
 from configparser import ConfigParser
 
-from protocol import Connection
-from protocol import ConnectionError
-from protocol import ProtocolError
-from utils import get_keys
-from utils import ip_to_network
-from utils import new_redis_conn
+import gevent
+import gevent.pool
+import redis.connection
+from binascii import hexlify, unhexlify
+
+from protocol import Connection, ConnectionError, ONION_SUFFIX, ProtocolError
+from utils import get_keys, ip_to_network, new_redis_conn
 
 redis.connection.socket = gevent.socket
 
@@ -225,7 +221,7 @@ def task(redis_conn):
 
     relay = CONF["relay"]
     proxy = None
-    if address.endswith(".onion") and CONF["onion"]:
+    if address.endswith(ONION_SUFFIX) and CONF["onion"]:
         relay = CONF["onion_relay"]
         proxy = random.choice(CONF["tor_proxies"])
 
@@ -258,7 +254,7 @@ def task(redis_conn):
         redis_conn.srem("open", str(node))
         return
 
-    if address.endswith(".onion"):
+    if address.endswith(ONION_SUFFIX):
         # Map local port to .onion node.
         local_port = conn.socket.getsockname()[1]
         logging.debug(f"Local port {conn.to_addr}: {local_port}")

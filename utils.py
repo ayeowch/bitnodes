@@ -34,11 +34,12 @@ monkey.patch_all()
 
 import logging
 import os
+import time
+from ipaddress import ip_network
+
 import redis
 import requests
-import time
 from geoip2.database import Reader
-from ipaddress import ip_network
 from maxminddb.errors import InvalidDatabaseError
 
 

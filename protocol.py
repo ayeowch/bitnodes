@@ -148,6 +148,7 @@ import time
 from base64 import b32decode, b32encode
 from collections import deque
 from io import BytesIO, SEEK_CUR
+from ipaddress import ip_network
 
 import gevent
 import socks
@@ -160,7 +161,7 @@ PROTOCOL_VERSION = 70016
 FROM_SERVICES = 0
 TO_SERVICES = 1  # NODE_NETWORK
 USER_AGENT = "/bitnodes.io:0.3/"
-HEIGHT = 754565
+HEIGHT = 872447
 RELAY = 0  # Set to 1 to receive all txs.
 
 SOCKET_BUFSIZE = 8192
@@ -187,14 +188,13 @@ NETWORK_LENGTHS = {
     NETWORK_CJDNS: 16,
 }
 
-SUPPORTED_NETWORKS = [
-    NETWORK_IPV4,
-    NETWORK_IPV6,
-    NETWORK_TORV2,
-    NETWORK_TORV3,
-]
-
 ONION_V3_LEN = 62
+
+ONION_SUFFIX = ".onion"
+I2P_SUFFIX = ".b32.i2p"
+
+# CJDNS address uses fc00::/8 reserved IPv6 range.
+CJDNS_NETWORK = ip_network("fc00::/8")
 
 
 class ProtocolError(Exception):
@@ -229,10 +229,6 @@ class UnknownNetworkIdError(ProtocolError):
     pass
 
 
-class UnsupportedNetworkIdError(ProtocolError):
-    pass
-
-
 class InvalidAddrLenError(ProtocolError):
     pass
 
@@ -257,7 +253,7 @@ def addr_to_onion_v2(addr):
     """
     Returns .onion address for the specified v2 onion addr.
     """
-    return (b32encode(addr).lower() + b".onion").decode()
+    return b32encode(addr).lower().decode() + ONION_SUFFIX
 
 
 def addr_to_onion_v3(addr):
@@ -265,11 +261,18 @@ def addr_to_onion_v3(addr):
     Returns .onion address for the specified v3 onion addr (PUBKEY).
 
     onion_address = base32(PUBKEY | CHECKSUM | VERSION) + '.onion'
-    See https://gitweb.torproject.org/torspec.git/tree/rend-spec-v3.txt#n2135
+    See https://spec.torproject.org/rend-spec/encoding-onion-addresses.html
     """
     version = b"\x03"
     checksum = hashlib.sha3_256(b".onion checksum" + addr + version).digest()[:2]
-    return (b32encode(addr + checksum + version).lower() + b".onion").decode()
+    return b32encode(addr + checksum + version).lower().decode() + ONION_SUFFIX
+
+
+def addr_to_i2p(addr):
+    """
+    Returns .b32.i2p address (base32(SHA256) + '.b32.i2p').
+    """
+    return b32encode(addr).decode().replace("=", "").lower() + I2P_SUFFIX
 
 
 def unpack(fmt, string):
@@ -283,7 +286,7 @@ def unpack(fmt, string):
 
 
 def create_connection(address, timeout=SOCKET_TIMEOUT, source_address=None, proxy=None):
-    if address[0].endswith(".onion") and proxy is None:
+    if address[0].endswith(ONION_SUFFIX) and proxy is None:
         raise ProxyRequired("tor proxy is required to connect to .onion address")
     if proxy:
         socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, proxy[0], proxy[1])
@@ -640,7 +643,7 @@ class Serializer(object):
         else:
             (services, ip_address, port) = addr
 
-        if ip_address.endswith(".onion"):
+        if ip_address.endswith(ONION_SUFFIX):
             if len(ip_address) == ONION_V3_LEN:
                 network_id = NETWORK_TORV3
             else:
@@ -690,6 +693,8 @@ class Serializer(object):
         ipv4 = ""
         ipv6 = ""
         onion = ""
+        i2p = ""
+        cjdns = ""
 
         timestamp = None
         if has_timestamp:
@@ -703,22 +708,23 @@ class Serializer(object):
             if network_id not in NETWORK_LENGTHS.keys():
                 raise UnknownNetworkIdError(f"unknown network id {network_id}")
 
-            if network_id not in SUPPORTED_NETWORKS:
-                raise UnsupportedNetworkIdError(f"unsupported network id {network_id}")
-
             addr_len = self.deserialize_int(data)
             if addr_len != NETWORK_LENGTHS[network_id]:
                 raise InvalidAddrLenError
 
             addr = data.read(addr_len)
-            if network_id == NETWORK_TORV2:
+            if network_id == NETWORK_IPV4:
+                ipv4 = socket.inet_ntop(socket.AF_INET, addr)
+            elif network_id == NETWORK_IPV6:
+                ipv6 = socket.inet_ntop(socket.AF_INET6, addr)
+            elif network_id == NETWORK_TORV2:
                 onion = addr_to_onion_v2(addr)
             elif network_id == NETWORK_TORV3:
                 onion = addr_to_onion_v3(addr)
-            elif network_id == NETWORK_IPV6:
-                ipv6 = socket.inet_ntop(socket.AF_INET6, addr)
-            elif network_id == NETWORK_IPV4:
-                ipv4 = socket.inet_ntop(socket.AF_INET, addr)
+            elif network_id == NETWORK_I2P:
+                i2p = addr_to_i2p(addr)
+            elif network_id == NETWORK_CJDNS:
+                cjdns = socket.inet_ntop(socket.AF_INET6, addr)
 
             port = unpack(">H", data.read(2))
         else:
@@ -750,6 +756,8 @@ class Serializer(object):
             "ipv4": ipv4,
             "ipv6": ipv6,
             "onion": onion,
+            "i2p": i2p,
+            "cjdns": cjdns,
             "port": port,
         }
 

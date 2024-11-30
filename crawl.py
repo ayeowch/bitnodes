@@ -32,33 +32,33 @@ from gevent import monkey
 
 monkey.patch_all()
 
-import geoip2.database
-import gevent
 import json
 import logging
 import os
 import random
-import redis.connection
 import socket
 import sys
 import time
-from binascii import hexlify
-from binascii import unhexlify
 from collections import Counter
 from configparser import ConfigParser
-from geoip2.errors import AddressNotFoundError
-from ipaddress import ip_address
-from ipaddress import ip_network
+from ipaddress import ip_address, ip_network
 
-from protocol import Connection
-from protocol import ConnectionError
-from protocol import ProtocolError
-from protocol import TO_SERVICES
-from utils import conf_list
-from utils import get_keys
-from utils import http_get_txt
-from utils import ip_to_network
-from utils import new_redis_conn
+import geoip2.database
+import gevent
+import redis.connection
+from binascii import hexlify, unhexlify
+from geoip2.errors import AddressNotFoundError
+
+from protocol import (
+    CJDNS_NETWORK,
+    Connection,
+    ConnectionError,
+    I2P_SUFFIX,
+    ONION_SUFFIX,
+    ProtocolError,
+    TO_SERVICES,
+)
+from utils import conf_list, get_keys, http_get_txt, ip_to_network, new_redis_conn
 
 redis.connection.socket = gevent.socket
 
@@ -112,7 +112,13 @@ def get_peers(conn):
             age = now - timestamp  # seconds
             if age < 0 or age > CONF["max_age"]:
                 continue
-            address = peer["ipv4"] or peer["ipv6"] or peer["onion"]
+            address = (
+                peer["ipv4"]
+                or peer["ipv6"]
+                or peer["onion"]
+                or peer["i2p"]
+                or peer["cjdns"]
+            )
             port = peer["port"] if peer["port"] > 0 else CONF["port"]
             services = peer["services"]
             if not address:
@@ -180,7 +186,7 @@ def connect(key, redis_conn):
         height = int(height)
 
     proxy = None
-    if address.endswith(".onion") and CONF["onion"]:
+    if address.endswith(ONION_SUFFIX) and CONF["onion"]:
         proxy = random.choice(CONF["tor_proxies"])
 
     conn = Connection(
@@ -230,6 +236,15 @@ def connect(key, redis_conn):
 
         peers = get_cached_peers(conn, redis_conn)
         for peer in peers:
+            # I2P and CJDNS peers are cached but not crawled.
+            address = peer[0]
+            if address.endswith(I2P_SUFFIX):
+                continue
+            if (
+                not address.endswith(ONION_SUFFIX)
+                and ip_address(address) in CJDNS_NETWORK
+            ):
+                continue
             redis_pipe.sadd("pending", str(peer))
         redis_pipe.set(key, "")
         redis_pipe.sadd("up", key)
@@ -370,7 +385,7 @@ def task(redis_conn):
             continue
 
         # Skip .onion node.
-        if node[0].endswith(".onion") and not CONF["onion"]:
+        if node[0].endswith(ONION_SUFFIX) and not CONF["onion"]:
             continue
 
         key = f"node:{node[0]}-{node[1]}-{node[2]}"
@@ -429,6 +444,8 @@ def is_excluded(address):
 
     In priority order, the rules are:
     - Include onion address
+    - Include I2P address
+    - Include CJDNS address
     - Exclude private address
     - Exclude address without ASN when include_asns/exclude_asns is set
     - Exclude if address is in exclude_asns
@@ -437,10 +454,18 @@ def is_excluded(address):
     - Exclude if address is not in include_asns
     - Include address
     """
-    if address.endswith(".onion"):
+    if address.endswith(ONION_SUFFIX):
         return False
 
-    if ip_address(address).is_private:
+    if address.endswith(I2P_SUFFIX):
+        return False
+
+    ip_obj = ip_address(address)
+
+    if ip_obj in CJDNS_NETWORK:
+        return False
+
+    if ip_obj.is_private:
         return True
 
     include_asns = CONF["current_include_asns"]

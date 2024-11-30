@@ -59,7 +59,8 @@ class CrawlTestCase(unittest.TestCase):
             mock_connection.call_args.kwargs["user_agent"], "/bitnodes.io:0.3/"
         )
 
-    def test_update_excluded_networks(self):
+    @mock.patch("crawl.http_get_txt")
+    def test_update_excluded_networks(self, mock_http_get_txt):
         def mock_redis_conn_get(*args, **kwargs):
             return b"set()"
 
