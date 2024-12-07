@@ -29,7 +29,6 @@ Saves inv messages from pcap files in Redis.
 """
 
 import bisect
-import hashlib
 import logging
 import os
 import random
@@ -38,6 +37,7 @@ import time
 from collections import defaultdict
 from configparser import ConfigParser
 
+import mmh3
 from binascii import unhexlify
 
 from pcap import Cache, get_pcap_file
@@ -107,7 +107,7 @@ class CacheInv(Cache):
                 # than the current score. This flag doesn't prevent adding new
                 # elements.
                 self.redis_pipe.execute_command(
-                    "ZADD", key, "LT", timestamp, self.node_hash(node)
+                    "ZADD", key, "LT", timestamp, self.node_key(node)
                 )
                 self.redis_pipe.expire(key, CONF["ttl"])
         elif msg["command"] == b"pong":
@@ -133,12 +133,11 @@ class CacheInv(Cache):
 
         return True
 
-    def node_hash(self, node):
+    def node_key(self, node):
         """
-        Encodes a tuple of address and port in shorten hash for storage in
-        Redis.
+        Encodes a tuple of address and port in shorten key for storage in Redis.
         """
-        return hashlib.sha256(f"{node[0]}-{node[1]}".encode()).hexdigest()[:8]
+        return mmh3.mmh3_x64_128_digest(f"{node[0]}-{node[1]}".encode()).hex()[:16]
 
     def cache_rtt(self):
         """
