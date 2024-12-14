@@ -45,3 +45,6 @@ persist_pcap = False
 
 # Sampling rate of pcap files
 pcap_sampling_rate = 100
+
+# JSON file containing a list of old block hashes in 16-char suffixes
+blockhash_suffixes = data/archive/f9beb4d9/blockhash_suffixes.json

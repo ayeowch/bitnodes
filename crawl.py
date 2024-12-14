@@ -262,6 +262,9 @@ def dump(timestamp, nodes, redis_conn):
     logging.info("Building JSON data")
     for node in nodes:
         (address, port, services) = node.decode()[5:].split("-", 2)
+        if is_excluded(address):
+            logging.debug(f"Exclude: {address}")
+            continue
         height_key = f"height:{address}-{port}-{services}"
         try:
             height = int(redis_conn.get(height_key))

@@ -29,6 +29,7 @@ Saves inv messages from pcap files in Redis.
 """
 
 import bisect
+import json
 import logging
 import os
 import random
@@ -84,9 +85,12 @@ class CacheInv(Cache):
         if msg["command"] == b"inv":
             for inv in msg["inventory"]:
                 type = inv["type"]
+                hash = inv["hash"].decode()
                 if type not in (1, 2):
                     continue
-                key = f"inv:{type}:{inv['hash'].decode()}"
+                if type == 2 and hash[-16:] in CONF["blockhash_suffixes"]:
+                    continue
+                key = f"inv:{type}:{hash}"
                 if not self.is_accepted_inv(key, type, timestamp):
                     logging.debug(f"Skip: {key} ({timestamp})")
                     continue
@@ -97,7 +101,7 @@ class CacheInv(Cache):
                     rkey_ms = self.redis_conn.get(rkey)
                     if rkey_ms is None:
                         self.redis_conn.set(rkey, timestamp)
-                        self.redis_pipe.set("lastblockhash", inv["hash"].decode())
+                        self.redis_pipe.set("lastblockhash", hash)
                     elif (timestamp - int(rkey_ms)) / 1000 > CONF["ttl"]:
                         # Ignore block inv first seen more than 3 hours ago
                         logging.debug(f"Skip: {key} ({timestamp})")
@@ -189,6 +193,17 @@ def cron():
             os.remove(dump)
 
 
+def load_blockhash_suffixes(filepath):
+    """
+    Loads old block hashes in 16-char suffixes from a JSON file.
+    """
+    suffixes = set()
+    if os.path.exists(filepath):
+        with open(filepath) as json_file:
+            suffixes.update(set(json.load(json_file)))
+    return suffixes
+
+
 def init_conf(config):
     """
     Populates CONF with key-value pairs from configuration file.
@@ -216,6 +231,10 @@ def init_conf(config):
 
     CONF["persist_pcap"] = conf.getboolean("cache_inv", "persist_pcap")
     CONF["pcap_sampling_rate"] = conf.getint("cache_inv", "pcap_sampling_rate")
+
+    CONF["blockhash_suffixes"] = load_blockhash_suffixes(
+        conf.get("cache_inv", "blockhash_suffixes")
+    )
 
 
 def main(argv):
