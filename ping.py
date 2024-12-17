@@ -41,6 +41,7 @@ import socket
 import sys
 import time
 from configparser import ConfigParser
+from ipaddress import ip_network
 
 import gevent
 import gevent.pool
@@ -48,7 +49,7 @@ import redis.connection
 from binascii import hexlify, unhexlify
 
 from protocol import Connection, ConnectionError, ONION_SUFFIX, ProtocolError
-from utils import get_keys, ip_to_network, new_redis_conn
+from utils import get_keys, http_get_txt, ip_to_network, new_redis_conn
 
 redis.connection.socket = gevent.socket
 
@@ -95,8 +96,7 @@ class Keepalive(object):
                     break
 
             if now > self.last_version + self.version_delay:
-                if not self.version(now):
-                    break
+                self.version(now)
 
             if not self.sink():
                 break
@@ -143,9 +143,8 @@ class Keepalive(object):
 
         version_key = f"version:{self.node[0]}-{self.node[1]}"
         version_data = self.redis_conn.get(version_key)
-
         if version_data is None:
-            return True
+            return
 
         version, user_agent, services = eval(version_data)
         if all([version, user_agent, services]):
@@ -155,8 +154,6 @@ class Keepalive(object):
                 self.redis_conn.srem("opendata", str(self.data))
                 self.redis_conn.sadd("opendata", str(data))
                 self.data = data
-
-        return True
 
     def sink(self):
         """
@@ -188,84 +185,157 @@ class Keepalive(object):
         return True
 
 
-def task(redis_conn):
+class ConnectionManager(object):
     """
-    Assigned to a worker to retrieve (pop) a node from the reachable set and
-    attempt to establish and maintain connection with the node.
+    Implements handling of persistent connection to a reachable node.
     """
-    node = redis_conn.spop("reachable")
-    if node is None:
-        return
-    (address, port, services, height) = eval(node)
-    node = (address, port)
 
-    # Check if prefix has hit its limit
-    cidr_key = None
-    if ":" in address and CONF["ipv6_prefix"] < 128:
-        cidr = ip_to_network(address, CONF["ipv6_prefix"])
-        cidr_key = f"ping:cidr:{cidr}"
-        nodes = redis_conn.incr(cidr_key)
-        logging.info(f"+CIDR {cidr}: {nodes}")
-        if nodes > CONF["nodes_per_ipv6_prefix"]:
-            logging.info(f"CIDR limit reached: {cidr}")
-            nodes = redis_conn.decr(cidr_key)
-            logging.info(f"-CIDR {cidr}: {nodes}")
+    def __init__(self, redis_conn=None):
+        self.redis_conn = redis_conn
+
+        self.address = None
+        self.port = None
+        self.services = None
+        self.height = None
+
+        self.node = None
+
+        self.relay = CONF["relay"]
+        self.proxy = None
+
+        self.cidr_key = None
+        self.cidr_limit = None
+
+        # Retrieve (pop) a node to connect to from the reachable set.
+        if node := self.redis_conn.spop("reachable"):
+            self.address, self.port, self.services, self.height = eval(node)
+            self.node = (self.address, self.port)
+
+            if self.address.endswith(ONION_SUFFIX) and CONF["onion"]:
+                self.relay = CONF["onion_relay"]
+                self.proxy = random.choice(CONF["tor_proxies"])
+
+            self.init_cidr_limit()
+
+    def init_cidr_limit(self):
+        """
+        Initializes prefix-level connection limit for the address.
+        """
+        if self.address.endswith(ONION_SUFFIX):
             return
 
-    if redis_conn.sadd("open", str(node)) == 0:
-        logging.info(f"Connection exists: {node}")
-        if cidr_key:
-            nodes = redis_conn.decr(cidr_key)
-            logging.info(f"-CIDR {cidr}: {nodes}")
-        return
+        family = socket.AF_INET6 if ":" in self.address else socket.AF_INET
+        addr = int(hexlify(socket.inet_pton(family, self.address)), 16)
 
-    relay = CONF["relay"]
-    proxy = None
-    if address.endswith(ONION_SUFFIX) and CONF["onion"]:
-        relay = CONF["onion_relay"]
-        proxy = random.choice(CONF["tor_proxies"])
+        limit_tup = None
+        if CONF["current_cidr_limits"]:
+            limit_tup = next(
+                (
+                    (net, mask, limit)
+                    for (net, mask), limit in CONF["current_cidr_limits"].items()
+                    if addr & mask == net
+                ),
+                None,
+            )
 
-    version_msg = {}
-    conn = Connection(
-        node,
-        (CONF["source_address"], 0),
-        magic_number=CONF["magic_number"],
-        socket_timeout=CONF["socket_timeout"],
-        proxy=proxy,
-        protocol_version=CONF["protocol_version"],
-        to_services=services,
-        from_services=CONF["services"],
-        user_agent=CONF["user_agent"],
-        height=height,
-        relay=relay,
-    )
-    try:
-        logging.debug(f"Connecting to {conn.to_addr}")
-        conn.open()
-        version_msg = conn.handshake()
-    except (ProtocolError, ConnectionError, socket.error) as err:
-        logging.debug(f"Closing {node} ({err})")
-        conn.close()
+        if limit_tup is not None:
+            net, mask, limit = limit_tup
+            self.cidr_key = f"ping:cidr:{net}/{mask}"
+            self.cidr_limit = limit
+        elif ":" in self.address and CONF["ipv6_prefix"] < 128:
+            cidr = ip_to_network(self.address, CONF["ipv6_prefix"])
+            self.cidr_key = f"ping:cidr:{cidr}"
+            self.cidr_limit = CONF["nodes_per_ipv6_prefix"]
 
-    if not version_msg:
-        if cidr_key:
-            nodes = redis_conn.decr(cidr_key)
-            logging.info(f"-CIDR {cidr}: {nodes}")
-        redis_conn.srem("open", str(node))
-        return
+    def increment_cidr_key(self):
+        """
+        Increments value of CIDR key in Redis.
+        """
+        nodes = self.redis_conn.incr(self.cidr_key)
+        logging.debug(f"{self.cidr_key}: {nodes}")
+        return nodes
 
-    if address.endswith(ONION_SUFFIX):
+    def decrement_cidr_key(self):
+        """
+        Decrements value of CIDR key in Redis.
+        """
+        nodes = self.redis_conn.decr(self.cidr_key)
+        logging.debug(f"{self.cidr_key}: {nodes}")
+        return nodes
+
+    def is_allowed(self):
+        """
+        Returns True if there are no restrictions to connect to the node,
+        False if otherwise.
+        """
+        if self.node is None:
+            return False
+
+        if self.cidr_key:
+            nodes = self.increment_cidr_key()
+            if nodes > self.cidr_limit:
+                logging.info(f"CIDR limit reached: {self.node}")
+                self.decrement_cidr_key()
+                return False
+
+        if self.redis_conn.sadd("open", str(self.node)) == 0:
+            logging.debug(f"Connection exists: {self.node}")
+            if self.cidr_key:
+                self.decrement_cidr_key()
+            return False
+
+        return True
+
+    def connect(self):
+        """
+        Establishes and persists connection with the node.
+        """
+        if not self.is_allowed():
+            return
+
+        version_msg = {}
+        conn = Connection(
+            self.node,
+            (CONF["source_address"], 0),
+            magic_number=CONF["magic_number"],
+            socket_timeout=CONF["socket_timeout"],
+            proxy=self.proxy,
+            protocol_version=CONF["protocol_version"],
+            to_services=self.services,
+            from_services=CONF["services"],
+            user_agent=CONF["user_agent"],
+            height=self.height,
+            relay=self.relay,
+        )
+        try:
+            logging.debug(f"Connecting to {conn.to_addr}")
+            conn.open()
+            version_msg = conn.handshake()
+        except (ProtocolError, ConnectionError, socket.error) as err:
+            logging.debug(f"Closing {self.node} ({err})")
+            conn.close()
+
+        if not version_msg:
+            if self.cidr_key:
+                self.decrement_cidr_key()
+            self.redis_conn.srem("open", str(self.node))
+            return
+
         # Map local port to .onion node.
-        local_port = conn.socket.getsockname()[1]
-        logging.debug(f"Local port {conn.to_addr}: {local_port}")
-        redis_conn.set(f"onion:{local_port}", str(conn.to_addr))
+        if self.address.endswith(ONION_SUFFIX):
+            local_port = conn.socket.getsockname()[1]
+            logging.debug(f"Local port {conn.to_addr}: {local_port}")
+            self.redis_conn.set(f"onion:{local_port}", str(conn.to_addr))
 
-    Keepalive(conn=conn, version_msg=version_msg, redis_conn=redis_conn).keepalive()
+        Keepalive(
+            conn=conn,
+            version_msg=version_msg,
+            redis_conn=self.redis_conn,
+        ).keepalive()
 
-    if cidr_key:
-        nodes = redis_conn.decr(cidr_key)
-        logging.info(f"-CIDR {cidr}: {nodes}")
-    redis_conn.srem("open", str(node))
+        if self.cidr_key:
+            self.decrement_cidr_key()
+        self.redis_conn.srem("open", str(self.node))
 
 
 def cron(pool, redis_conn):
@@ -302,6 +372,8 @@ def cron(pool, redis_conn):
                 reachable_nodes = set_reachable(nodes, redis_conn)
                 logging.info(f"New reachable nodes: {reachable_nodes}")
 
+                update_cidr_limits(redis_conn)
+
                 # Allow connections to stabilize before publishing snapshot.
                 gevent.sleep(CONF["socket_timeout"])
                 redis_conn.publish(publish_key, int(time.time()))
@@ -309,8 +381,10 @@ def cron(pool, redis_conn):
             connections = redis_conn.scard("open")
             logging.info(f"Connections: {connections}")
 
+        set_cidr_limits(redis_conn)
+
         for _ in range(min(redis_conn.scard("reachable"), pool.free_count())):
-            pool.spawn(task, redis_conn)
+            pool.spawn(lambda: ConnectionManager(redis_conn).connect())
 
         workers = CONF["workers"] - pool.free_count()
         logging.info(f"Workers: {workers}")
@@ -360,6 +434,48 @@ def set_reachable(nodes, redis_conn):
     return redis_conn.scard("reachable")
 
 
+def set_cidr_limits(redis_conn):
+    """
+    Fetches up-to-date CIDR limits from Redis and stores them in CONF.
+    """
+    cidr_limits = redis_conn.get("cidr-limits")
+    if cidr_limits is not None:
+        CONF["current_cidr_limits"] = eval(cidr_limits)
+
+
+def update_cidr_limits(redis_conn):
+    """
+    Fetches up-to-date CIDR limits from external URL and stores them in Redis.
+    """
+    if CONF["cidr_limits_from_url"]:
+        txt = http_get_txt(CONF["cidr_limits_from_url"])
+        cidr_limits = list_cidr_limits(txt)
+        if cidr_limits:
+            logging.info(f"CIDR limits: {len(cidr_limits)}")
+            redis_conn.set("cidr-limits", str(cidr_limits))
+
+
+def list_cidr_limits(txt):
+    """
+    Converts list of CIDRs and their associated limit into a dict.
+    """
+    cidr_limits = {}
+    lines = txt.strip().split("\n")
+    for line in lines:
+        line = line.strip()
+        if "," in line:
+            cidr, limit = line.split(",", 1)
+            try:
+                network = ip_network(cidr)
+                limit = int(limit)
+            except ValueError:
+                continue
+            else:
+                key = (int(network.network_address), int(network.netmask))
+                cidr_limits[key] = limit
+    return cidr_limits
+
+
 def init_conf(argv):
     """
     Populates CONF with key-value pairs from configuration file.
@@ -381,6 +497,9 @@ def init_conf(argv):
     CONF["rtt_ttl"] = conf.getint("ping", "rtt_ttl")
     CONF["inv_ttl"] = conf.getint("ping", "inv_ttl")
     CONF["version_delay"] = conf.getint("ping", "version_delay")
+
+    CONF["cidr_limits_from_url"] = conf.get("ping", "cidr_limits_from_url")
+    CONF["current_cidr_limits"] = None
     CONF["ipv6_prefix"] = conf.getint("ping", "ipv6_prefix")
     CONF["nodes_per_ipv6_prefix"] = conf.getint("ping", "nodes_per_ipv6_prefix")
 

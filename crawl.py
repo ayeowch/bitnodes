@@ -517,7 +517,7 @@ def is_excluded(address):
 
 def set_included_asns(redis_conn):
     """
-    Fetches up-to-date included ASNs from Redis.
+    Fetches up-to-date included ASNs from Redis and stores them in CONF.
     """
     asns = redis_conn.get("include-asns")
     if asns is not None:

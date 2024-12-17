@@ -219,7 +219,7 @@ def cron():
     Periodically fetches latest snapshot to sample nodes for DNS zone files.
     """
     redis_conn = new_redis_conn(db=CONF["db"])
-    seeder = Seeder(redis_conn=redis_conn)
+    seeder = Seeder(redis_conn)
     while True:
         time.sleep(5)
         try:
