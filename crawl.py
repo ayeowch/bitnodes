@@ -287,27 +287,32 @@ def dump(timestamp, nodes, redis_conn):
 
 def restart(timestamp, redis_conn):
     """
-    Dumps data for the reachable nodes into a JSON file.
-    Loads all reachable nodes from Redis into the crawl set.
+    Updates included ASNs and excluded networks.
     Removes keys for all nodes from current crawl.
-    Updates included ASNs.
-    Updates excluded networks.
+    Loads reachable and checked nodes from Redis into next crawl set.
     Updates number of reachable nodes in Redis.
+    Dumps data for the reachable nodes into a JSON file.
     """
+    update_included_asns(redis_conn)
+    update_excluded_networks(redis_conn)
+
     redis_pipe = redis_conn.pipeline()
 
     nodes = redis_conn.smembers("up")  # Reachable nodes.
     redis_pipe.delete("up")
-
-    for node in nodes:
-        (address, port, services) = node.decode()[5:].split("-", 2)
-        redis_pipe.sadd("pending", str((address, int(port), int(services))))
 
     for key in get_keys(redis_conn, "node:*"):
         redis_pipe.delete(key)
 
     for key in get_keys(redis_conn, "crawl:cidr:*"):
         redis_pipe.delete(key)
+
+    for node in nodes:
+        (address, port, services) = node.decode()[5:].split("-", 2)
+        if is_excluded(address):
+            logging.debug(f"Exclude: {address}")
+            continue
+        redis_pipe.sadd("pending", str((address, int(port), int(services))))
 
     if CONF["include_checked"]:
         checked_nodes = redis_conn.zrangebyscore(
@@ -321,9 +326,6 @@ def restart(timestamp, redis_conn):
             redis_pipe.sadd("pending", str((address, port, services)))
 
     redis_pipe.execute()
-
-    update_included_asns(redis_conn)
-    update_excluded_networks(redis_conn)
 
     reachable_nodes = len(nodes)
     logging.info(f"Reachable nodes: {reachable_nodes}")
