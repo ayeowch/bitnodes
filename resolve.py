@@ -3,7 +3,7 @@
 #
 # resolve.py - Resolves hostname and GeoIP data for each reachable node.
 #
-# Copyright (c) Addy Yeow <ayeowch@gmail.com>
+# Copyright (c) Bitnodes <info@bitnodes.io>
 #
 # Permission is hereby granted, free of charge, to any person obtaining
 # a copy of this software and associated documentation files (the
