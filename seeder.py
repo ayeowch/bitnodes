@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# seeder.py - Exports reachable nodes into DNS zone files for DNS seeder.
+# seeder.py - Export reachable nodes into DNS zone files for DNS seeder.
 #
 # Copyright (c) Bitnodes <info@bitnodes.io>
 #
@@ -25,7 +25,7 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 """
-Exports reachable nodes into DNS zone files for DNS seeder.
+Export reachable nodes into DNS zone files for DNS seeder.
 """
 
 import glob
@@ -47,7 +47,7 @@ CONF = {}
 
 class Seeder(object):
     """
-    Implements seeding mechanic by exporting reachable nodes as A and AAAA
+    Implement seeding mechanic by exporting reachable nodes as A and AAAA
     records into DNS zone files. A separate DNS server software is expected to
     consume and serve the zone files to the public.
     """
@@ -61,7 +61,7 @@ class Seeder(object):
 
     def export_nodes(self, dump):
         """
-        Exports nodes to generate A and AAAA records from the latest snapshot.
+        Export nodes to generate A and AAAA records from the latest snapshot.
         """
         self.now = int(time.time())
         if dump != self.dump:
@@ -81,7 +81,7 @@ class Seeder(object):
 
     def save_zone_files(self):
         """
-        Saves A and AAAA records in DNS zone files.
+        Save A and AAAA records in DNS zone files.
         """
         zone_dir = os.path.dirname(CONF["zone_file"])
         default_zone = os.path.basename(CONF["zone_file"])
@@ -104,7 +104,7 @@ class Seeder(object):
 
     def save_zone_file(self, zone_file, records):
         """
-        Saves filtered addresses in formatted records in the DNS zone file.
+        Save filtered addresses in formatted records in the DNS zone file.
         """
         logging.debug(f"Zone file: {zone_file}")
         serial = str(self.now)
@@ -131,7 +131,7 @@ class Seeder(object):
 
     def get_records(self, addresses):
         """
-        Returns addresses formatted in A, AAAA, TXT records for a zone file.
+        Return addresses formatted in A, AAAA, TXT records for a zone file.
         """
         a_records = []
         aaaa_records = []
@@ -164,11 +164,11 @@ class Seeder(object):
 
     def filter_nodes(self):
         """
-        Returns nodes that satisfy the minimum requirements listed below:
+        Return nodes that satisfy the minimum requirements listed below:
         1) Height must be at most 2 blocks away from the consensus height
         2) Uptime must be equal or greater than the configured min. age
         3) Max. one node per ASN
-        4) Uses default port
+        4) Use default port
         """
         consensus_height = self.get_consensus_height()
         min_age = self.get_min_age()
@@ -191,7 +191,7 @@ class Seeder(object):
 
     def get_consensus_height(self):
         """
-        Returns the most common height from Redis.
+        Return the most common height from Redis.
         """
         height = self.redis_conn.get("height")
         if height:
@@ -201,7 +201,7 @@ class Seeder(object):
 
     def get_min_age(self):
         """
-        Returns the minimum required uptime. If the oldest node cannot satisfy
+        Return the minimum required uptime. If the oldest node cannot satisfy
         the configured value, use a fallback value of max. 1 percent away from
         the uptime of the oldest node.
         """
@@ -216,7 +216,7 @@ class Seeder(object):
 
 def cron():
     """
-    Periodically fetches latest snapshot to sample nodes for DNS zone files.
+    Periodically fetch latest snapshot to sample nodes for DNS zone files.
     """
     redis_conn = new_redis_conn(db=CONF["db"])
     seeder = Seeder(redis_conn)
@@ -233,7 +233,7 @@ def cron():
 
 def init_conf(config):
     """
-    Populates CONF with key-value pairs from configuration file.
+    Populate CONF with key-value pairs from configuration file.
     """
     conf = ConfigParser()
     conf.read(config)

@@ -41,6 +41,7 @@ import sys
 import time
 from collections import Counter
 from configparser import ConfigParser
+from functools import cache
 from ipaddress import ip_address, ip_network
 
 import geoip2.database
@@ -58,7 +59,14 @@ from protocol import (
     ProtocolError,
     TO_SERVICES,
 )
-from utils import conf_list, get_keys, http_get_txt, ip_to_network, new_redis_conn
+from utils import (
+    conf_list,
+    conf_range,
+    get_keys,
+    http_get_txt,
+    ip_to_network,
+    new_redis_conn,
+)
 
 redis.connection.socket = gevent.socket
 
@@ -70,7 +78,7 @@ ASN = geoip2.database.Reader("geoip/GeoLite2-ASN.mmdb")
 
 def getaddr(conn):
     """
-    Sends getaddr message.
+    Send getaddr message.
     """
     addr_msgs = []
     try:
@@ -95,7 +103,7 @@ def getaddr(conn):
 
 def get_peers(conn):
     """
-    Returns included peering nodes with age <= max. age.
+    Return included peering nodes with age <= max. age.
     """
     now = int(time.time())
     peers = set()
@@ -110,7 +118,7 @@ def get_peers(conn):
         for peer in addr_msg["addr_list"]:
             timestamp = peer["timestamp"]
             age = now - timestamp  # seconds
-            if age < 0 or age > CONF["max_age"]:
+            if age < 0 or age > CONF["current_max_age"]:
                 continue
             address = (
                 peer["ipv4"]
@@ -143,21 +151,20 @@ def get_peers(conn):
 
 def get_cached_peers(conn, redis_conn):
     """
-    Returns cached peering nodes.
+    Return cached peering nodes.
     """
     key = f"peer:{conn.to_addr[0]}-{conn.to_addr[1]}"
     peers = redis_conn.get(key)
     if peers:
-        peers = eval(peers)
+        peers = json.loads(peers)
         logging.debug(f"{conn.to_addr} Peers: {len(peers)}")
     else:
         peers = get_peers(conn)
-        ttl = CONF["addr_ttl"]
         if not peers:
-            ttl /= 2  # Shorter TTL for empty peers.
+            ttl = CONF["addr_ttl"][0]  # Use min. TTL for empty peers.
         else:
-            ttl += random.randint(0, CONF["addr_ttl_var"]) / 100.0 * ttl
-        redis_conn.set(key, str(peers), ex=int(ttl))
+            ttl = random.randrange(CONF["addr_ttl"][0], CONF["addr_ttl"][1] + 1)
+        redis_conn.set(key, json.dumps(peers), ex=ttl)
 
     # Exclude timestamp from the tuples.
     peers = set(
@@ -168,12 +175,12 @@ def get_cached_peers(conn, redis_conn):
 
 def connect(key, redis_conn):
     """
-    Establishes connection with a node to:
+    Establish connection with a node to:
     1) Send version message
     2) Receive version and verack message
     3) Send getaddr message
     4) Receive addr message containing list of peering nodes
-    Stores state and height for node in Redis.
+    Store state and height for node in Redis.
     """
     version_msg = {}
 
@@ -225,13 +232,15 @@ def connect(key, redis_conn):
             key = f"node:{address}-{port}-{from_services}"
 
         redis_pipe.set(
-            f"height:{address}-{port}-{from_services}", height, ex=CONF["max_age"]
+            f"height:{address}-{port}-{from_services}",
+            height,
+            ex=CONF["current_max_age"],
         )
 
         redis_pipe.set(
             f"version:{address}-{port}",
-            str((version, user_agent, from_services)),
-            ex=CONF["max_age"],
+            json.dumps((version, user_agent, from_services)),
+            ex=CONF["current_max_age"],
         )
 
         peers = get_cached_peers(conn, redis_conn)
@@ -245,7 +254,7 @@ def connect(key, redis_conn):
                 and ip_address(address) in CJDNS_NETWORK
             ):
                 continue
-            redis_pipe.sadd("pending", str(peer))
+            redis_pipe.sadd("pending", json.dumps(peer))
         redis_pipe.set(key, "")
         redis_pipe.sadd("up", key)
     conn.close()
@@ -254,8 +263,8 @@ def connect(key, redis_conn):
 
 def dump(timestamp, nodes, redis_conn):
     """
-    Dumps data for reachable nodes into timestamp-prefixed JSON file and
-    returns most common height from the nodes.
+    Dump data for reachable nodes into timestamp-prefixed JSON file and
+    return most common height from the nodes.
     """
     json_data = []
 
@@ -287,14 +296,18 @@ def dump(timestamp, nodes, redis_conn):
 
 def restart(timestamp, redis_conn):
     """
-    Updates included ASNs and excluded networks.
-    Removes keys for all nodes from current crawl.
-    Loads reachable and checked nodes from Redis into next crawl set.
-    Updates number of reachable nodes in Redis.
-    Dumps data for the reachable nodes into a JSON file.
+    Update included ASNs and excluded networks/nodes.
+    Remove keys for all nodes from current crawl.
+    Load reachable and checked nodes from Redis into next crawl set.
+    Update number of reachable nodes in Redis.
+    Dump data for the reachable nodes into a JSON file.
     """
+    set_max_age(redis_conn)  # Adjust current max. age for peers.
+
     update_included_asns(redis_conn)
     update_excluded_networks(redis_conn)
+    update_excluded_nodes(redis_conn)
+    cache_clear()
 
     redis_pipe = redis_conn.pipeline()
 
@@ -312,24 +325,26 @@ def restart(timestamp, redis_conn):
         if is_excluded(address):
             logging.debug(f"Exclude: {address}")
             continue
-        redis_pipe.sadd("pending", str((address, int(port), int(services))))
+        redis_pipe.sadd("pending", json.dumps((address, int(port), int(services))))
 
     if CONF["include_checked"]:
         checked_nodes = redis_conn.zrangebyscore(
-            "check", timestamp - CONF["max_age"], timestamp
+            "check",
+            timestamp - CONF["current_max_age"],
+            timestamp,
         )
         for node in checked_nodes:
-            (address, port, services) = eval(node)
+            (address, port, services) = json.loads(node)
             if is_excluded(address):
                 logging.debug(f"Exclude: {address}")
                 continue
-            redis_pipe.sadd("pending", str((address, port, services)))
+            redis_pipe.sadd("pending", json.dumps((address, port, services)))
 
     redis_pipe.execute()
 
     reachable_nodes = len(nodes)
     logging.info(f"Reachable nodes: {reachable_nodes}")
-    redis_conn.lpush("nodes", str((timestamp, reachable_nodes)))
+    redis_conn.lpush("nodes", json.dumps((timestamp, reachable_nodes)))
 
     height = dump(timestamp, nodes, redis_conn)
     logging.info(f"Height: {height}")
@@ -339,8 +354,8 @@ def cron(redis_conn):
     """
     Assigned to a worker to perform the following tasks periodically to
     maintain a continuous crawl:
-    1) Reports the current number of nodes in crawl set
-    2) Initiates a new crawl once the crawl set is empty
+    1) Report the current number of nodes in crawl set
+    2) Initiate a new crawl once the crawl set is empty
     """
     start = int(time.time())
 
@@ -352,7 +367,7 @@ def cron(redis_conn):
             redis_conn.set("crawl:master:state", "starting")
             now = int(time.time())
             elapsed = now - start
-            redis_conn.set("elapsed", elapsed)
+            redis_conn.lpush("elapsed", json.dumps((now, elapsed)))
             logging.info(f"Elapsed: {elapsed}")
             logging.info("Restarting")
             restart(now, redis_conn)
@@ -364,26 +379,35 @@ def cron(redis_conn):
         gevent.sleep(CONF["cron_delay"])
 
 
-def task(redis_conn):
+def task(id, redis_conn):
     """
     Assigned to a worker to retrieve (pop) a node from the crawl set and
     attempt to establish connection with a new node.
     """
     while True:
-        if not CONF["master"]:
+        if not CONF["master"] and id == 0:  # First worker only.
             while redis_conn.get("crawl:master:state") != b"running":
                 gevent.sleep(CONF["socket_timeout"])
 
-                # Refresh included ASNs and excluded networks.
+                set_max_age(redis_conn)  # Adjust current max. age for peers.
+
+                # Refresh included ASNs and excluded networks/nodes.
                 set_included_asns(redis_conn)
                 set_excluded_networks(redis_conn)
+                set_excluded_nodes(redis_conn)
+                cache_clear()
+
+        # Skip if process-level cache is not ready.
+        if CONF["last_cache_version"] == 0:
+            gevent.sleep(1)
+            continue
 
         node = redis_conn.spop("pending")  # Pop random node from set.
         if node is None:
             gevent.sleep(1)
             continue
 
-        node = eval(node)  # Convert string from Redis to tuple.
+        node = json.loads(node)  # Convert string from Redis to list.
 
         # Skip IPv6 node.
         if ":" in node[0] and not CONF["ipv6"]:
@@ -410,7 +434,7 @@ def task(redis_conn):
 
 def set_pending(redis_conn):
     """
-    Initializes pending set in Redis with a list of reachable nodes from DNS
+    Initialize pending set in Redis with a list of reachable nodes from DNS
     seeders and hardcoded list of .onion nodes to bootstrap the crawler.
     """
     for seeder in CONF["seeders"]:
@@ -436,18 +460,32 @@ def set_pending(redis_conn):
                 logging.debug(f"Exclude: {node}")
                 continue
             logging.debug(f"{seeder}: {node}")
-            redis_conn.sadd("pending", str((node, CONF["port"], TO_SERVICES)))
+            redis_conn.sadd("pending", json.dumps((node, CONF["port"], TO_SERVICES)))
 
     if CONF["onion"]:
         for node in CONF["onion_nodes"]:
-            redis_conn.sadd("pending", str((node, CONF["port"], TO_SERVICES)))
+            redis_conn.sadd("pending", json.dumps((node, CONF["port"], TO_SERVICES)))
 
 
+def cache_clear():
+    """
+    Clear stale process-level cache.
+    """
+    version = CONF["cache_version"]
+    if version > CONF["last_cache_version"]:
+        logging.info(f"Old cache stats: {is_excluded.cache_info()}")
+        is_excluded.cache_clear()
+        CONF["last_cache_version"] = version
+        logging.info(f"New cache version: {version}")
+
+
+@cache
 def is_excluded(address):
     """
-    Returns True if address is found in exclusion rules, False if otherwise.
+    Return True if address is found in exclusion rules, False if otherwise.
 
     In priority order, the rules are:
+    - Exclude if address is in exclude_nodes
     - Include onion address
     - Include I2P address
     - Include CJDNS address
@@ -459,6 +497,9 @@ def is_excluded(address):
     - Exclude if address is not in include_asns
     - Include address
     """
+    if address in CONF["current_exclude_nodes"]:
+        return True
+
     if address.endswith(ONION_SUFFIX):
         return False
 
@@ -474,17 +515,10 @@ def is_excluded(address):
         return True
 
     include_asns = CONF["current_include_asns"]
-    exclude_ipv6_networks = CONF["current_exclude_ipv6_networks"]
-    exclude_ipv4_networks = CONF["current_exclude_ipv4_networks"]
-
-    if None in ([include_asns, exclude_ipv6_networks, exclude_ipv4_networks]):
-        logging.warning("Rules not ready")
-        return True
-
     exclude_asns = CONF["exclude_asns"]
 
     asn = None
-    if len(include_asns) > 0 or len(exclude_asns) > 0:
+    if include_asns or exclude_asns:
         try:
             asn_record = ASN.asn(address)
         except AddressNotFoundError:
@@ -494,15 +528,15 @@ def is_excluded(address):
         if asn is None:
             return True
 
-    if len(exclude_asns) > 0 and asn in exclude_asns:
+    if asn in exclude_asns:
         return True
 
     if ":" in address:
         address_family = socket.AF_INET6
-        exclude_ip_networks = exclude_ipv6_networks
+        exclude_ip_networks = CONF["current_exclude_ipv6_networks"]
     else:
         address_family = socket.AF_INET
-        exclude_ip_networks = exclude_ipv4_networks
+        exclude_ip_networks = CONF["current_exclude_ipv4_networks"]
     try:
         addr = int(hexlify(socket.inet_pton(address_family, address)), 16)
     except socket.error:
@@ -511,24 +545,54 @@ def is_excluded(address):
     if any([(addr & net[1] == net[0]) for net in exclude_ip_networks]):
         return True
 
-    if len(include_asns) > 0 and asn not in include_asns:
+    if asn not in include_asns:
         return True
 
     return False
 
 
+def set_max_age(redis_conn):
+    """
+    Adjust current max. age for peers to match the desired elapsed time.
+    """
+    elapsed_times = [
+        json.loads(elapsed)[1] for elapsed in redis_conn.lrange("elapsed", 0, 18)
+    ]
+    if not elapsed_times:
+        return
+
+    avg_elapsed = int(sum(elapsed_times) / len(elapsed_times))
+
+    prev_max_age = CONF["current_max_age"]
+
+    new_max_age = int(
+        max(
+            CONF["max_age"][0],  # Min. value.
+            min(
+                CONF["max_age"][-1],  # Max. value.
+                prev_max_age * (CONF["snapshot_delay"] / avg_elapsed),
+            ),
+        )
+    )
+    logging.info(f"Max. age: {prev_max_age} -> {new_max_age}")
+    CONF["current_max_age"] = new_max_age
+
+
 def set_included_asns(redis_conn):
     """
-    Fetches up-to-date included ASNs from Redis and stores them in CONF.
+    Fetch up-to-date included ASNs from Redis and store them in CONF.
     """
     asns = redis_conn.get("include-asns")
     if asns is not None:
-        CONF["current_include_asns"] = eval(asns)
+        CONF["current_include_asns"] = set(json.loads(asns))
+
+    # Bump version to clear cache.
+    CONF["cache_version"] += 1
 
 
 def update_included_asns(redis_conn):
     """
-    Updates included ASNs and stores them Redis.
+    Update included ASNs and store them Redis.
     """
     include_asns = set()
 
@@ -540,40 +604,41 @@ def update_included_asns(redis_conn):
         include_asns.update(list_included_asns(txt))
 
     logging.info(f"ASNs: {len(include_asns)}")
-    redis_conn.set("include-asns", str(include_asns))
+    redis_conn.set("include-asns", json.dumps(list(include_asns)))
     set_included_asns(redis_conn)
 
 
-def list_included_asns(txt, asns=None):
+def list_included_asns(txt):
     """
-    Converts list of ASNs from configuration file into a set.
+    Convert list of ASNs from configuration file into a set.
     """
-    if asns is None:
-        asns = set()
-    lines = txt.strip().split("\n")
-    for line in lines:
-        line = line.strip()
-        if line.startswith("AS"):
-            asns.add(line)
-    return asns
+    return {
+        line.strip()
+        for line in txt.strip().splitlines()
+        if line.strip().startswith("AS")
+    }
 
 
 def set_excluded_networks(redis_conn):
     """
-    Fetches up-to-date excluded networks from Redis.
+    Fetch up-to-date excluded networks from Redis.
     """
     exclude_ipv4_networks = redis_conn.get("exclude-ipv4-networks")
     if exclude_ipv4_networks is not None:
-        CONF["current_exclude_ipv4_networks"] = eval(exclude_ipv4_networks)
+        CONF["current_exclude_ipv4_networks"] = {
+            tuple(item) for item in json.loads(exclude_ipv4_networks)
+        }
 
     exclude_ipv6_networks = redis_conn.get("exclude-ipv6-networks")
     if exclude_ipv6_networks is not None:
-        CONF["current_exclude_ipv6_networks"] = eval(exclude_ipv6_networks)
+        CONF["current_exclude_ipv6_networks"] = {
+            tuple(item) for item in json.loads(exclude_ipv6_networks)
+        }
 
 
 def update_excluded_networks(redis_conn):
     """
-    Updates excluded networks and stores them in Redis.
+    Update excluded networks and store them in Redis.
     """
     v4 = CONF["exclude_ipv4_networks"]
     v6 = CONF["exclude_ipv6_networks"]
@@ -595,14 +660,14 @@ def update_excluded_networks(redis_conn):
         v6 = list_excluded_networks(http_get_txt(url), networks=v6)
 
     logging.info(f"IPv4: {len(v4)}, IPv6: {len(v6)}")
-    redis_conn.set("exclude-ipv4-networks", str(v4))
-    redis_conn.set("exclude-ipv6-networks", str(v6))
+    redis_conn.set("exclude-ipv4-networks", json.dumps(list(v4)))
+    redis_conn.set("exclude-ipv6-networks", json.dumps(list(v6)))
     set_excluded_networks(redis_conn)
 
 
 def list_excluded_networks(txt, networks=None):
     """
-    Converts list of networks from configuration file into a list of tuples of
+    Convert list of networks from configuration file into a list of tuples of
     network address and netmask to be excluded from the crawl.
     """
     if networks is None:
@@ -619,9 +684,43 @@ def list_excluded_networks(txt, networks=None):
     return networks
 
 
+def set_excluded_nodes(redis_conn):
+    """
+    Fetch up-to-date excluded nodes from Redis and store them in CONF.
+    """
+    nodes = redis_conn.get("exclude-nodes")
+    if nodes is not None:
+        CONF["current_exclude_nodes"] = set(json.loads(nodes))
+
+
+def update_excluded_nodes(redis_conn):
+    """
+    Update excluded nodes and store them Redis.
+    """
+    exclude_nodes = set()
+
+    if CONF["exclude_nodes"]:
+        exclude_nodes.update(CONF["exclude_nodes"])
+
+    if CONF["exclude_nodes_from_url"]:
+        txt = http_get_txt(CONF["exclude_nodes_from_url"])
+        exclude_nodes.update(list_excluded_nodes(txt))
+
+    logging.info(f"Nodes: {len(exclude_nodes)}")
+    redis_conn.set("exclude-nodes", json.dumps(list(exclude_nodes)))
+    set_excluded_nodes(redis_conn)
+
+
+def list_excluded_nodes(txt):
+    """
+    Convert list of nodes from configuration file into a set.
+    """
+    return {line.strip() for line in txt.strip().splitlines()}
+
+
 def init_conf(argv):
     """
-    Populates CONF with key-value pairs from configuration file.
+    Populate CONF with key-value pairs from configuration file.
     """
     conf = ConfigParser()
     conf.read(argv[1])
@@ -640,9 +739,9 @@ def init_conf(argv):
     CONF["socket_timeout"] = conf.getint("crawl", "socket_timeout")
     CONF["cron_delay"] = conf.getint("crawl", "cron_delay")
     CONF["snapshot_delay"] = conf.getint("crawl", "snapshot_delay")
-    CONF["addr_ttl"] = conf.getint("crawl", "addr_ttl")
-    CONF["addr_ttl_var"] = conf.getint("crawl", "addr_ttl_var")
-    CONF["max_age"] = conf.getint("crawl", "max_age")
+    CONF["addr_ttl"] = conf_range(conf, "crawl", "addr_ttl")
+    CONF["max_age"] = conf_range(conf, "crawl", "max_age")
+    CONF["current_max_age"] = CONF["max_age"][-1]  # Max. value.
     CONF["peers_per_node"] = conf.getint("crawl", "peers_per_node")
     CONF["ipv6"] = conf.getboolean("crawl", "ipv6")
     CONF["ipv6_prefix"] = conf.getint("crawl", "ipv6_prefix")
@@ -650,8 +749,7 @@ def init_conf(argv):
 
     CONF["include_asns"] = conf_list(conf, "crawl", "include_asns")
     CONF["include_asns_from_url"] = conf.get("crawl", "include_asns_from_url")
-
-    CONF["current_include_asns"] = None
+    CONF["current_include_asns"] = set()
 
     CONF["exclude_asns"] = conf_list(conf, "crawl", "exclude_asns")
 
@@ -676,8 +774,12 @@ def init_conf(argv):
         "crawl", "exclude_ipv6_networks_from_url"
     )
 
-    CONF["current_exclude_ipv4_networks"] = None
-    CONF["current_exclude_ipv6_networks"] = None
+    CONF["current_exclude_ipv4_networks"] = set()
+    CONF["current_exclude_ipv6_networks"] = set()
+
+    CONF["exclude_nodes"] = conf_list(conf, "crawl", "exclude_nodes")
+    CONF["exclude_nodes_from_url"] = conf.get("crawl", "exclude_nodes_from_url")
+    CONF["current_exclude_nodes"] = set()
 
     CONF["onion"] = conf.getboolean("crawl", "onion")
     CONF["tor_proxies"] = [
@@ -692,8 +794,12 @@ def init_conf(argv):
     if not os.path.exists(CONF["crawl_dir"]):
         os.makedirs(CONF["crawl_dir"])
 
-    # Set to True for master process
+    # Set to True for master process.
     CONF["master"] = argv[2] == "master"
+
+    # Version tracking for process-level cache.
+    CONF["cache_version"] = 0
+    CONF["last_cache_version"] = 0
 
 
 def main(argv):
@@ -737,8 +843,12 @@ def main(argv):
                 redis_pipe.delete(key)
         redis_pipe.delete("pending")
         redis_pipe.execute()
+
         update_included_asns(redis_conn)
         update_excluded_networks(redis_conn)
+        update_excluded_nodes(redis_conn)
+        cache_clear()
+
         set_pending(redis_conn)
         redis_conn.set("crawl:master:state", "running")
 
@@ -746,8 +856,8 @@ def main(argv):
     workers = []
     if CONF["master"]:
         workers.append(gevent.spawn(cron, redis_conn))
-    for _ in range(CONF["workers"] - len(workers)):
-        workers.append(gevent.spawn(task, redis_conn))
+    for id in range(CONF["workers"] - len(workers)):
+        workers.append(gevent.spawn(task, id, redis_conn))
     logging.info(f"Workers: {len(workers)}")
     gevent.joinall(workers)
 

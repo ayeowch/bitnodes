@@ -48,7 +48,7 @@ from protocol import (
 
 class Stream(object):
     """
-    Implements a stream object with generator function to iterate over the
+    Implement a stream object with generator function to iterate over the
     queued segments while keeping track of captured timestamp.
     """
 
@@ -93,7 +93,7 @@ class Cache(object):
 
     def extract_streams(self):
         """
-        Extracts TCP streams with data from the pcap file. TCP segments in
+        Extract TCP streams with data from the pcap file. TCP segments in
         each stream are queued according to their sequence number.
         """
         with open(self.filepath, "rb") as pcap_file:
@@ -130,7 +130,7 @@ class Cache(object):
 
     def cache_messages(self):
         """
-        Reconstructs messages from TCP streams and caches them in Redis.
+        Reconstruct messages from TCP streams and cache them in Redis.
         """
         try:
             self.extract_streams()
@@ -158,14 +158,16 @@ class Cache(object):
                     src = (stream_id[0], stream_id[1])
                     dst = (stream_id[2], stream_id[3])
                     node = src
-                    is_tor = False
+                    tor_proxy = None
                     if src in self.tor_proxies:
                         # dst port will be used to restore .onion node.
                         node = dst
-                        is_tor = True
-                    self.cache_message(node, self.stream.timestamp, msg, is_tor=is_tor)
+                        tor_proxy = src
+                    self.cache_message(
+                        node, self.stream.timestamp, msg, tor_proxy=tor_proxy
+                    )
 
-    def cache_message(self, node, timestamp, msg, is_tor=False):
+    def cache_message(self, node, timestamp, msg, tor_proxy=None):
         """
         Subclass to implement method to cache message from the specified node.
         """
@@ -174,7 +176,7 @@ class Cache(object):
 
 def get_pcap_file(pcap_dir, pcap_suffix):
     """
-    Returns the oldest available pcap file for processing.
+    Return the oldest available pcap file for processing.
     """
     try:
         oldest = min(glob.iglob(f"{pcap_dir}/*.{pcap_suffix}"))

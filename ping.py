@@ -58,7 +58,7 @@ CONF = {}
 
 class Keepalive(object):
     """
-    Implements keepalive mechanic to keep the specified connection with a node.
+    Implement keepalive mechanic to keep the specified connection with a node.
     """
 
     def __init__(self, conn=None, version_msg=None, redis_conn=None):
@@ -70,6 +70,7 @@ class Keepalive(object):
         self.last_version = self.start_time
 
         self.ping_delay = 60
+        self.max_ping_delay = 600
         self.version_delay = CONF["version_delay"]
 
         self.redis_conn = redis_conn
@@ -82,11 +83,11 @@ class Keepalive(object):
         # Open connections are tracked in open set with the associated data
         # stored in opendata set in Redis.
         self.data = self.node + (version, user_agent, self.start_time, services)
-        self.redis_conn.sadd("opendata", str(self.data))
+        self.redis_conn.zadd("opendata", {json.dumps(self.data): self.start_time})
 
     def keepalive(self):
         """
-        Periodically sends ping message and refreshes version information.
+        Periodically send ping message and refresh version information.
         """
         while True:
             now = time.time()
@@ -106,12 +107,12 @@ class Keepalive(object):
         self.close()
 
     def close(self):
-        self.redis_conn.srem("opendata", str(self.data))
+        self.redis_conn.zrem("opendata", json.dumps(self.data))
         self.conn.close()
 
     def ping(self, now):
         """
-        Sends a ping message. Ping time is stored in Redis for round-trip time
+        Send a ping message. Ping time is stored in Redis for round-trip time
         (RTT) calculation.
         """
         self.last_ping = now
@@ -129,15 +130,22 @@ class Keepalive(object):
         self.redis_conn.expire(key, CONF["rtt_ttl"])
 
         try:
-            self.ping_delay = int(self.redis_conn.get("elapsed"))
+            self.ping_delay = min(
+                self.max_ping_delay,
+                json.loads(self.redis_conn.lindex("elapsed", 0))[1],
+            )
         except TypeError:
             pass
+
+        # Refresh timestamp in open/opendata set.
+        self.redis_conn.zadd("open", {json.dumps(self.node): int(now)})
+        self.redis_conn.zadd("opendata", {json.dumps(self.data): int(now)})
 
         return True
 
     def version(self, now):
         """
-        Refreshes version information using response from latest handshake.
+        Refresh version information using response from latest handshake.
         """
         self.last_version = now
 
@@ -146,18 +154,18 @@ class Keepalive(object):
         if version_data is None:
             return
 
-        version, user_agent, services = eval(version_data)
+        version, user_agent, services = json.loads(version_data)
         if all([version, user_agent, services]):
             data = self.node + (version, user_agent, self.start_time, services)
 
             if self.data != data:
-                self.redis_conn.srem("opendata", str(self.data))
-                self.redis_conn.sadd("opendata", str(data))
+                self.redis_conn.zrem("opendata", json.dumps(self.data))
+                self.redis_conn.zadd("opendata", {json.dumps(data): int(now)})
                 self.data = data
 
     def sink(self):
         """
-        Sinks received messages to flush them off socket buffer.
+        Sink received messages to flush them off socket buffer.
         """
         try:
             msgs = self.conn.get_messages()
@@ -187,7 +195,7 @@ class Keepalive(object):
 
 class ConnectionManager(object):
     """
-    Implements handling of persistent connection to a reachable node.
+    Implement handling of persistent connection to a reachable node.
     """
 
     def __init__(self, redis_conn=None):
@@ -208,7 +216,7 @@ class ConnectionManager(object):
 
         # Retrieve (pop) a node to connect to from the reachable set.
         if node := self.redis_conn.spop("reachable"):
-            self.address, self.port, self.services, self.height = eval(node)
+            self.address, self.port, self.services, self.height = json.loads(node)
             self.node = (self.address, self.port)
 
             if self.address.endswith(ONION_SUFFIX) and CONF["onion"]:
@@ -219,7 +227,7 @@ class ConnectionManager(object):
 
     def init_cidr_limit(self):
         """
-        Initializes prefix-level connection limit for the address.
+        Initialize prefix-level connection limit for the address.
         """
         if self.address.endswith(ONION_SUFFIX):
             return
@@ -249,7 +257,7 @@ class ConnectionManager(object):
 
     def increment_cidr_key(self):
         """
-        Increments value of CIDR key in Redis.
+        Increment value of CIDR key in Redis.
         """
         nodes = self.redis_conn.incr(self.cidr_key)
         logging.debug(f"{self.cidr_key}: {nodes}")
@@ -257,7 +265,7 @@ class ConnectionManager(object):
 
     def decrement_cidr_key(self):
         """
-        Decrements value of CIDR key in Redis.
+        Decrement value of CIDR key in Redis.
         """
         nodes = self.redis_conn.decr(self.cidr_key)
         logging.debug(f"{self.cidr_key}: {nodes}")
@@ -265,7 +273,7 @@ class ConnectionManager(object):
 
     def is_allowed(self):
         """
-        Returns True if there are no restrictions to connect to the node,
+        Return True if there are no restrictions to connect to the node,
         False if otherwise.
         """
         if self.node is None:
@@ -278,7 +286,9 @@ class ConnectionManager(object):
                 self.decrement_cidr_key()
                 return False
 
-        if self.redis_conn.sadd("open", str(self.node)) == 0:
+        if not self.redis_conn.zadd(
+            "open", {json.dumps(self.node): int(time.time())}, nx=True
+        ):
             logging.debug(f"Connection exists: {self.node}")
             if self.cidr_key:
                 self.decrement_cidr_key()
@@ -288,7 +298,7 @@ class ConnectionManager(object):
 
     def connect(self):
         """
-        Establishes and persists connection with the node.
+        Establish and persist connection with the node.
         """
         if not self.is_allowed():
             return
@@ -318,14 +328,16 @@ class ConnectionManager(object):
         if not version_msg:
             if self.cidr_key:
                 self.decrement_cidr_key()
-            self.redis_conn.srem("open", str(self.node))
+            self.redis_conn.zrem("open", json.dumps(self.node))
             return
 
         # Map local port to .onion node.
         if self.address.endswith(ONION_SUFFIX):
             local_port = conn.socket.getsockname()[1]
-            logging.debug(f"Local port {conn.to_addr}: {local_port}")
-            self.redis_conn.set(f"onion:{local_port}", str(conn.to_addr))
+            remote_port = self.proxy[1]
+            self.redis_conn.set(
+                f"onion:{local_port}:{remote_port}", json.dumps(conn.to_addr)
+            )
 
         Keepalive(
             conn=conn,
@@ -335,7 +347,7 @@ class ConnectionManager(object):
 
         if self.cidr_key:
             self.decrement_cidr_key()
-        self.redis_conn.srem("open", str(self.node))
+        self.redis_conn.zrem("open", json.dumps(self.node))
 
 
 def cron(pool, redis_conn):
@@ -344,12 +356,12 @@ def cron(pool, redis_conn):
     maintain a continuous network-wide connections:
 
     [Master]
-    1) Checks for a new snapshot
-    2) Loads new reachable nodes into the reachable set in Redis
-    3) Signals listener to get reachable nodes from opendata set
+    1) Check for a new snapshot
+    2) Load new reachable nodes into the reachable set in Redis
+    3) Signal listener to get reachable nodes from opendata set
 
     [Master/Slave]
-    1) Spawns workers to establish and maintain connection with reachable nodes
+    1) Spawn workers to establish and maintain connection with reachable nodes
     """
     magic_number = hexlify(CONF["magic_number"]).decode()
     publish_key = f"snapshot:{magic_number}"
@@ -363,6 +375,10 @@ def cron(pool, redis_conn):
                 nodes = get_nodes(new_snapshot)
                 if len(nodes) == 0:
                     continue
+
+                # Remove stale entries from open/opendata set.
+                redis_conn.zremrangebyscore("open", "-inf", int(time.time()) - 1200)
+                redis_conn.zremrangebyscore("opendata", "-inf", int(time.time()) - 1200)
 
                 logging.info(f"New snapshot: {new_snapshot}")
                 snapshot = new_snapshot
@@ -378,7 +394,7 @@ def cron(pool, redis_conn):
                 gevent.sleep(CONF["socket_timeout"])
                 redis_conn.publish(publish_key, int(time.time()))
 
-            connections = redis_conn.scard("open")
+            connections = redis_conn.zcard("open")
             logging.info(f"Connections: {connections}")
 
         set_cidr_limits(redis_conn)
@@ -394,7 +410,7 @@ def cron(pool, redis_conn):
 
 def get_snapshot():
     """
-    Returns latest JSON file (based on creation date) containing a snapshot of
+    Return latest JSON file (based on creation date) containing a snapshot of
     all reachable nodes from a completed crawl.
     """
     snapshot = None
@@ -407,7 +423,7 @@ def get_snapshot():
 
 def get_nodes(path):
     """
-    Returns all reachable nodes from a JSON file.
+    Return all reachable nodes from a JSON file.
     """
     nodes = []
     text = open(path, "r").read()
@@ -420,7 +436,7 @@ def get_nodes(path):
 
 def set_reachable(nodes, redis_conn):
     """
-    Adds reachable nodes that are not already in the open set into the
+    Add reachable nodes that are not already in the open set into the
     reachable set in Redis. New workers can be spawned separately to establish
     and maintain connection with these nodes.
     """
@@ -429,14 +445,14 @@ def set_reachable(nodes, redis_conn):
         port = node[1]
         services = node[2]
         height = node[3]
-        if not redis_conn.sismember("open", str((address, port))):
-            redis_conn.sadd("reachable", str((address, port, services, height)))
+        if redis_conn.zscore("open", json.dumps((address, port))) is None:
+            redis_conn.sadd("reachable", json.dumps((address, port, services, height)))
     return redis_conn.scard("reachable")
 
 
 def set_cidr_limits(redis_conn):
     """
-    Fetches up-to-date CIDR limits from Redis and stores them in CONF.
+    Fetch up-to-date CIDR limits from Redis and store them in CONF.
     """
     cidr_limits = redis_conn.get("cidr-limits")
     if cidr_limits is not None:
@@ -445,7 +461,7 @@ def set_cidr_limits(redis_conn):
 
 def update_cidr_limits(redis_conn):
     """
-    Fetches up-to-date CIDR limits from external URL and stores them in Redis.
+    Fetch up-to-date CIDR limits from external URL and store them in Redis.
     """
     if CONF["cidr_limits_from_url"]:
         txt = http_get_txt(CONF["cidr_limits_from_url"])
@@ -457,7 +473,7 @@ def update_cidr_limits(redis_conn):
 
 def list_cidr_limits(txt):
     """
-    Converts list of CIDRs and their associated limit into a dict.
+    Convert list of CIDRs and their associated limit into a dict.
     """
     cidr_limits = {}
     lines = txt.strip().split("\n")
@@ -478,7 +494,7 @@ def list_cidr_limits(txt):
 
 def init_conf(argv):
     """
-    Populates CONF with key-value pairs from configuration file.
+    Populate CONF with key-value pairs from configuration file.
     """
     conf = ConfigParser()
     conf.read(argv[1])

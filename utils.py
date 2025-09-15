@@ -75,7 +75,7 @@ class GeoIp(object):
 
 def new_redis_conn(db=0):
     """
-    Returns new instance of Redis connection with the right db selected.
+    Return new instance of Redis connection with the right db selected.
     """
     socket = os.environ.get("REDIS_SOCKET", None)
     password = os.environ.get("REDIS_PASSWORD", None)
@@ -84,7 +84,7 @@ def new_redis_conn(db=0):
 
 def get_keys(redis_conn, pattern, count=500):
     """
-    Returns Redis keys matching pattern by iterating the keys space.
+    Return Redis keys matching pattern by iterating the keys space.
     """
     keys = []
     cursor = 0
@@ -98,7 +98,7 @@ def get_keys(redis_conn, pattern, count=500):
 
 def ip_to_network(address, prefix):
     """
-    Returns CIDR notation to represent the address and its prefix.
+    Return CIDR notation to represent the address and its prefix.
     """
     network = ip_network(f"{address}/{prefix}", strict=False)
     return f"{network.network_address}/{prefix}"
@@ -106,7 +106,7 @@ def ip_to_network(address, prefix):
 
 def http_get(url, timeout=15):
     """
-    Returns HTTP response on success and None otherwise.
+    Return HTTP response on success and None otherwise.
     """
     try:
         response = requests.get(url, timeout=timeout)
@@ -120,7 +120,7 @@ def http_get(url, timeout=15):
 
 def http_get_txt(url, timeout=15):
     """
-    Returns HTTP text on success and empty string otherwise.
+    Return HTTP text on success and empty string otherwise.
     """
     response = http_get(url, timeout=timeout)
     if response is not None:
@@ -128,13 +128,24 @@ def http_get_txt(url, timeout=15):
     return ""
 
 
+def conf_range(conf, section, name):
+    """
+    Return range value for the specified ConfigParser configuration option.
+    """
+    val = conf.get(section, name).strip()
+    vals = sorted([int(i.strip()) for i in val.split("-")])
+    if len(vals) == 2:
+        return [vals[0], vals[1]]
+    return [vals[0], vals[0]]
+
+
 def conf_list(conf, section, name):
     """
-    Returns list of items for the specified ConfigParser configuration option.
+    Return list of items for the specified ConfigParser configuration option.
     """
     val = conf.get(section, name).strip()
     if not val:
-        return []
+        return set()
 
     items = set()
 

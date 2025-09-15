@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# cache_inv.py - Saves inv messages from pcap files in Redis.
+# cache_inv.py - Save inv messages from pcap files in Redis.
 #
 # Copyright (c) Bitnodes <info@bitnodes.io>
 #
@@ -25,7 +25,7 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 """
-Saves inv messages from pcap files in Redis.
+Save inv messages from pcap files in Redis.
 """
 
 import bisect
@@ -49,7 +49,7 @@ CONF = {}
 
 class CacheInv(Cache):
     """
-    Implements caching mechanic to cache messages from pcap file in Redis.
+    Implement caching mechanic to cache messages from pcap file in Redis.
     """
 
     def __init__(self, *args, **kwargs):
@@ -62,25 +62,26 @@ class CacheInv(Cache):
 
     def cache_messages(self):
         """
-        Reconstructs messages from TCP streams and caches them in Redis.
+        Reconstruct messages from TCP streams and caches them in Redis.
         """
         super(CacheInv, self).cache_messages()
         self.redis_pipe.execute()
         self.cache_rtt()
         self.redis_pipe.execute()
 
-    def cache_message(self, node, timestamp, msg, is_tor=False):
+    def cache_message(self, node, timestamp, msg, tor_proxy=None):
         """
-        Caches inv/pong message from the specified node.
+        Cache inv/pong message from the specified node.
         """
         if msg["command"] not in (b"inv", b"pong"):
             return
 
         # Restore .onion node using port info from node.
-        if is_tor:
-            onion_node = self.redis_conn.get(f"onion:{node[1]}")
-            if onion_node:
-                node = eval(onion_node)
+        if tor_proxy:
+            onion_node = self.redis_conn.get(f"onion:{node[1]}:{tor_proxy[1]}")
+            if onion_node is None:
+                return
+            node = json.loads(onion_node)
 
         if msg["command"] == b"inv":
             for inv in msg["inventory"]:
@@ -121,7 +122,7 @@ class CacheInv(Cache):
 
     def is_accepted_inv(self, key, type, timestamp):
         """
-        Accepts inv key based on the set rules.
+        Accept inv key based on the set rules.
         """
         # Deterministically accepts inv key at the specified sampling rate.
         if hash(key) % 100 >= CONF[f"inv_{type}_sampling_rate"]:
@@ -139,13 +140,13 @@ class CacheInv(Cache):
 
     def node_key(self, node):
         """
-        Encodes a tuple of address and port in shorten key for storage in Redis.
+        Encode a tuple of address and port in shorten key for storage in Redis.
         """
         return mmh3.mmh3_x64_128_digest(f"{node[0]}-{node[1]}".encode()).hex()[:16]
 
     def cache_rtt(self):
         """
-        Calculates round-trip time (RTT) values and caches them in Redis.
+        Calculate round-trip time (RTT) values and cache them in Redis.
         """
         for key in self.ping_keys:
             timestamps = self.redis_conn.lrange(key, 0, 1)
@@ -161,7 +162,7 @@ class CacheInv(Cache):
 
 def cron():
     """
-    Periodically fetches oldest pcap file to extract messages from.
+    Periodically fetch oldest pcap file to extract messages from.
     """
     redis_conn = new_redis_conn(db=CONF["db"])
 
@@ -195,7 +196,7 @@ def cron():
 
 def load_blockhash_suffixes(filepath):
     """
-    Loads old block hashes in 16-char suffixes from a JSON file.
+    Load old block hashes in 16-char suffixes from a JSON file.
     """
     suffixes = set()
     if os.path.exists(filepath):
@@ -206,7 +207,7 @@ def load_blockhash_suffixes(filepath):
 
 def init_conf(config):
     """
-    Populates CONF with key-value pairs from configuration file.
+    Populate CONF with key-value pairs from configuration file.
     """
     conf = ConfigParser()
     conf.read(config)

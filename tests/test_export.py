@@ -25,8 +25,8 @@ def test_export(mock_strict_redis, mock_get_heights, mock_write_json_file):
     )
     nodes = json.loads(open(json_filepath, "r").read())
 
-    # Emulates 'opendata' set from Redis.
-    nodes = [str((n[0], n[1], n[5])) for n in nodes][:10]
+    # Emulate 'opendata' set from Redis.
+    nodes = [json.dumps((n[0], n[1], n[5])) for n in nodes][:10]
 
     conf_filepath = os.path.join(
         os.path.dirname(os.path.realpath(__file__)), "..", "conf", "export.conf.default"

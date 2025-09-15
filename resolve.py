@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# resolve.py - Resolves hostname and GeoIP data for each reachable node.
+# resolve.py - Resolve hostname and GeoIP data for each reachable node.
 #
 # Copyright (c) Bitnodes <info@bitnodes.io>
 #
@@ -25,13 +25,14 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 """
-Resolves hostname and GeoIP data for each reachable node.
+Resolve hostname and GeoIP data for each reachable node.
 """
 
 from gevent import monkey
 
 monkey.patch_all()
 
+import json
 import logging
 import os
 import socket
@@ -58,7 +59,7 @@ GEO_PREC = Decimal(".0001")
 
 class Resolve(object):
     """
-    Implements hostname and GeoIP resolver.
+    Implement hostname and GeoIP resolver.
     """
 
     def __init__(self, addresses=None, redis_conn=None):
@@ -73,7 +74,7 @@ class Resolve(object):
 
     def resolve_addresses(self):
         """
-        Resolves hostname for up to 1000 new addresses and GeoIP data for all
+        Resolve hostname for up to 1000 new addresses and GeoIP data for all
         addresses.
         """
         start = time.time()
@@ -109,7 +110,7 @@ class Resolve(object):
 
     def cache_resolved(self):
         """
-        Caches resolved addresses in Redis.
+        Cache resolved addresses in Redis.
         """
         resolved = 0
         for address, geoip in self.resolved["geoip"].items():
@@ -134,7 +135,7 @@ class Resolve(object):
 
     def resolve_geoip(self):
         """
-        Resolves GeoIP data for the unresolved addresses.
+        Resolve GeoIP data for the unresolved addresses.
         """
         for address in self.resolved["geoip"]:
             geoip = self.raw_geoip(address)
@@ -142,7 +143,7 @@ class Resolve(object):
 
     def resolve_hostname(self):
         """
-        Concurrently resolves hostname for the unresolved addresses.
+        Concurrently resolve hostname for the unresolved addresses.
         """
         pool = gevent.pool.Pool(len(self.resolved["hostname"]))
         with gevent.Timeout(15, False):
@@ -152,14 +153,14 @@ class Resolve(object):
 
     def set_hostname(self, address):
         """
-        Resolves hostname for the specified address.
+        Resolve hostname for the specified address.
         """
         hostname = self.raw_hostname(address)
         self.resolved["hostname"][address] = hostname
 
     def raw_hostname(self, address):
         """
-        Resolves hostname for the specified address using reverse DNS
+        Resolve hostname for the specified address using reverse DNS
         resolution.
         """
         hostname = address
@@ -171,7 +172,7 @@ class Resolve(object):
 
     def raw_geoip(self, address):
         """
-        Resolves GeoIP data for the specified address using MaxMind databases.
+        Resolve GeoIP data for the specified address using MaxMind databases.
         """
         country = None
         city = None
@@ -220,7 +221,7 @@ class Resolve(object):
 
 def cron():
     """
-    Subscribes to 'snapshot' message from ping.py to resolve GeoIP data for
+    Subscribe to 'snapshot' message from ping.py to resolve GeoIP data for
     addresses in the snapshot.
     """
     redis_conn = new_redis_conn(db=CONF["db"])
@@ -246,10 +247,10 @@ def cron():
             timestamp = int(msg["data"])
             logging.info(f"Timestamp: {timestamp}")
 
-            nodes = redis_conn.smembers("opendata")
+            nodes = redis_conn.zrangebyscore("opendata", "-inf", "+inf")
             logging.info(f"Nodes: {len(nodes)}")
 
-            addresses = set([eval(node)[0] for node in nodes])
+            addresses = set([json.loads(node)[0] for node in nodes])
             resolve = Resolve(addresses=addresses, redis_conn=redis_conn)
             resolve.resolve_addresses()
 
@@ -258,7 +259,7 @@ def cron():
 
 def init_conf(config):
     """
-    Populates CONF with key-value pairs from configuration file.
+    Populate CONF with key-value pairs from configuration file.
     """
     conf = ConfigParser()
     conf.read(config)

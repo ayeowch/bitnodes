@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# export.py - Exports enumerated data for reachable nodes into a JSON file.
+# export.py - Export enumerated data for reachable nodes into a JSON file.
 #
 # Copyright (c) Bitnodes <info@bitnodes.io>
 #
@@ -25,7 +25,7 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 """
-Exports enumerated data for reachable nodes into a JSON file.
+Export enumerated data for reachable nodes into a JSON file.
 """
 
 import json
@@ -46,7 +46,7 @@ CONF = {}
 
 class Export(object):
     """
-    Exports nodes into timestamp-prefixed JSON file and sets consensus height
+    Export nodes into timestamp-prefixed JSON file and set consensus height
     using the most common height from these nodes.
     """
 
@@ -59,8 +59,8 @@ class Export(object):
 
     def export_nodes(self):
         """
-        Merges enumerated data for the nodes and exports them into
-        timestamp-prefixed JSON file and then sets consensus height in Redis
+        Merge enumerated data for the nodes and export them into
+        timestamp-prefixed JSON file and then set consensus height in Redis
         using the most common height from these nodes.
         """
         rows = []
@@ -82,7 +82,7 @@ class Export(object):
 
     def write_json_file(self, rows):
         """
-        Writes rows into timestamp-prefixed JSON file.
+        Write rows into timestamp-prefixed JSON file.
         """
         json_file = os.path.join(CONF["export_dir"], f"{self.timestamp}.json")
         open(json_file, "w").write(json.dumps(rows))
@@ -90,10 +90,10 @@ class Export(object):
 
     def get_row(self, node):
         """
-        Returns enumerated row data from Redis for the specified node.
+        Return enumerated row data from Redis for the specified node.
         """
         # address, port, version, user_agent, timestamp, services
-        node = eval(node)
+        node = tuple(json.loads(node))
         address = node[0]
         port = node[1]
         services = node[-1]
@@ -129,7 +129,7 @@ class Export(object):
 
     def get_heights(self):
         """
-        Returns the latest heights based on received block inv messages.
+        Return the latest heights based on received block inv messages.
         """
         heights = {}
         recent_blocks = []
@@ -161,7 +161,7 @@ class Export(object):
 
 def cron():
     """
-    Subscribes to 'resolve' message from resolve.py to export GeoIP resolved
+    Subscribe to 'resolve' message from resolve.py to export GeoIP resolved
     nodes into a JSON file.
     """
     redis_conn = new_redis_conn(db=CONF["db"])
@@ -187,7 +187,7 @@ def cron():
             timestamp = int(msg["data"])  # From ping.py's 'snapshot' message.
             logging.info(f"Timestamp: {timestamp}")
 
-            nodes = redis_conn.smembers("opendata")
+            nodes = redis_conn.zrangebyscore("opendata", "-inf", "+inf")
             logging.info(f"Nodes: {len(nodes)}")
 
             export = Export(timestamp=timestamp, nodes=nodes, redis_conn=redis_conn)
@@ -198,7 +198,7 @@ def cron():
 
 def init_conf(config):
     """
-    Populates CONF with key-value pairs from configuration file.
+    Populate CONF with key-value pairs from configuration file.
     """
     conf = ConfigParser()
     conf.read(config)

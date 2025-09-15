@@ -251,14 +251,14 @@ def sha256(data):
 
 def addr_to_onion_v2(addr):
     """
-    Returns .onion address for the specified v2 onion addr.
+    Return .onion address for the specified v2 onion addr.
     """
     return b32encode(addr).lower().decode() + ONION_SUFFIX
 
 
 def addr_to_onion_v3(addr):
     """
-    Returns .onion address for the specified v3 onion addr (PUBKEY).
+    Return .onion address for the specified v3 onion addr (PUBKEY).
 
     onion_address = base32(PUBKEY | CHECKSUM | VERSION) + '.onion'
     See https://spec.torproject.org/rend-spec/encoding-onion-addresses.html
@@ -270,14 +270,14 @@ def addr_to_onion_v3(addr):
 
 def addr_to_i2p(addr):
     """
-    Returns .b32.i2p address (base32(SHA256) + '.b32.i2p').
+    Return .b32.i2p address (base32(SHA256) + '.b32.i2p').
     """
     return b32encode(addr).decode().replace("=", "").lower() + I2P_SUFFIX
 
 
 def unpack(fmt, string):
     """
-    Wraps problematic struct.unpack() in a try statement.
+    Wrap problematic struct.unpack() in a try statement.
     """
     try:
         return struct.unpack(fmt, string)[0]
