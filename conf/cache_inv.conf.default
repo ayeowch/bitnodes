@@ -30,6 +30,9 @@ inv_1_sampling_rate = 100
 # Sampling rate of block invs from each pcap file
 inv_2_sampling_rate = 100
 
+# Include invs from .onion nodes
+onion = True
+
 # Tor proxy (must match the list in ping.conf)
 tor_proxies =
     127.0.0.1:9050

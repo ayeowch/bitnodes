@@ -78,7 +78,7 @@ class Cache(object):
     def __init__(self, filepath, magic_number=None, tor_proxies=None, redis_conn=None):
         self.start_t = time.time()
         self.filepath = filepath
-        self.tor_proxies = tor_proxies or []
+        self.tor_proxies = tor_proxies or set()
         self.redis_conn = redis_conn
         if redis_conn:
             self.redis_pipe = redis_conn.pipeline()

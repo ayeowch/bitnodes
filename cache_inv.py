@@ -84,6 +84,9 @@ class CacheInv(Cache):
             node = json.loads(onion_node)
 
         if msg["command"] == b"inv":
+            if tor_proxy and not CONF["onion"]:
+                return  # Not caching invs from .onion node.
+
             for inv in msg["inventory"]:
                 type = inv["type"]
                 hash = inv["hash"].decode()
@@ -222,8 +225,11 @@ def init_conf(config):
     CONF["inv_1_sampling_rate"] = conf.getint("cache_inv", "inv_1_sampling_rate")
     CONF["inv_2_sampling_rate"] = conf.getint("cache_inv", "inv_2_sampling_rate")
 
+    CONF["onion"] = conf.getboolean("cache_inv", "onion")
     tor_proxies = conf.get("cache_inv", "tor_proxies").strip().split("\n")
-    CONF["tor_proxies"] = [(p.split(":")[0], int(p.split(":")[1])) for p in tor_proxies]
+    CONF["tor_proxies"] = set(
+        [(p.split(":")[0], int(p.split(":")[1])) for p in tor_proxies]
+    )
 
     CONF["pcap_dir"] = conf.get("cache_inv", "pcap_dir")
     if not os.path.exists(CONF["pcap_dir"]):
