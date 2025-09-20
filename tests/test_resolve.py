@@ -10,7 +10,7 @@ from utils import new_redis_conn
 
 @mock.patch("redis.StrictRedis")
 def test_resolve_addresses(mock_strict_redis):
-    mock_strict_redis.return_value.ttl.return_value = 0
+    mock_strict_redis.return_value.pipeline.return_value.execute.return_value = [0] * 20
 
     json_filepath = os.path.join(
         os.path.dirname(os.path.realpath(__file__)), "data", "1663113591.json"

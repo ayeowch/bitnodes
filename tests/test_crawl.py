@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import os
 import unittest
+from ipaddress import ip_address, ip_network
 from unittest import mock
 from unittest.mock import MagicMock
 
@@ -12,6 +13,7 @@ from crawl import (
     get_peers,
     getaddr,
     init_conf,
+    list_excluded_networks,
     set_max_age,
     update_excluded_networks,
     update_excluded_nodes,
@@ -43,6 +45,17 @@ class CrawlTestCase(unittest.TestCase):
 
     def test_get_cached_peers(self):
         self.redis_conn.get.return_value = b"[]"
+        peers = get_cached_peers(self.conn, self.redis_conn)
+        self.assertEqual(peers, set([]))
+
+    def test_onion_get_cached_peers(self):
+        CONF["onion_peers_sampling_rate"] = 0
+
+        self.conn.to_addr = (
+            "3ooytgoomej62ddt4nz2lrbcptmdq7i5sbyltxicjetobuol2jz6lbqd.onion",
+            8333,
+        )
+
         peers = get_cached_peers(self.conn, self.redis_conn)
         self.assertEqual(peers, set([]))
 
@@ -101,6 +114,23 @@ class CrawlTestCase(unittest.TestCase):
 
         assert CONF["current_exclude_ipv4_networks"] == {(1, 2), (3, 4)}
         assert CONF["current_exclude_ipv6_networks"] == {(5, 6), (7, 8)}
+
+    def test_list_excluded_networks(self):
+        networks = {"194.85.0.0/18", "194.85.23.0/24"}
+        collapsed_networks = []
+        for net in list_excluded_networks(networks):
+            collapsed_networks.append(
+                str(ip_network(f"{ip_address(net[0])}/{bin(net[1]).count('1')}"))
+            )
+        assert collapsed_networks == ["194.85.0.0/18"]
+
+        networks = {"2a01:7e00::/29", "2a01:7e00::/40"}
+        collapsed_networks = []
+        for net in list_excluded_networks(networks):
+            collapsed_networks.append(
+                str(ip_network(f"{ip_address(net[0])}/{bin(net[1]).count('1')}"))
+            )
+        assert collapsed_networks == ["2a01:7e00::/29"]
 
     @mock.patch("crawl.http_get_txt")
     def test_update_excluded_nodes(self, mock_http_get_txt):

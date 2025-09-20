@@ -16,7 +16,8 @@ workers = 2000
 debug = False
 
 # Public IP address for network interface
-source_address = 0.0.0.0
+ipv4_source_address = 0.0.0.0
+ipv6_source_address = ::
 
 # Protocol version to use for outgoing version message
 protocol_version = 70016

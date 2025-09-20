@@ -31,7 +31,8 @@ workers = 700
 debug = False
 
 # Public IP address for network interface
-source_address = 0.0.0.0
+ipv4_source_address = 0.0.0.0
+ipv6_source_address = ::
 
 # Protocol version to use for outgoing version message
 protocol_version = 70016
@@ -66,8 +67,14 @@ max_age = 28800 - 432000
 # Redis TTL for cached addr response (resultant TTL should be less than max_age)
 addr_ttl = 3600 - 21600
 
+# Process-level cache TTL
+cache_ttl = 3600 - 21600
+
 # Limit max. peers per node to be included in crawl set
 peers_per_node = 500
+
+# Sampling rate of peers from .onion nodes
+onion_peers_sampling_rate = 100
 
 # Attempt to establish connection with IPv6 nodes
 ipv6 = True
@@ -115,8 +122,8 @@ exclude_ipv6_networks =
 
 # Exclude IPv4 bogons
 exclude_ipv4_bogons_from_urls =
-    http://www.team-cymru.org/Services/Bogons/fullbogons-ipv4.txt
-    http://www.spamhaus.org/drop/drop.txt
+    https://www.team-cymru.org/Services/Bogons/fullbogons-ipv4.txt
+    https://www.spamhaus.org/drop/drop.txt
 
 # Exclude IPv6 bogons
 exclude_ipv6_bogons_from_urls =

@@ -3,10 +3,11 @@
 import os
 import socket
 import unittest
+from ipaddress import ip_network
 from unittest import mock
 from unittest.mock import MagicMock
 
-from ping import ConnectionManager, init_conf
+from ping import CONF, ConnectionManager, init_conf
 
 
 class PingTestCase(unittest.TestCase):
@@ -19,11 +20,17 @@ class PingTestCase(unittest.TestCase):
         )
         init_conf([None, conf_filepath, "master"])
 
+        network = ip_network("127.0.0.0/24")
+        CONF["current_cidr_limits"] = {
+            (int(network.network_address), int(network.netmask), 1),
+        }
+
         self.redis_conn = MagicMock()
 
     @mock.patch("ping.time.time", return_value=1700000000)
     @mock.patch("ping.Connection")
     def test_connect(self, mock_connection, mock_time):
+        self.redis_conn.incr.return_value = 1
         self.redis_conn.spop.return_value = b'["127.0.0.1", 8333, 1, 1]'
         self.redis_conn.zadd.return_value = 1
 
@@ -32,13 +39,19 @@ class PingTestCase(unittest.TestCase):
 
         mock_connection.return_value.get_messages.side_effect = socket.error
 
-        ConnectionManager(redis_conn=self.redis_conn).connect()
+        conn = ConnectionManager(redis_conn=self.redis_conn)
+
+        self.assertEqual(conn.cidr_key, "ping:cidr:2130706432/4294967040")
+        self.assertEqual(conn.cidr_limit, 1)
+
+        conn.connect()
 
         self.assertEqual(
             self.redis_conn.method_calls,
             [
                 mock.call.spop("reachable"),
-                mock.call.zadd("open", {'["127.0.0.1", 8333]': 1700000000}, nx=True),
+                mock.call.incr("ping:cidr:2130706432/4294967040"),
+                mock.call.set("open:127.0.0.1-8333", 1700000000, nx=True),
                 mock.call.pipeline(),
                 mock.call.zadd(
                     "opendata",
@@ -47,6 +60,7 @@ class PingTestCase(unittest.TestCase):
                 mock.call.zrem(
                     "opendata", '["127.0.0.1", 8333, 70016, "", 1700000000, ""]'
                 ),
-                mock.call.zrem("open", '["127.0.0.1", 8333]'),
+                mock.call.decr("ping:cidr:2130706432/4294967040"),
+                mock.call.delete("open:127.0.0.1-8333"),
             ],
         )

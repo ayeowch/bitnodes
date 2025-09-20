@@ -49,7 +49,7 @@ from binascii import hexlify, unhexlify
 from geoip2.errors import AddressNotFoundError
 
 from protocol import ONION_SUFFIX
-from utils import GeoIp, new_redis_conn
+from utils import GeoIp, init_logger, new_redis_conn
 
 redis.connection.socket = gevent.socket
 
@@ -77,36 +77,34 @@ class Resolve(object):
         Resolve hostname for up to 1000 new addresses and GeoIP data for all
         addresses.
         """
-        start = time.time()
+        start_t = time.monotonic()
 
-        idx = 0
         for address in self.addresses:
             key = f"resolve:{address}"
+            self.redis_pipe.ttl(key)
+        ttl_values = self.redis_pipe.execute()
 
-            ttl = self.redis_conn.ttl(key)
-            expiring = False
-            if ttl < 0.1 * CONF["ttl"]:  # Less than 10% of initial TTL.
-                expiring = True
-
-            if expiring and idx < 1000 and not address.endswith(ONION_SUFFIX):
-                self.resolved["hostname"][address] = None
-                idx += 1
-
+        expiring = 0
+        for address, ttl in zip(self.addresses, ttl_values):
             self.resolved["geoip"][address] = None
 
-        logging.info(
-            f"GeoIP: {len(self.resolved['geoip'])}",
-        )
+            if (
+                ttl < 0.1 * CONF["ttl"]  # Less than 10% of initial TTL.
+                and expiring < 1000
+                and not address.endswith(ONION_SUFFIX)
+            ):
+                self.resolved["hostname"][address] = None
+                expiring += 1
+
+        logging.info("GeoIP: %d", len(self.resolved["geoip"]))
         self.resolve_geoip()
 
-        logging.info(f"Hostname: {len(self.resolved['hostname'])}")
+        logging.info("Hostname: %d", len(self.resolved["hostname"]))
         self.resolve_hostname()
 
         self.cache_resolved()
 
-        end = time.time()
-        elapsed = end - start
-        logging.info(f"Elapsed: {elapsed}")
+        logging.info("Elapsed: %.2f", time.monotonic() - start_t)
 
     def cache_resolved(self):
         """
@@ -117,9 +115,9 @@ class Resolve(object):
             if geoip[1] or geoip[5]:
                 resolved += 1  # country/asn is set.
             key = f"resolve:{address}"
-            self.redis_pipe.hset(key, "geoip", str(geoip))
-            logging.debug(f"{key} geoip: {geoip}")
-        logging.info(f"GeoIP: {resolved} resolved")
+            self.redis_pipe.hset(key, "geoip", json.dumps(geoip))
+            logging.debug("%s geoip: %s", key, geoip)
+        logging.info("GeoIP: %d resolved", resolved)
 
         resolved = 0
         for address, hostname in self.resolved["hostname"].items():
@@ -128,8 +126,8 @@ class Resolve(object):
             key = f"resolve:{address}"
             self.redis_pipe.hset(key, "hostname", hostname)
             self.redis_pipe.expire(key, CONF["ttl"])
-            logging.debug(f"{key} hostname: {hostname}")
-        logging.info(f"Hostname: {resolved} resolved")
+            logging.debug("%s hostname: %s", key, hostname)
+        logging.info("Hostname: %d resolved", resolved)
 
         self.redis_pipe.execute()
 
@@ -146,9 +144,8 @@ class Resolve(object):
         Concurrently resolve hostname for the unresolved addresses.
         """
         pool = gevent.pool.Pool(len(self.resolved["hostname"]))
-        with gevent.Timeout(15, False):
-            for address in self.resolved["hostname"]:
-                pool.spawn(self.set_hostname, address)
+        for address in self.resolved["hostname"]:
+            pool.spawn(self.set_hostname, address)
         pool.join()
 
     def set_hostname(self, address):
@@ -165,9 +162,10 @@ class Resolve(object):
         """
         hostname = address
         try:
-            hostname = socket.gethostbyaddr(address)[0]
-        except (socket.gaierror, socket.herror) as err:
-            logging.debug(f"{address}: {err}")
+            with gevent.Timeout(3):
+                hostname = socket.gethostbyaddr(address)[0]
+        except (socket.gaierror, socket.herror, gevent.Timeout) as err:
+            logging.debug("%s: %s", address, err)
         return hostname
 
     def raw_geoip(self, address):
@@ -245,10 +243,10 @@ def cron():
         # connection with nodes from a new snapshot.
         if channel == subscribe_key and msg["type"] == "message":
             timestamp = int(msg["data"])
-            logging.info(f"Timestamp: {timestamp}")
+            logging.info("Timestamp: %d", timestamp)
 
             nodes = redis_conn.zrangebyscore("opendata", "-inf", "+inf")
-            logging.info(f"Nodes: {len(nodes)}")
+            logging.info("Nodes: %d", len(nodes))
 
             addresses = set([json.loads(node)[0] for node in nodes])
             resolve = Resolve(addresses=addresses, redis_conn=redis_conn)
@@ -279,18 +277,7 @@ def main(argv):
     init_conf(argv[1])
 
     # Initialize logger.
-    loglevel = logging.INFO
-    if CONF["debug"]:
-        loglevel = logging.DEBUG
-
-    logformat = (
-        "[%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s "
-        "(%(funcName)s) %(message)s"
-    )
-    logging.basicConfig(
-        level=loglevel, format=logformat, filename=CONF["logfile"], filemode="w"
-    )
-    print(f"Log: {CONF['logfile']}, press CTRL+C to terminate..")
+    init_logger(CONF["logfile"], debug=CONF["debug"])
 
     cron()
 

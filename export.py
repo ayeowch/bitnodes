@@ -39,7 +39,7 @@ from configparser import ConfigParser
 from binascii import hexlify, unhexlify
 
 from resolve import Resolve
-from utils import http_get, new_redis_conn
+from utils import http_get, init_logger, new_redis_conn
 
 CONF = {}
 
@@ -51,11 +51,16 @@ class Export(object):
     """
 
     def __init__(self, timestamp=None, nodes=None, redis_conn=None):
-        self.start_t = time.time()
+        self.start_t = time.monotonic()
         self.timestamp = timestamp
         self.nodes = nodes
         self.redis_conn = redis_conn
+        if redis_conn:
+            self.redis_pipe = redis_conn.pipeline()
+        else:
+            self.redis_pipe = None
         self.heights = self.get_heights()
+        self.n_set = set()  # ADDRESS-PORT
 
     def export_nodes(self):
         """
@@ -66,27 +71,22 @@ class Export(object):
         rows = []
         for node in self.nodes:
             row = self.get_row(node)
+            if row is None:
+                logging.warning("Skipping duplicate %s", node)
+                continue
             if row[-2] is None:
-                logging.warning(f"Skipping {row[0]} due to missing ASN")
+                logging.warning("Skipping %s due to missing ASN", row[0])
                 continue
             rows.append(row)
 
         if self.heights:
             height = Counter(self.heights.values()).most_common(1)[0][0]
-            logging.info(f"Consensus height: {height}")
+            logging.info("Consensus height: %d", height)
             self.redis_conn.set("height", height)
 
         self.write_json_file(rows)
 
-        logging.info(f"Elapsed: {time.time() - self.start_t}")
-
-    def write_json_file(self, rows):
-        """
-        Write rows into timestamp-prefixed JSON file.
-        """
-        json_file = os.path.join(CONF["export_dir"], f"{self.timestamp}.json")
-        open(json_file, "w").write(json.dumps(rows))
-        logging.info(f"Wrote {json_file}")
+        logging.info("Elapsed: %.2f", time.monotonic() - self.start_t)
 
     def get_row(self, node):
         """
@@ -99,31 +99,34 @@ class Export(object):
         services = node[-1]
 
         n = f"{address}-{port}"
+        if n in self.n_set:
+            return None
+        self.n_set.add(n)
+
+        # Height from handshake in crawl.py.
+        self.redis_pipe.get(f"height:{address}-{port}-{services}")
+
+        self.redis_pipe.hget(f"resolve:{address}", "hostname")
+        self.redis_pipe.hget(f"resolve:{address}", "geoip")
+
+        height, hostname, geoip = self.redis_pipe.execute()
+
         if n in self.heights:
             # Height from received block inv message in ping.py.
             height = (self.heights[n],)
         else:
-            # Height from handshake in crawl.py.
-            height = self.redis_conn.get(f"height:{address}-{port}-{services}")
-            if height is None:
-                height = (0,)
-            else:
-                height = (int(height),)
-            logging.debug(f"Using handshake height {node}: {height}")
+            height = (0,) if height is None else (int(height),)
+            logging.debug("Using handshake height %s: %d", node, height)
 
-        hostname = self.redis_conn.hget(f"resolve:{address}", "hostname")
-        if hostname:
-            hostname = hostname.decode()
-        hostname = (hostname,)
+        hostname = (hostname.decode(),) if hostname else (None,)
 
-        geoip = self.redis_conn.hget(f"resolve:{address}", "geoip")
         if geoip is None:
             # resolve.py may not have seen this node in opendata yet when
             # it last ran, so manually trigger raw geoip now.
-            logging.warning(f"Raw geoip triggered for {address}")
+            logging.warning("Raw geoip triggered for %s", address)
             geoip = Resolve().raw_geoip(address)
         else:
-            geoip = eval(geoip)
+            geoip = tuple(json.loads(geoip))
 
         return node + height + hostname + geoip
 
@@ -155,8 +158,14 @@ class Export(object):
                 if n not in heights and t <= timestamp_ms:
                     heights[n] = block_height
 
-        logging.info(f"Heights: {len(heights)}")
+        logging.info("Heights: %d", len(heights))
         return heights
+
+    def write_json_file(self, rows):
+        filepath = os.path.join(CONF["export_dir"], f"{self.timestamp}.json")
+        with open(filepath, "w") as f:
+            json.dump(rows, f)
+        logging.info("Wrote %s (%d rows)", filepath, len(rows))
 
 
 def cron():
@@ -185,10 +194,10 @@ def cron():
         # and GeoIP data for all reachable nodes.
         if channel == subscribe_key and msg["type"] == "message":
             timestamp = int(msg["data"])  # From ping.py's 'snapshot' message.
-            logging.info(f"Timestamp: {timestamp}")
+            logging.info("Timestamp: %d", timestamp)
 
             nodes = redis_conn.zrangebyscore("opendata", "-inf", "+inf")
-            logging.info(f"Nodes: {len(nodes)}")
+            logging.info("Nodes: %d", len(nodes))
 
             export = Export(timestamp=timestamp, nodes=nodes, redis_conn=redis_conn)
             export.export_nodes()
@@ -221,18 +230,7 @@ def main(argv):
     init_conf(argv[1])
 
     # Initialize logger.
-    loglevel = logging.INFO
-    if CONF["debug"]:
-        loglevel = logging.DEBUG
-
-    logformat = (
-        "[%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s "
-        "(%(funcName)s) %(message)s"
-    )
-    logging.basicConfig(
-        level=loglevel, format=logformat, filename=CONF["logfile"], filemode="w"
-    )
-    print(f"Log: {CONF['logfile']}, press CTRL+C to terminate..")
+    init_logger(CONF["logfile"], debug=CONF["debug"])
 
     cron()
 

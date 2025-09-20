@@ -51,3 +51,9 @@ pcap_sampling_rate = 100
 
 # JSON file containing a list of old block hashes in 16-char suffixes
 blockhash_suffixes = data/archive/f9beb4d9/blockhash_suffixes.json
+
+# List of excluded source addresses
+exclude_src_addrs =
+
+# List of excluded source addresses from external URL
+exclude_src_addrs_from_url =

@@ -32,6 +32,7 @@ from gevent import monkey
 
 monkey.patch_all()
 
+import functools
 import logging
 import os
 import time
@@ -48,16 +49,22 @@ class GeoIp(object):
     MaxMind databases.
     """
 
+    geoip_dir = os.path.join(os.path.dirname(__file__), "geoip")
+
+    city_db = os.path.join(geoip_dir, "GeoLite2-City.mmdb")
+    country_db = os.path.join(geoip_dir, "GeoLite2-Country.mmdb")
+    asn_db = os.path.join(geoip_dir, "GeoLite2-ASN.mmdb")
+
     def __init__(self):
         # Retry on InvalidDatabaseError due to geoip/update.sh updating
         # *.mmdb that may cause this exception temporarily.
         for i in range(10):
             try:
-                self.geoip_city = Reader("geoip/GeoLite2-City.mmdb")
-                self.geoip_country = Reader("geoip/GeoLite2-Country.mmdb")
-                self.geoip_asn = Reader("geoip/GeoLite2-ASN.mmdb")
+                self.geoip_city = Reader(self.city_db)
+                self.geoip_country = Reader(self.country_db)
+                self.geoip_asn = Reader(self.asn_db)
             except (InvalidDatabaseError, IOError) as err:
-                logging.warning(err)
+                logging.warning("%s", err)
                 time.sleep(0.1)
                 continue
             else:
@@ -71,6 +78,15 @@ class GeoIp(object):
 
     def asn(self, address):
         return self.geoip_asn.asn(address)
+
+
+def init_logger(logfile, debug=False, filemode="w"):
+    loglevel = logging.DEBUG if debug else logging.INFO
+    logformat = "[%(process)d] %(asctime)s %(levelname)s (%(funcName)s) %(message)s"
+    logging.basicConfig(
+        level=loglevel, format=logformat, filename=logfile, filemode=filemode
+    )
+    print(f"Log: {logfile}, press CTRL+C to terminate..")
 
 
 def new_redis_conn(db=0):
@@ -111,7 +127,7 @@ def http_get(url, timeout=15):
     try:
         response = requests.get(url, timeout=timeout)
     except requests.exceptions.RequestException as err:
-        logging.warning(err)
+        logging.warning("%s", err)
     else:
         if response.status_code == 200:
             return response
@@ -139,7 +155,7 @@ def conf_range(conf, section, name):
     return [vals[0], vals[0]]
 
 
-def conf_list(conf, section, name):
+def conf_list(conf, section, name, func=str):
     """
     Return list of items for the specified ConfigParser configuration option.
     """
@@ -147,12 +163,50 @@ def conf_list(conf, section, name):
     if not val:
         return set()
 
+    return txt_items(val, func=func)
+
+
+def txt_items(txt, func=str):
+    """
+    Return set of items from the specified text.
+    """
     items = set()
 
-    lines = val.split("\n")
+    lines = txt.strip().splitlines()
     for line in lines:
-        line = line.split("#")[0].split(";")[0].strip()
+        line = line.split("#")[0].split(";")[0].strip()  # Strip inline comment.
         if line:
-            items.add(line)
+            items.add(func(line))
 
     return items
+
+
+def ip_port_list(items):
+    """
+    Return list of tuples of IP and port from the specified items.
+    """
+    return [
+        (item.rsplit(":", 1)[0].strip("[").strip("]"), int(item.rsplit(":", 1)[1]))
+        for item in items
+    ]
+
+
+def throttle_run(ttl=None):
+    """
+    Decorator to run function at most once every ttl seconds.
+    """
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            seconds = ttl() if callable(ttl) else ttl
+            now = time.monotonic()
+            last_run = getattr(func, "_last_run", 0)
+            if now - last_run < seconds:
+                return
+            func._last_run = now
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator

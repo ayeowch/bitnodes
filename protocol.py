@@ -928,7 +928,7 @@ class Connection(object):
         self.socket.sendall(data)
 
     def recv(self, length=0):
-        start_t = time.time()
+        start_t = time.monotonic()
         if length > 0:
             chunks = []
             while length > 0:
@@ -945,7 +945,7 @@ class Connection(object):
             if not data:
                 raise RemoteHostClosedConnection(f"{self.to_addr} closed connection")
         if len(data) > SOCKET_BUFSIZE:
-            end_t = time.time()
+            end_t = time.monotonic()
             self.bps.append((len(data) * 8) / (end_t - start_t))
         return data
 
@@ -1117,10 +1117,7 @@ class Connection(object):
 
 
 def main():
-    logformat = (
-        "[%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s "
-        "(%(funcName)s) %(message)s"
-    )
+    logformat = "[%(process)d] %(asctime)s %(levelname)s (%(funcName)s) %(message)s"
     logging.basicConfig(level="DEBUG", format=logformat)
 
     to_addr = ("127.0.0.1", PORT)
@@ -1131,7 +1128,7 @@ def main():
 
     conn = Connection(to_addr)
     try:
-        logging.info(f"connecting to {to_addr}")
+        logging.info("connecting to %s", to_addr)
         conn.open()
 
         logging.info("handshake")
@@ -1155,21 +1152,22 @@ def main():
         conn.ping()
 
     except (ProtocolError, ConnectionError, socket.error) as err:
-        logging.error(f"{err}: {to_addr}")
+        logging.error("%s: %s", to_addr, err)
 
     logging.info("close")
     conn.close()
 
     if version_msg:
-        logging.info(f"[version_msg] user_agent={version_msg['user_agent']}")
+        logging.info("[version_msg] user_agent=%s", version_msg["user_agent"])
 
     if addr_msgs:
-        logging.info(f"[addr_msgs] addr_list[0]={addr_msgs[0]['addr_list'][0]}")
+        logging.info("[addr_msgs] addr_list[0]=%s", addr_msgs[0]["addr_list"][0])
 
     if block_msgs:
         logging.info(
-            f"[block_msgs] block={block_msgs[0]['block_hash']}"
-            f" - tx_count={block_msgs[0]['tx_count']}"
+            "[block_msgs] block=%s - tx_count=%d",
+            block_msgs[0]["block_hash"],
+            block_msgs[0]["tx_count"],
         )
 
     return 0

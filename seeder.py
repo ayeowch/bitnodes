@@ -40,7 +40,7 @@ from collections import defaultdict
 from configparser import ConfigParser
 
 from protocol import ONION_SUFFIX
-from utils import new_redis_conn
+from utils import init_logger, new_redis_conn
 
 CONF = {}
 
@@ -68,10 +68,10 @@ class Seeder(object):
             try:
                 self.nodes = json.loads(open(dump, "r").read())
             except ValueError:
-                logging.warning("Write pending")
+                logging.debug("Write pending")
                 return
             if len(self.nodes) == 0:
-                logging.warning(f"len(self.nodes): {len(self.nodes)}")
+                logging.warning("Empty %s", dump)
                 return
             self.addresses = defaultdict(list)
             for address, services in self.filter_nodes():
@@ -106,11 +106,11 @@ class Seeder(object):
         """
         Save filtered addresses in formatted records in the DNS zone file.
         """
-        logging.debug(f"Zone file: {zone_file}")
+        logging.debug("Zone file: %s", zone_file)
         serial = str(self.now)
-        logging.debug(f"Serial: {serial}")
+        logging.debug("Serial: %s", serial)
         origin = os.path.basename(zone_file).replace("zone", "")
-        logging.debug(f"Origin: {origin}")
+        logging.debug("Origin: %s", origin)
         template = (
             open(CONF["template"], "r")
             .read()
@@ -143,11 +143,9 @@ class Seeder(object):
                 aaaa_records.append(f"@\tIN\tAAAA\t{address}")
             else:
                 a_records.append(f"@\tIN\tA\t{address}")
-        logging.debug(
-            f"A records: {len(a_records)}",
-        )
-        logging.debug(f"AAAA records: {len(aaaa_records)}")
-        logging.debug(f"TXT records: {len(txt_records)}")
+        logging.debug("A records: %d", len(a_records))
+        logging.debug("AAAA records: %d", len(aaaa_records))
+        logging.debug("TXT records: %d", len(txt_records))
         random.shuffle(a_records)
         random.shuffle(aaaa_records)
         random.shuffle(txt_records)
@@ -196,7 +194,7 @@ class Seeder(object):
         height = self.redis_conn.get("height")
         if height:
             height = int(height)
-        logging.info(f"Consensus height: {height}")
+        logging.debug("Consensus height: %d", height)
         return height
 
     def get_min_age(self):
@@ -207,10 +205,10 @@ class Seeder(object):
         """
         min_age = CONF["min_age"]
         oldest = self.now - min(self.nodes, key=operator.itemgetter(4))[4]
-        logging.info(f"Longest uptime: {oldest}")
+        logging.debug("Longest uptime: %d", oldest)
         if oldest < min_age:
             min_age = oldest - (0.01 * oldest)  # Max. 1% newer than oldest
-        logging.info(f"Min. age: {min_age}")
+        logging.debug("Min. age: %d", min_age)
         return min_age
 
 
@@ -225,9 +223,9 @@ def cron():
         try:
             dump = max(glob.iglob(f"{CONF['export_dir']}/*.json"))
         except ValueError as err:
-            logging.warning(err)
+            logging.warning("%s", err)
             continue
-        logging.info(f"Dump: {dump}")
+        logging.debug("Dump: %s", dump)
         seeder.export_nodes(dump)
 
 
@@ -262,18 +260,7 @@ def main(argv):
     init_conf(argv[1])
 
     # Initialize logger.
-    loglevel = logging.INFO
-    if CONF["debug"]:
-        loglevel = logging.DEBUG
-
-    logformat = (
-        "[%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s "
-        "(%(funcName)s) %(message)s"
-    )
-    logging.basicConfig(
-        level=loglevel, format=logformat, filename=CONF["logfile"], filemode="w"
-    )
-    print(f"Log: {CONF['logfile']}, press CTRL+C to terminate..")
+    init_logger(CONF["logfile"], debug=CONF["debug"])
 
     cron()
 

@@ -13,7 +13,11 @@ from utils import new_redis_conn
 @mock.patch("export.Export.get_heights")
 @mock.patch("redis.StrictRedis")
 def test_export(mock_strict_redis, mock_get_heights, mock_write_json_file):
-    mock_strict_redis.return_value.hget.return_value = None
+    mock_strict_redis.return_value.pipeline.return_value.execute.return_value = [
+        "750000",
+        None,
+        None,
+    ]
     mock_get_heights.return_value = {
         "54.254.244.105-8333": 750000,
     }
