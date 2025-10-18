@@ -34,6 +34,12 @@ debug = False
 ipv4_source_address = 0.0.0.0
 ipv6_source_address = ::
 
+# IPv4 proxies
+ipv4_proxies =
+
+# IPv6 proxies
+ipv6_proxies =
+
 # Protocol version to use for outgoing version message
 protocol_version = 70016
 
@@ -52,8 +58,11 @@ services = 0
 # Set to 1 to receive all txs
 relay = 0
 
+# Open timeout
+open_timeout = 5
+
 # Socket timeout
-socket_timeout = 15
+socket_timeout = 30
 
 # Run cron tasks every given interval
 cron_delay = 10
@@ -94,31 +103,34 @@ exclude_asns =
 
 # List of excluded IPv4 networks
 exclude_ipv4_networks =
-    0.0.0.0/8
-    10.0.0.0/8
-    100.64.0.0/10
-    127.0.0.0/8
-    169.254.0.0/16
-    172.16.0.0/12
-    192.0.0.0/24
-    192.0.0.0/29
-    192.0.0.170/32
-    192.0.0.171/32
-    192.0.0.8/32
-    192.0.2.0/24
-    192.168.0.0/16
-    192.175.48.0/24
-    192.31.196.0/24
-    192.52.193.0/24
-    192.88.99.0/24
-    198.18.0.0/15
-    198.51.100.0/24
-    203.0.113.0/24
-    240.0.0.0/4
-    255.255.255.255/32
+    0.0.0.0/8           # private network
+    10.0.0.0/8          # private network
+    100.64.0.0/10       # private network
+    127.0.0.0/8         # private network
+    169.254.0.0/16      # private network
+    172.16.0.0/12       # private network
+    192.0.0.0/24        # private network
+    192.0.2.0/24        # private network
+    192.31.196.0/24     # private network
+    192.52.193.0/24     # private network
+    192.88.99.0/24      # private network
+    192.168.0.0/16      # private network
+    192.175.48.0/24     # private network
+    198.18.0.0/15       # private network
+    198.51.100.0/24     # private network
+    203.0.113.0/24      # private network
+    240.0.0.0/4         # private network
 
 # List of excluded IPv6 networks
 exclude_ipv6_networks =
+    ::ffff:0:0/96       # private network
+    2001:1::1/128       # private network
+    2001:1::2/128       # private network
+    2001:3::/32         # private network
+    2001:4:112::/48     # private network
+    2001:20::/27        # private network
+    2620:4f:8000::/48   # private network
+    3fff::/20           # private network
 
 # Exclude IPv4 bogons
 exclude_ipv4_bogons_from_urls =

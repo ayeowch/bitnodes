@@ -37,6 +37,9 @@ services = 0
 # Set to 1 to receive all txs
 relay = 1
 
+# Open timeout
+open_timeout = 5
+
 # Socket timeout
 socket_timeout = 30
 

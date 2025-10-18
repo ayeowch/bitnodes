@@ -33,7 +33,10 @@ class CrawlTestCase(unittest.TestCase):
         CONF["socket_timeout"] = 1
 
         self.redis_conn = MagicMock()
-        self.conn = MagicMock()
+
+    @property
+    def conn(self):
+        return MagicMock()
 
     def test_getaddr(self):
         msgs = getaddr(self.conn)
@@ -43,10 +46,21 @@ class CrawlTestCase(unittest.TestCase):
         peers = get_peers(self.conn)
         self.assertEqual(peers, [])
 
-    def test_get_cached_peers(self):
+    @mock.patch("crawl.get_peers")
+    def test_get_cached_peers(self, mock_get_peers):
         self.redis_conn.get.return_value = b"[]"
         peers = get_cached_peers(self.conn, self.redis_conn)
         self.assertEqual(peers, set([]))
+
+        mock_get_peers.return_value = [("0.0.0.0", 0, 0, 0)]
+        self.redis_conn.get.return_value = None
+        for _ in range(40):
+            get_cached_peers(self.conn, self.redis_conn)
+        a, b = CONF["addr_ttl"]
+        mode = (a + b) / 2
+        ms = [kwargs["px"] for _, kwargs in self.redis_conn.set.call_args_list]
+        avg_ms = sum(ms) / len(ms)
+        assert int(avg_ms / 1000 / 3600) == int(mode / 3600)
 
     def test_onion_get_cached_peers(self):
         CONF["onion_peers_sampling_rate"] = 0
@@ -94,7 +108,7 @@ class CrawlTestCase(unittest.TestCase):
 
         set_max_age(self.redis_conn)
 
-        assert CONF["current_max_age"] == 345_600
+        assert CONF["current_max_age"] == 276_480
 
     @mock.patch("crawl.http_get_txt")
     def test_update_excluded_networks(self, mock_http_get_txt):

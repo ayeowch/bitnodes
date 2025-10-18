@@ -165,6 +165,7 @@ HEIGHT = 872447
 RELAY = 0  # Set to 1 to receive all txs.
 
 SOCKET_BUFSIZE = 8192
+OPEN_TIMEOUT = 5
 SOCKET_TIMEOUT = 30
 HEADER_LEN = 24
 
@@ -285,7 +286,7 @@ def unpack(fmt, string):
         raise ReadError(err)
 
 
-def create_connection(address, timeout=SOCKET_TIMEOUT, source_address=None, proxy=None):
+def create_connection(address, timeout=OPEN_TIMEOUT, source_address=None, proxy=None):
     if address[0].endswith(ONION_SUFFIX) and proxy is None:
         raise ProxyRequired("tor proxy is required to connect to .onion address")
     if proxy:
@@ -901,6 +902,7 @@ class Connection(object):
         self.to_addr = to_addr
         self.from_addr = from_addr
         self.serializer = Serializer(**conf)
+        self.open_timeout = conf.get("open_timeout", OPEN_TIMEOUT)
         self.socket_timeout = conf.get("socket_timeout", SOCKET_TIMEOUT)
         self.proxy = conf.get("proxy", None)
         self.socket = None
@@ -910,10 +912,11 @@ class Connection(object):
     def open(self):
         self.socket = create_connection(
             self.to_addr,
-            timeout=self.socket_timeout,
+            timeout=self.open_timeout,
             source_address=self.from_addr,
             proxy=self.proxy,
         )
+        self.socket.settimeout(self.socket_timeout)
 
     def close(self):
         if self.socket:

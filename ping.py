@@ -79,6 +79,7 @@ class Keepalive(object):
         self.last_version = self.start_time
 
         self.ping_delay = 60
+        self.min_ping_delay = 60
         self.max_ping_delay = 600
         self.version_delay = CONF["version_delay"]
 
@@ -141,7 +142,10 @@ class Keepalive(object):
         try:
             self.ping_delay = min(
                 self.max_ping_delay,
-                json.loads(self.redis_conn.lindex("elapsed", 0))[1],
+                max(
+                    self.min_ping_delay,
+                    json.loads(self.redis_conn.lindex("elapsed", 0))[1],
+                ),
             )
         except TypeError:
             pass
@@ -319,6 +323,7 @@ class ConnectionManager(object):
                 0,
             ),
             magic_number=CONF["magic_number"],
+            open_timeout=CONF["open_timeout"],
             socket_timeout=CONF["socket_timeout"],
             proxy=self.proxy,
             protocol_version=CONF["protocol_version"],
@@ -394,9 +399,7 @@ def cron(pool, redis_conn):
                 snapshot = new_snapshot
 
                 logging.info("Nodes: %d", len(nodes))
-
-                reachable_nodes = set_reachable(nodes, redis_conn)
-                logging.info("New reachable nodes: %d", reachable_nodes)
+                set_reachable(nodes, redis_conn)
 
                 update_cidr_limits(redis_conn)
 
@@ -406,8 +409,15 @@ def cron(pool, redis_conn):
 
         set_cidr_limits(redis_conn)
 
-        for _ in range(min(redis_conn.scard("reachable"), pool.free_count())):
+        reachable_count = redis_conn.scard("reachable")
+        connections = min(reachable_count, pool.free_count())
+
+        # Spread connections over 5 minutes window.
+        backoff_time = 300 * random.uniform(0.0, 2.0) / max(1, connections)
+
+        for _ in range(connections):
             pool.spawn(lambda: ConnectionManager(redis_conn).connect())
+            gevent.sleep(backoff_time)
 
         workers = CONF["workers"] - pool.free_count()
         logging.debug("Workers: %d", workers)
@@ -432,13 +442,12 @@ def get_nodes(path):
     """
     Return all reachable nodes from a JSON file.
     """
-    nodes = []
-    text = open(path, "r").read()
     try:
-        nodes = json.loads(text)
+        with open(path, "r") as f:
+            return json.load(f)
     except ValueError as err:
         logging.warning("%s", err)
-    return nodes
+        return []
 
 
 def set_reachable(nodes, redis_conn):
@@ -447,14 +456,23 @@ def set_reachable(nodes, redis_conn):
     reachable set in Redis. New workers can be spawned separately to establish
     and maintain connection with these nodes.
     """
-    for node in nodes:
-        address = node[0]
-        port = node[1]
-        services = node[2]
-        height = node[3]
-        if not redis_conn.exists(f"open:{address}-{port}"):
-            redis_conn.sadd("reachable", json.dumps((address, port, services, height)))
-    return redis_conn.scard("reachable")
+    redis_pipe = redis_conn.pipeline()
+
+    ipv4 = ipv6 = onion = 0
+    for address, port, services, height in nodes:
+        if redis_conn.exists(f"open:{address}-{port}"):
+            continue
+        redis_pipe.sadd("reachable", json.dumps((address, port, services, height)))
+        if address.endswith(ONION_SUFFIX):
+            onion += 1
+        elif "." in address:
+            ipv4 += 1
+        else:
+            ipv6 += 1
+
+    redis_pipe.execute()
+
+    logging.info("IPv4: %d, IPv6: %d, .onion: %d", ipv4, ipv6, onion)
 
 
 def set_cidr_limits(redis_conn):
@@ -515,6 +533,7 @@ def init_conf(argv):
     CONF["user_agent"] = conf.get("ping", "user_agent")
     CONF["services"] = conf.getint("ping", "services")
     CONF["relay"] = conf.getint("ping", "relay")
+    CONF["open_timeout"] = conf.getint("ping", "open_timeout")
     CONF["socket_timeout"] = conf.getint("ping", "socket_timeout")
     CONF["cron_delay"] = conf.getint("ping", "cron_delay")
     CONF["rtt_ttl"] = conf.getint("ping", "rtt_ttl")
