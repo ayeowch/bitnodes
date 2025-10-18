@@ -35,6 +35,7 @@ monkey.patch_all()
 import functools
 import logging
 import os
+import random
 import time
 from ipaddress import ip_network
 
@@ -199,12 +200,25 @@ def throttle_run(ttl=None):
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            seconds = ttl() if callable(ttl) else ttl
+            if callable(ttl):
+                val = ttl()
+                if isinstance(val, (tuple, list)) and len(val) == 2:
+                    # Cluster TTL around the middle of the range.
+                    a, b = val
+                    mode = (a + b) / 2
+                    seconds = random.triangular(a, b, mode)
+                else:
+                    # Callable returning TTL.
+                    seconds = float(val)
+            else:
+                # Fixed TTL.
+                seconds = ttl
+
             now = time.monotonic()
-            last_run = getattr(func, "_last_run", 0)
-            if now - last_run < seconds:
+            last_run = getattr(wrapper, "_last_run", None)
+            if last_run is not None and now - last_run < seconds:
                 return
-            func._last_run = now
+            wrapper._last_run = now
             return func(*args, **kwargs)
 
         return wrapper
