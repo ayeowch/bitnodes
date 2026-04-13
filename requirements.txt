@@ -5,5 +5,5 @@ flake8==7.1.1
 geoip2==4.8.1
 gevent==24.11.1
 mmh3==5.0.1
-pytest==8.3.3
+pytest==9.0.3
 redis==5.2.0
