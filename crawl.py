@@ -605,6 +605,9 @@ def is_excluded(address):
     if asn in exclude_asns:
         return True
 
+    if include_asns and asn not in include_asns:
+        return True
+
     if ":" in address:
         address_family = socket.AF_INET6
         exclude_ip_networks = CONF["current_exclude_ipv6_networks"]
@@ -617,9 +620,6 @@ def is_excluded(address):
         logging.warning("Bad address: %s", address)
         return True
     if any([(addr & net[1] == net[0]) for net in exclude_ip_networks]):
-        return True
-
-    if asn not in include_asns:
         return True
 
     return False
